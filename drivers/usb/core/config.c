@@ -184,8 +184,10 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 	memcpy(&endpoint->desc, d, n);
 	INIT_LIST_HEAD(&endpoint->urb_list);
 
-	/* Fix up bInterval values outside the legal range. Use 32 ms if no
-	 * proper value can be guessed. */
+	/*
+	 * Fix up bInterval values outside the legal range.
+	 * Use 10 or 8 ms if no proper value can be guessed.
+	 */
 	i = 0;		/* i = min, j = max, n = default */
 	j = 255;
 	if (usb_endpoint_xfer_int(d)) {
@@ -193,17 +195,29 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 		switch (to_usb_device(ddev)->speed) {
 		case USB_SPEED_SUPER:
 		case USB_SPEED_HIGH:
-			/* Many device manufacturers are using full-speed
+			/*
+			 * Many device manufacturers are using full-speed
 			 * bInterval values in high-speed interrupt endpoint
-			 * descriptors. Try to fix those and fall back to a
-			 * 32 ms default value otherwise. */
+			 * descriptors. Try to fix those and fall back to an
+			 * 8-ms default value otherwise.
+			 */
 			n = fls(d->bInterval*8);
 			if (n == 0)
-				n = 9;	/* 32 ms = 2^(9-1) uframes */
+				n = 7;	/* 8 ms = 2^(7-1) uframes */
 			j = 16;
 
 			/*
 			 * Adjust bInterval for quirked devices.
+			 */
+			/*
+			 * This quirk fixes bIntervals reported in ms.
+			 */
+			if (to_usb_device(ddev)->quirks &
+				USB_QUIRK_LINEAR_FRAME_INTR_BINTERVAL) {
+				n = clamp(fls(d->bInterval) + 3, i, j);
+				i = j = n;
+			}
+			/*
 			 * This quirk fixes bIntervals reported in
 			 * linear microframes.
 			 */
@@ -214,10 +228,12 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 			}
 			break;
 		default:		/* USB_SPEED_FULL or _LOW */
-			/* For low-speed, 10 ms is the official minimum.
+			/*
+			 * For low-speed, 10 ms is the official minimum.
 			 * But some "overclocked" devices might want faster
-			 * polling so we'll allow it. */
-			n = 32;
+			 * polling so we'll allow it.
+			 */
+			n = 10;
 			break;
 		}
 	} else if (usb_endpoint_xfer_isoc(d)) {
@@ -225,10 +241,10 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 		j = 16;
 		switch (to_usb_device(ddev)->speed) {
 		case USB_SPEED_HIGH:
-			n = 9;		/* 32 ms = 2^(9-1) uframes */
+			n = 7;		/* 8 ms = 2^(7-1) uframes */
 			break;
 		default:		/* USB_SPEED_FULL */
-			n = 6;		/* 32 ms = 2^(6-1) frames */
+			n = 4;		/* 8 ms = 2^(4-1) frames */
 			break;
 		}
 	}
@@ -522,15 +538,23 @@ static int usb_parse_configuration(struct usb_device *dev, int cfgidx,
 
 		} else if (header->bDescriptorType ==
 				USB_DT_INTERFACE_ASSOCIATION) {
+			struct usb_interface_assoc_descriptor *d;
+
+			d = (struct usb_interface_assoc_descriptor *)header;
+			if (d->bLength < USB_DT_INTERFACE_ASSOCIATION_SIZE) {
+				dev_warn(ddev,
+					 "config %d has an invalid interface association descriptor of length %d, skipping\n",
+					 cfgno, d->bLength);
+				continue;
+			}
+
 			if (iad_num == USB_MAXIADS) {
 				dev_warn(ddev, "found more Interface "
 					       "Association Descriptors "
 					       "than allocated for in "
 					       "configuration %d\n", cfgno);
 			} else {
-				config->intf_assoc[iad_num] =
-					(struct usb_interface_assoc_descriptor
-					*)header;
+				config->intf_assoc[iad_num] = d;
 				iad_num++;
 			}
 
@@ -731,7 +755,7 @@ int usb_get_configuration(struct usb_device *dev)
 		}
 
 		if (dev->quirks & USB_QUIRK_DELAY_INIT)
-			msleep(100);
+			msleep(200);
 
 		result = usb_get_descriptor(dev, USB_DT_CONFIG, cfgno,
 		    bigbuffer, length);
@@ -831,10 +855,12 @@ int usb_get_bos_descriptor(struct usb_device *dev)
 	for (i = 0; i < num; i++) {
 		buffer += length;
 		cap = (struct usb_dev_cap_header *)buffer;
-		length = cap->bLength;
 
-		if (total_len < length)
+		if (total_len < sizeof(*cap) || total_len < cap->bLength) {
+			dev->bos->desc->bNumDeviceCaps = i;
 			break;
+		}
+		length = cap->bLength;
 		total_len -= length;
 
 		if (cap->bDescriptorType != USB_DT_DEVICE_CAPABILITY) {

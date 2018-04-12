@@ -178,7 +178,7 @@ static void gic_enable_redist(bool enable)
 			return;	/* No PM support in this redistributor */
 	}
 
-	while (count--) {
+	while (--count) {
 		val = readl_relaxed(rbase + GICR_WAKER);
 		if (enable ^ (val & GICR_WAKER_ChildrenAsleep))
 			break;
@@ -474,15 +474,19 @@ out:
 	return tlist;
 }
 
+#define MPIDR_TO_SGI_AFFINITY(cluster_id, level) \
+	(MPIDR_AFFINITY_LEVEL(cluster_id, level) \
+		<< ICC_SGI1R_AFFINITY_## level ##_SHIFT)
+
 static void gic_send_sgi(u64 cluster_id, u16 tlist, unsigned int irq)
 {
 	u64 val;
 
-	val = (MPIDR_AFFINITY_LEVEL(cluster_id, 3) << 48	|
-	       MPIDR_AFFINITY_LEVEL(cluster_id, 2) << 32	|
-	       irq << 24			    		|
-	       MPIDR_AFFINITY_LEVEL(cluster_id, 1) << 16	|
-	       tlist);
+	val = (MPIDR_TO_SGI_AFFINITY(cluster_id, 3)	|
+	       MPIDR_TO_SGI_AFFINITY(cluster_id, 2)	|
+	       irq << ICC_SGI1R_SGI_ID_SHIFT		|
+	       MPIDR_TO_SGI_AFFINITY(cluster_id, 1)	|
+	       tlist << ICC_SGI1R_TARGET_LIST_SHIFT);
 
 	pr_debug("CPU%d: ICC_SGI1R_EL1 %llx\n", smp_processor_id(), val);
 	gic_write_sgi1r(val);
@@ -526,6 +530,9 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	void __iomem *reg;
 	int enabled;
 	u64 val;
+
+	if (cpu >= nr_cpu_ids)
+		return -EINVAL;
 
 	if (gic_irq_in_rdist(d))
 		return -EINVAL;

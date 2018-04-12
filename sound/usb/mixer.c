@@ -916,9 +916,10 @@ static void volume_control_quirks(struct usb_mixer_elem_info *cval,
 	case USB_ID(0x046d, 0x0826): /* HD Webcam c525 */
 	case USB_ID(0x046d, 0x08ca): /* Logitech Quickcam Fusion */
 	case USB_ID(0x046d, 0x0991):
+	case USB_ID(0x046d, 0x09a2): /* QuickCam Communicate Deluxe/S7500 */
 	/* Most audio usb devices lie about volume resolution.
 	 * Most Logitech webcams have res = 384.
-	 * Proboly there is some logitech magic behind this number --fishor
+	 * Probably there is some logitech magic behind this number --fishor
 	 */
 		if (!strcmp(kctl->id.name, "Mic Capture Volume")) {
 			usb_audio_info(chip,
@@ -2156,6 +2157,9 @@ static int parse_audio_unit(struct mixer_build *state, int unitid)
 
 static void snd_usb_mixer_free(struct usb_mixer_interface *mixer)
 {
+	/* kill pending URBs */
+	snd_usb_mixer_disconnect(&mixer->list);
+
 	kfree(mixer->id_elems);
 	if (mixer->urb) {
 		kfree(mixer->urb->transfer_buffer);
@@ -2492,8 +2496,13 @@ void snd_usb_mixer_disconnect(struct list_head *p)
 	struct usb_mixer_interface *mixer;
 
 	mixer = list_entry(p, struct usb_mixer_interface, list);
-	usb_kill_urb(mixer->urb);
-	usb_kill_urb(mixer->rc_urb);
+	if (mixer->disconnected)
+		return;
+	if (mixer->urb)
+		usb_kill_urb(mixer->urb);
+	if (mixer->rc_urb)
+		usb_kill_urb(mixer->rc_urb);
+	mixer->disconnected = true;
 }
 
 #ifdef CONFIG_PM
