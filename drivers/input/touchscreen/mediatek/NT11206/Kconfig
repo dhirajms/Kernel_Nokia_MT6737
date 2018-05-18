@@ -1,0 +1,13 @@
+#
+# Touchscreen driver configuration
+#
+config TOUCHSCREEN_MTK_NT11206
+	bool "NT11206 for Mediatek package"
+	default n
+	help
+	  Say Y here if you have NT11206 touch panel.
+
+	  If unsure, say N.
+
+	  To compile this dirver as a module, choose M here: the
+	  module will be called.

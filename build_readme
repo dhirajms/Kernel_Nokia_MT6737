@@ -1,0 +1,39 @@
+1. Kernel configuration files
+   arch/arm64/configs:
+   Nokia 3 (TA-1020/TA-1028/TA-1032/TA-1038): fih6737m_65_n_defconfig
+
+2. How to build
+
+  Prerequisites:
+
+    * ramdisk.img - root fs
+
+    * mkbootimg - boot.img generator
+
+    * The ARM cross-compiler
+      We recommend getting the CodeSourcery Lite compiler.
+      Or, you can also use prebuild executable binary which is included in standard Android tree.
+
+  Step 1: Build Kernel (zImage)
+    $ cd kernel-3.18
+
+    $ mkdir out
+
+    $ export CROSS_COMPILE=<cross compile path with prefix>
+      NOTE: Please set the location and the prefix of the ARM cross-compiler.
+	        Please use the absolute path for this.
+	  ex) <cross compiler path>/android/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
+
+    $ make O=out ARCH=arm64 fih6737m_65_n_defconfig 
+
+    $ make O=out ARCH=arm64
+
+    You can see arch/arm64/boot/Image.gz-dtb if you succeed in building the kernel.
+
+  Step 2: Assembling the boot.img
+    (In the output directory)
+
+    $ mkbootimg --kernel <output path>/arch/arm64/boot/Image.gz-dtb --ramdisk ramdisk.img --base 0x40000000 \
+        --cmdline "bootopt=64S3,32N2,64N2" --os_version 7.0 --os_patch_level 2017-07-05 \
+        --kernel_offset 0x00080000 --ramdisk_offset 0x04000000 --tags_offset 0xE000000 \
+        --output boot.img

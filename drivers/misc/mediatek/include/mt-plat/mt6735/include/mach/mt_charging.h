@@ -1,0 +1,199 @@
+/*
+ * Copyright (C) 2015 MediaTek Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ */
+
+#ifndef _CUST_BAT_H_
+#define _CUST_BAT_H_
+
+/* stop charging while in talking mode */
+#define STOP_CHARGING_IN_TAKLING
+#define TALKING_RECHARGE_VOLTAGE 3800
+#define TALKING_SYNC_TIME		   60
+
+#define MAX_WORKING_TEMPERATURE      65
+
+//add for retry charger type
+#define F_CHECK_CHR_TYPE
+#ifdef F_CHECK_CHR_TYPE
+#define CHECK_CHR_TYPE_SUM      3
+#define CHECK_CHR_TYPE_TIME     30//s
+#endif
+/* Battery Temperature Protection */
+// reference battery SPEC...(waiting)
+#define MTK_TEMPERATURE_RECHARGE_SUPPORT
+#define MAX_CHARGE_TEMPERATURE  56
+#define MAX_CHARGE_TEMPERATURE_MINUS_X_DEGREE	55
+#define MIN_CHARGE_TEMPERATURE  0
+#define MIN_CHARGE_TEMPERATURE_PLUS_X_DEGREE	1
+#define ERR_CHARGE_TEMPERATURE  0xFF
+
+/* Linear Charging Threshold */
+#define V_PRE2CC_THRES 3400
+#define V_CC2TOPOFF_THRES		4050
+#define RECHARGING_VOLTAGE      4110
+#define CHARGING_FULL_CURRENT    100
+
+/* Charging Current Setting */
+#define USB_CHARGER_CURRENT_SUSPEND			0
+#define USB_CHARGER_CURRENT_UNCONFIGURED	CHARGE_CURRENT_70_00_MA
+#define USB_CHARGER_CURRENT_CONFIGURED		CHARGE_CURRENT_500_00_MA
+
+#define USB_CHARGER_CURRENT					CHARGE_CURRENT_500_00_MA
+//mofidy (800mA -> ?mA)
+#ifdef BATTERY_ZL3
+#define AC_CHARGER_CURRENT					CHARGE_CURRENT_800_00_MA
+#else
+#define AC_CHARGER_CURRENT					CHARGE_CURRENT_1250_00_MA
+
+#define AC_CHARGER_CURRENT_2A_ADAPTOR		CHARGE_CURRENT_1600_00_MA
+#endif
+//#define NON_STD_AC_CHARGER_CURRENT			CHARGE_CURRENT_500_00_MA
+#define NON_STD_AC_CHARGER_CURRENT			CHARGE_CURRENT_1000_00_MA
+#define CHARGING_HOST_CHARGER_CURRENT       CHARGE_CURRENT_650_00_MA
+#define APPLE_0_5A_CHARGER_CURRENT          CHARGE_CURRENT_500_00_MA
+#define APPLE_1_0A_CHARGER_CURRENT          CHARGE_CURRENT_650_00_MA
+#define APPLE_2_1A_CHARGER_CURRENT          CHARGE_CURRENT_800_00_MA
+
+
+/* Precise Tunning */
+#define BATTERY_AVERAGE_DATA_NUMBER	3
+//mofidy (30 -> 6)
+#define BATTERY_AVERAGE_SIZE    6//30
+//add for battery temp pin not connect.
+#define BATTERY_CHECK_NEG_TEMP_SIZE 3 
+//add for stop charging if temp < MIN_CHARGE_TEMPERATURE 
+#define BAT_LOW_TEMP_PROTECT_ENABLE
+
+/* charger error check */
+#define V_CHARGER_ENABLE 0				/* 1:ON , 0:OFF	*/
+#define V_CHARGER_MAX 6500				/* 6.5 V	*/
+#define V_CHARGER_MIN 4400				/* 4.4 V	*/
+
+/* Tracking TIME */
+//modify Tracking time.
+#define ONEHUNDRED_PERCENT_TRACKING_TIME	70	// 10 second
+#define NPERCENT_TRACKING_TIME	   			60	// 20 second
+#define SYNC_TO_REAL_TRACKING_TIME  		70	// 60 second
+#define V_0PERCENT_TRACKING					3550 //3450mV
+
+/*add for battery voltage too low*/
+#define SYSTEM_SHUTDOWN_VOLTAGE             3300
+#define SYSTEM_SHUTDOWN_VOLTAGE_LOW_TEMP    3000
+#define NPERCENT_TRACKING_SYSTEM_OFF        4
+#define NPERCENT_TRACKING_SYSTEM_SHUTDOWN   2
+
+//add for tracking use zcv
+#define V_0PERCENT_ZCV_TRACKING_START       15
+#define V_0PERCENT_ZCV_TRACKING_SECOND      10
+#define V_0PERCENT_ZCV_TRACKING_THIRD       5
+#define V_0PERCENT_ZCV_TRACKING_END         2
+
+/* Battery Notify */
+#define BATTERY_NOTIFY_CASE_0001_VCHARGER
+#define BATTERY_NOTIFY_CASE_0002_VBATTEMP
+/*
+//#define BATTERY_NOTIFY_CASE_0003_ICHARGING
+//#define BATTERY_NOTIFY_CASE_0004_VBAT
+//#define BATTERY_NOTIFY_CASE_0005_TOTAL_CHARGINGTIME
+*/
+/* High battery support */
+//modify for High voltage battery.
+#ifndef BATTERY_ZL3
+#define HIGH_BATTERY_VOLTAGE_SUPPORT
+#endif
+#ifdef HIGH_BATTERY_VOLTAGE_SUPPORT
+#define BATTERY_MAX_VOLTAGE 4400
+/* add  for value of CV is 4400, 40mv is margin.
+	(battery value of voltage is 4400).
+   It is that resolve charging don't terminor, when system consumption too high.
+*/
+#define BATTERY_JUDGE_FULL_VOLTAGE_E1 (4400 - 40)
+#define BATTERY_CV_VOLTAGE_E1	4400
+//add end
+#else
+#define BATTERY_JUDGE_FULL_VOLTAGE_E1 (4200 - 40)
+#define BATTERY_CV_VOLTAGE_E1	4200
+#define BATTERY_MAX_VOLTAGE 4200
+#endif
+
+//Modify 200->100
+#define BATTERY_DROP_OFFSET 100
+//when Vbat>4.0V,value of SP change. 
+#define SPECIAL_CHARGING_VOLTAGE 4000
+
+/* JEITA parameter */
+/*#define MTK_JEITA_STANDARD_SUPPORT*/
+#define CUST_SOC_JEITA_SYNC_TIME 30
+#define JEITA_RECHARGE_VOLTAGE  4110	/* for linear charging */
+#ifdef HIGH_BATTERY_VOLTAGE_SUPPORT
+#define JEITA_TEMP_ABOVE_POS_60_CV_VOLTAGE		BATTERY_VOLT_04_240000_V
+#define JEITA_TEMP_POS_45_TO_POS_60_CV_VOLTAGE		BATTERY_VOLT_04_240000_V
+#define JEITA_TEMP_POS_10_TO_POS_45_CV_VOLTAGE		BATTERY_VOLT_04_340000_V
+#define JEITA_TEMP_POS_0_TO_POS_10_CV_VOLTAGE		BATTERY_VOLT_04_240000_V
+#define JEITA_TEMP_NEG_10_TO_POS_0_CV_VOLTAGE		BATTERY_VOLT_04_040000_V
+#define JEITA_TEMP_BELOW_NEG_10_CV_VOLTAGE		BATTERY_VOLT_04_040000_V
+#else
+#define JEITA_TEMP_ABOVE_POS_60_CV_VOLTAGE		BATTERY_VOLT_04_100000_V
+#define JEITA_TEMP_POS_45_TO_POS_60_CV_VOLTAGE	BATTERY_VOLT_04_100000_V
+#define JEITA_TEMP_POS_10_TO_POS_45_CV_VOLTAGE	BATTERY_VOLT_04_200000_V
+#define JEITA_TEMP_POS_0_TO_POS_10_CV_VOLTAGE	BATTERY_VOLT_04_100000_V
+#define JEITA_TEMP_NEG_10_TO_POS_0_CV_VOLTAGE	BATTERY_VOLT_03_900000_V
+#define JEITA_TEMP_BELOW_NEG_10_CV_VOLTAGE		BATTERY_VOLT_03_900000_V
+#endif
+/* For JEITA Linear Charging only */
+#define JEITA_NEG_10_TO_POS_0_FULL_CURRENT  120
+#define JEITA_TEMP_POS_45_TO_POS_60_RECHARGE_VOLTAGE  4000
+#define JEITA_TEMP_POS_10_TO_POS_45_RECHARGE_VOLTAGE  4100
+#define JEITA_TEMP_POS_0_TO_POS_10_RECHARGE_VOLTAGE   4000
+#define JEITA_TEMP_NEG_10_TO_POS_0_RECHARGE_VOLTAGE   3800
+#define JEITA_TEMP_POS_45_TO_POS_60_CC2TOPOFF_THRESHOLD	4050
+#define JEITA_TEMP_POS_10_TO_POS_45_CC2TOPOFF_THRESHOLD	4050
+#define JEITA_TEMP_POS_0_TO_POS_10_CC2TOPOFF_THRESHOLD	4050
+#define JEITA_TEMP_NEG_10_TO_POS_0_CC2TOPOFF_THRESHOLD	3850
+
+
+/* For CV_E1_INTERNAL */
+#define CV_E1_INTERNAL
+
+/*
+ add for Different temperatures corresponding to respective 
+ voltages and current.
+*/
+#define F_CHARG_TEMP_CURR_CTRL
+#ifdef F_CHARG_TEMP_CURR_CTRL
+#define CHARG_TEMP_LEVEL_1  15  //Should higher than MIN_CHARGE_TEMPERATURE
+#define AC_CHARG_CURR_TEMP_LEVEL_1  CHARGE_CURRENT_650_00_MA
+#define CHARG_VOLTAGE_TEMP_LEVEL_1  BATTERY_VOLT_04_400000_V
+
+#define CHARG_TEMP_LEVEL_2  45  //Should higher than MIN_CHARGE_TEMPERATURE
+//#define AC_CHARG_CURR_TEMP_LEVEL_2  CHARGE_CURRENT_1150_00_MA
+#define AC_CHARG_CURR_TEMP_LEVEL_2  CHARGE_CURRENT_650_00_MA
+#define CHARG_VOLTAGE_TEMP_LEVEL_2  BATTERY_VOLT_04_100000_V
+#endif
+
+//add for show charger top off value.
+#define CHARGE_SAFE_VOLTAGE     4400	//4340
+#define CHARGE_NORMAL_VOLTAGE   4200
+
+
+/* Disable Battery check for HQA */
+#ifdef CONFIG_MTK_DISABLE_POWER_ON_OFF_VOLTAGE_LIMITATION
+#define CONFIG_DIS_CHECK_BATTERY
+#endif
+
+#ifdef CONFIG_MTK_FAN5405_SUPPORT
+#define FAN5405_BUSNUM 1
+#endif
+
+#define MTK_PLUG_OUT_DETECTION
+
+#endif /* _MT_CHARGING_H_ */
