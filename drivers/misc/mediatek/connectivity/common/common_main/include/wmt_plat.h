@@ -346,6 +346,7 @@ MTK_WCN_BOOL wmt_plat_dump_BGF_irq_status(VOID);
 #endif
 P_CONSYS_EMI_ADDR_INFO wmt_plat_get_emi_phy_add(VOID);
 UINT32 wmt_plat_read_cpupcr(VOID);
+UINT32 wmt_plat_read_chipid(VOID);
 VOID wmt_plat_cpu_sw_rst(VOID);
 VOID wmt_plat_cpu_sw_rst_deassert(VOID);
 UINT32 wmt_plat_read_dmaregs(UINT32);

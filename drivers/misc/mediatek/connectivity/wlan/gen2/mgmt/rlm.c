@@ -27,6 +27,8 @@
 ********************************************************************************
 */
 
+#define FIX_P2P_HT20	0
+
 /*******************************************************************************
 *                             D A T A   T Y P E S
 ********************************************************************************
@@ -311,7 +313,40 @@ VOID rlmRspGenerateErpIE(P_ADAPTER_T prAdapter, P_MSDU_INFO_T prMsduInfo)
 		prMsduInfo->u2FrameLength += IE_SIZE(prErpIe);
 	}
 }
+#if CFG_SUPPORT_MTK_SYNERGY
+/*----------------------------------------------------------------------------*/
+/*!
+* \brief This function is used to generate MTK Vendor Specific OUI
+*
+* \param[in]
+*
+* \return none
+*/
+/*----------------------------------------------------------------------------*/
+VOID rlmGenerateMTKOuiIE(P_ADAPTER_T prAdapter, P_MSDU_INFO_T prMsduInfo)
+{
+	PUINT_8 pucBuffer;
+	UINT_8 aucMtkOui[] = VENDOR_OUI_MTK;
 
+	ASSERT(prAdapter);
+	ASSERT(prMsduInfo);
+
+	pucBuffer = (PUINT_8) ((ULONG) prMsduInfo->prPacket + (ULONG) prMsduInfo->u2FrameLength);
+	MTK_OUI_IE(pucBuffer)->ucId = ELEM_ID_VENDOR;
+	MTK_OUI_IE(pucBuffer)->ucLength = ELEM_MIN_LEN_MTK_OUI;
+	MTK_OUI_IE(pucBuffer)->aucOui[0] = aucMtkOui[0];
+	MTK_OUI_IE(pucBuffer)->aucOui[1] = aucMtkOui[1];
+	MTK_OUI_IE(pucBuffer)->aucOui[2] = aucMtkOui[2];
+
+	MTK_OUI_IE(pucBuffer)->aucCapability[0] = MTK_SYNERGY_CAP0 & (prAdapter->rWifiVar.aucMtkFeature[0]);
+	MTK_OUI_IE(pucBuffer)->aucCapability[1] = MTK_SYNERGY_CAP1 & (prAdapter->rWifiVar.aucMtkFeature[1]);
+	MTK_OUI_IE(pucBuffer)->aucCapability[2] = MTK_SYNERGY_CAP2 & (prAdapter->rWifiVar.aucMtkFeature[2]);
+	MTK_OUI_IE(pucBuffer)->aucCapability[3] = MTK_SYNERGY_CAP3 & (prAdapter->rWifiVar.aucMtkFeature[3]);
+
+	prMsduInfo->u2FrameLength += IE_SIZE(pucBuffer);
+	pucBuffer += IE_SIZE(pucBuffer);
+}				/* rlmGenerateMTKOuiIE */
+#endif
 /*----------------------------------------------------------------------------*/
 /*!
 * \brief
@@ -1154,7 +1189,7 @@ VOID rlmProcessAssocRsp(P_ADAPTER_T prAdapter, P_SW_RFB_T prSwRfb, PUINT_8 pucIE
 	 *       shall be invoked afterwards.
 	 *       Update channel, bandwidth and protection mode by nicUpdateBss()
 	 */
-#if 1
+#if FIX_P2P_HT20
 	if (prStaRec->ucNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
 
 		DBGLOG(P2P, WARN, "Force P2P BW to 20\n");

@@ -47,7 +47,7 @@ struct hps_ctxt_struct hps_ctxt = {
 	.state = STATE_LATE_RESUME,
 
 	/* enabled */
-	// Sunyongshan, ALPS03166419
+	//ALPS03166419
 #ifdef CONFIG_SYSTEM_BOOTUP_CPU_BOOST
 	.enabled = 0,
 #else

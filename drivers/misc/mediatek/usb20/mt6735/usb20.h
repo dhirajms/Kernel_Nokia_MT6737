@@ -110,7 +110,7 @@ extern void bq24157_set_opa_mode(unsigned int val);
 extern void bq24157_set_otg_pl(unsigned int val);
 extern void bq24157_set_otg_en(unsigned int val);
 extern unsigned int bq24157_reg_config_interface(unsigned char RegNum, unsigned char val);
-// rt9458 OTG
+//rt9458 OTG
 extern int set_chr_enable_otg(unsigned int enable);
 #elif defined(CONFIG_MTK_BQ24261_SUPPORT)
 extern void bq24261_set_en_boost(unsigned int val);
@@ -142,7 +142,7 @@ extern CHARGER_TYPE mt_get_charger_type(void);
 #include <upmu_common.h>
 bool hwPowerOn(MT65XX_POWER powerId, int powerVolt, char *mode_name);
 
-// sometimes value of SOC is 50%.
+//sometimes value of SOC is 50%.
 extern void wake_up_bat3(void);
 //end.50%
 

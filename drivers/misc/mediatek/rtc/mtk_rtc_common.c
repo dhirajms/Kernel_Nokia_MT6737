@@ -404,8 +404,6 @@ void rtc_mark_fast(void)
 	spin_unlock_irqrestore(&rtc_lock, flags);
 }
 
-
-
 u16 rtc_rdwr_uart_bits(u16 *val)
 {
 	u16 ret = 0;

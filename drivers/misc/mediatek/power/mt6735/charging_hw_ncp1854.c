@@ -177,7 +177,7 @@ static unsigned int charging_hw_init(void *data)
 	unsigned int ncp1854_status;
 	unsigned int status = STATUS_OK;
 
-	pr_notice("[BATTERY:ncp1854] ChargerHwInit_ncp1854\n");
+	battery_log(BAT_LOG_FULL, "[BATTERY:ncp1854] ChargerHwInit_ncp1854\n");
 
 	ncp1854_status = ncp1854_get_chip_status();
 	ncp1854_set_trans_en(0);
@@ -211,7 +211,7 @@ static unsigned int charging_dump_register(void *data)
 {
 	unsigned int status = STATUS_OK;
 
-	pr_notice("charging_dump_register\r\n");
+	battery_log(BAT_LOG_FULL, "charging_dump_register\r\n");
 
 	ncp1854_dump_register();
 
@@ -703,7 +703,7 @@ signed int chr_control_interface(CHARGING_CTRL_CMD cmd, void *data)
 			return charging_func[cmd](data);
 	}
 
-	pr_debug("[%s]UNSUPPORT Function: %d\n", __func__, cmd);
+	battery_log(BAT_LOG_FULL, "[%s]UNSUPPORT Function: %d\n", __func__, cmd);
 
 	return STATUS_UNSUPPORTED;
 }

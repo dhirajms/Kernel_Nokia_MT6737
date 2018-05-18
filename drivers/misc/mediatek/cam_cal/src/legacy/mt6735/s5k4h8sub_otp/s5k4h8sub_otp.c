@@ -110,8 +110,7 @@ extern int iWriteReg_otp(u16 a_u2Addr , u32 a_u4Data , u32 a_u4Bytes , u16 i2cId
 
 static u8 read_cmos_sensor(kal_uint16 addr)
 {
-	u8 data = 0;
-
+    u8  data = 0;
 	//char pu_send_cmd[2] = {(char)(addr >> 8) , (char)(addr & 0xFF) };
 	if(iReadReg(addr, &data, S5K4H8SUB_OTP_DEVICE_ID))
 	{

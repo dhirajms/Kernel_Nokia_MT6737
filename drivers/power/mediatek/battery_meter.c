@@ -2214,6 +2214,7 @@ signed int vol_bat_1 = 0;
 signed int vbat_capacity_1 = 0;
 #endif
 #endif
+
 void dod_init(void)
 {
 #if defined(SOC_BY_HW_FG)
@@ -3360,6 +3361,7 @@ void fgauge_algo_run_init(void)
 unsigned char reset_fg_bat_int = KAL_TRUE;
 void fg_bat_int_handler(void)
 {
+	pr_err("[fg_bat_int_handler] Detect\n");
 	reset_fg_bat_int = KAL_TRUE;
 	wake_up_bat2();
 }
@@ -3419,6 +3421,7 @@ void fgauge_initialization(void)
 #if defined(FG_BAT_INT)
 	pmic_register_interrupt_callback(FG_BAT_INT_L_NO, fg_bat_int_handler);
 	pmic_register_interrupt_callback(FG_BAT_INT_H_NO, fg_bat_int_handler);
+	bm_print(BM_LOG_CRTI, "[fgauge_initialization] fg_bat_int_handler register\n");
 #endif
 #endif
 }
@@ -3827,7 +3830,7 @@ signed int battery_meter_trans_battery_percentage(kal_bool d_val)
 #if defined(FG_BAT_INT)
 signed int battery_meter_set_columb_interrupt(unsigned int val)
 {
-	battery_log(BAT_LOG_FULL, "battery_meter_set_columb_interrupt=%d\n", val);
+	battery_log(BAT_LOG_CRTI, "battery_meter_set_columb_interrupt=%d\n", val);
 	battery_meter_ctrl(BATTERY_METER_CMD_SET_COLUMB_INTERRUPT, &val);
 	return 0;
 }
@@ -4763,6 +4766,9 @@ static int battery_meter_suspend(struct platform_device *dev, pm_message_t state
 #endif
 #endif				/* #if defined(FG_BAT_INT) */
 
+	//bm_print(BM_LOG_CRTI, "[battery_meter_suspend] sleep time = %d,%ld %ld\n",
+	//_g_bat_sleep_total_time, g_sleep_total_time.tv_sec, g_sleep_total_time.tv_nsec);
+
 	/* -- hibernation path */
 	if (state.event == PM_EVENT_FREEZE) {
 		pr_warn("[%s] %p:%p\n", __func__, battery_meter_ctrl, &bm_ctrl_cmd);
@@ -4793,6 +4799,10 @@ static int battery_meter_suspend(struct platform_device *dev, pm_message_t state
 		battery_meter_ctrl(BATTERY_METER_CMD_GET_HW_OCV, &g_hw_ocv_before_sleep);
 	}
 #endif
+
+	//bm_print(BM_LOG_CRTI, "[battery_meter_suspend]2 sleep time = %d,%ld %ld\n", _g_bat_sleep_total_time,
+	//g_sleep_total_time.tv_sec, g_sleep_total_time.tv_nsec);
+
 	bm_print(BM_LOG_CRTI, "[battery_meter_suspend]\n");
 	return 0;
 }

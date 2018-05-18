@@ -415,6 +415,7 @@ bool __attribute__((weak)) mt_usb_is_device(void)
 
 //Jason.
 extern unsigned short fih_hwid;
+
 kal_bool upmu_is_chr_det(void)
 {
 #if !defined(CONFIG_POWER_EXT)
@@ -1558,6 +1559,7 @@ static ssize_t show_Charger_TopOff_Value(struct device *dev, struct device_attri
 #else
 	ret_value = 4110;
 #endif
+
 	battery_log(BAT_LOG_CRTI, "[EM] Charger_TopOff_Value : %d\n", ret_value);
 	return sprintf(buf, "%u\n", ret_value);
 }
@@ -2851,7 +2853,7 @@ void mt_battery_GetBatteryData(void)
 	static signed int previous_SOC = -1;
 	kal_bool current_sign;
 
-    signed int i=0; //add for battery temp pin not connect
+    signed int i = 0; //add for battery temp pin not connect
 
 	bat_vol = battery_meter_get_battery_voltage(KAL_TRUE);
 	Vsense = battery_meter_get_VSense();
@@ -2935,6 +2937,7 @@ void mt_battery_GetBatteryData(void)
 #endif
 
 	previous_SOC = BMT_status.SOC;
+
     //add by Jason for battery temp pin not connect.
     for (i=0; i<BATTERY_CHECK_NEG_TEMP_SIZE; i++)
     {
@@ -2960,13 +2963,11 @@ void mt_battery_GetBatteryData(void)
 		g_battery_soc_ready = KAL_TRUE;
 	}
 	battery_log(BAT_LOG_CRTI,
-		"AvgVbat=(%d,%d),AvgI=(%d,%d),VChr=%d,AvgT=(%d,%d),SOC=(%d,%d),UI_SOC=%d,ZCV=%d,CHR_Type=%d \n",
-		BMT_status.bat_vol, bat_vol, BMT_status.ICharging, ICharging,
+	"AvgVbat=(%d,%d),AvgI=(%d,%d),VChr=%d,AvgT=(%d,%d),SOC=(%d,%d),UI_SOC=%d,ZCV=%d,CHR_Type=%d bcct:%d:%d I:%d Ibat:%d\n",
+		    BMT_status.bat_vol, bat_vol, BMT_status.ICharging, ICharging,
 		    BMT_status.charger_vol, BMT_status.temperature, temperature,
 		    previous_SOC, BMT_status.SOC, BMT_status.UI_SOC, BMT_status.ZCV,
-		    BMT_status.charger_type);
-	
-	battery_log(BAT_LOG_CRTI, "bcct:%d:%d I:%d Ibat:%d\n" ,g_bcct_flag, get_usb_current_unlimited(),
+		    BMT_status.charger_type, g_bcct_flag, get_usb_current_unlimited(),
 		    get_bat_charging_current_level(), BMT_status.IBattery / 10);
 	
 	battery_log(BAT_LOG_CRTI, "v=%d,i=%d,t=%d,soc=%d,bcct:%d:%d I:%d Ibat:%d\n",
@@ -3056,6 +3057,7 @@ static PMU_STATUS mt_battery_CheckChargerVoltage(void)
 #include <linux/bio.h>
 #include <linux/uaccess.h>
 #define CHARGE_TIMER_LIMITED "/data/data/com.mediatek.engineermode/ChargeTimeLimited"
+
 static void mt_battery_check_charge_time_limit(void)
 {
      struct file *fdata_filp = NULL;
@@ -3430,6 +3432,7 @@ static void mt_battery_update_status(void)
 #ifndef FIH_FACTORY_BOOT
 #define FIH_FACTORY_BOOT 11
 #endif
+
 static void mt_battery_factory_check(void)
 {
     static int time = 0; //Jason.
@@ -3875,6 +3878,7 @@ void BAT_thread(void)
 
 //Jason.
 kal_bool chargin_hw_init_done = KAL_FALSE;
+
 int bat_thread_kthread(void *x)
 {
 	ktime_t ktime = ktime_set(3, 0);	/* 10s, 10* 1000 ms */

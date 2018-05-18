@@ -151,6 +151,13 @@ VOID __weak wmt_plat_cpu_sw_rst_deassert(VOID)
 	STP_DBG_ERR_FUNC("wmt_plat_cpu_sw_rst_deassert is not define!!!\n");
 }
 
+UINT32 __weak wmt_plat_read_chipid(VOID)
+{
+	STP_DBG_ERR_FUNC("wmt_plat_read_chipid is not define!!!\n");
+
+	return 0;
+}
+
 /* operation definition */
 static struct genl_ops stp_dbg_gnl_ops_array[] = {
 	{
@@ -2006,6 +2013,7 @@ INT32 stp_dbg_poll_cpupcr(UINT32 times, UINT32 sleep, UINT32 cmd)
 				stp_dbg_soc_read_debug_crs(CONNSYS_DEBUG_CR2));
 		STP_DBG_INFO_FUNC("CONNSYS debug cr3 0x18070110:0x%08x\n",
 				stp_dbg_soc_read_debug_crs(CONNSYS_DEBUG_CR3));
+		STP_DBG_INFO_FUNC("CONNSYS debug read chip id:0x%08x\n", wmt_plat_read_chipid());
 	}
 
 	return 0;

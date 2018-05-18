@@ -300,9 +300,11 @@ scanSearchBssDescByBssidAndSsid(IN P_ADAPTER_T prAdapter,
 				return prBssDesc;
 			} else if (prDstBssDesc == NULL && prBssDesc->fgIsHiddenSSID == TRUE) {
 				prDstBssDesc = prBssDesc;
-			} else {
+			} else if (prBssDesc->eBSSType == BSS_TYPE_P2P_DEVICE) {
 				/* 20120206 frog: Equal BSSID but not SSID, SSID not hidden,
 				 * SSID must be updated. */
+				 /* 20160823:Permit the scan reusult which there are same BSSID
+				  * but different SSID in what AIS STATE */
 				COPY_SSID(prBssDesc->aucSSID,
 					  prBssDesc->ucSSIDLen, prSsid->aucSsid, prSsid->u4SsidLen);
 				return prBssDesc;
@@ -543,8 +545,8 @@ VOID scanAddToRoamBssDesc(IN P_ADAPTER_T prAdapter, IN P_BSS_DESC_T prBssDesc)
 				prBssDesc->aucSSID, prBssDesc->ucSSIDLen);
 		}
 	}
-
-	GET_CURRENT_SYSTIME(&prRoamBssDesc->rUpdateTime);
+	if (prRoamBssDesc != NULL)
+		GET_CURRENT_SYSTIME(&prRoamBssDesc->rUpdateTime);
 }
 
 VOID scanSearchBssDescOfRoamSsid(IN P_ADAPTER_T prAdapter)
@@ -1208,16 +1210,12 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		fgIsNewBssDesc = TRUE;
 
 		do {
-			if (!fgIsValidSsid) {
-				prBssDesc = scanSearchBssDescByBssid(prAdapter, (PUINT_8)prWlanBeaconFrame->aucBSSID);
-				if (prBssDesc == (P_BSS_DESC_T) NULL) {
-					DBGLOG(SCN, INFO, "ignore hidden BSS(%pM) now\n",
-						(PUINT_8)prWlanBeaconFrame->aucBSSID);
-					return NULL;
-				}
-				DBGLOG(SCN, INFO, "ssid is empty, don't update hidden BSS(%pM) now\n",
+			/* check if it is a beacon frame */
+			if (((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_BEACON) &&
+				!fgIsValidSsid) {
+				DBGLOG(SCN, INFO, "scanAddToBssDescssid is NULL Beacon, don't add hidden BSS(%pM)\n",
 					(PUINT_8)prWlanBeaconFrame->aucBSSID);
-				return prBssDesc;
+				return NULL;
 			}
 			/* 4 <1.2.1> First trial of allocation */
 			prBssDesc = scanAllocateBssDesc(prAdapter);
@@ -1257,6 +1255,8 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		/* WCXRP00000091 */
 		/* if the received strength is much weaker than the original one, */
 		/* ignore it due to it might be received on the folding frequency */
+
+		prBssDesc->fgIsValidSSID = fgIsValidSsid;
 
 		GET_CURRENT_SYSTIME(&rCurrentTime);
 
@@ -1298,8 +1298,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 			prBssDesc->fgIsConnecting = fgIsConnecting;
 		}
 	}
-#if 1
 
+	prBssDesc->fgIsValidSSID = fgIsValidSsid;
+
+#if 1
 	prBssDesc->u2RawLength = prSwRfb->u2PacketLen;
 	if (prBssDesc->u2RawLength > CFG_RAW_BUFFER_SIZE)
 		prBssDesc->u2RawLength = CFG_RAW_BUFFER_SIZE;
@@ -1387,6 +1389,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 					COPY_SSID(prBssDesc->aucSSID,
 						  prBssDesc->ucSSIDLen,
 						  SSID_IE(pucIE)->aucSSID, SSID_IE(pucIE)->ucLength);
+				} else if ((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_PROBE_RSP) {
+					/* SSID should be updated if it is ProbeResp */
+					kalMemZero(prBssDesc->aucSSID, sizeof(prBssDesc->aucSSID));
+					prBssDesc->ucSSIDLen = 0;
 				}
 #if 0
 				/*
@@ -1648,7 +1654,7 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		prBssDesc->u4UpdateIdx = prAdapter->rWifiVar.rScanInfo.u4ScanUpdateIdx;
 	}
 	/* check if it is a probe response frame */
-	if ((prWlanBeaconFrame->u2FrameCtrl & 0x50) == 0x50)
+	if ((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_PROBE_RSP)
 		prBssDesc->fgSeenProbeResp = TRUE;
 
 	/* 4 <6> Update BSS_DESC_T's Last Update TimeStamp. */
@@ -1768,9 +1774,10 @@ WLAN_STATUS scanAddScanResult(IN P_ADAPTER_T prAdapter, IN P_BSS_DESC_T prBssDes
 			}
 	}
 
-	kalIndicateBssInfo(prAdapter->prGlueInfo,
-			   (PUINT_8) prSwRfb->pvHeader,
-			   prSwRfb->u2PacketLen, prBssDesc->ucChannelNum, RCPI_TO_dBm(prBssDesc->ucRCPI));
+	if (prBssDesc->fgIsValidSSID)
+		kalIndicateBssInfo(prAdapter->prGlueInfo,
+			(PUINT_8) prSwRfb->pvHeader,
+			prSwRfb->u2PacketLen, prBssDesc->ucChannelNum, RCPI_TO_dBm(prBssDesc->ucRCPI));
 
 	nicAddScanResult(prAdapter,
 			 rMacAddr,
@@ -1828,14 +1835,16 @@ VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSTyp
 			return;
 		}
 
-		DBGLOG(SCN, TRACE, "Report specific SSID[%s]\n", prSpecificBssDesc->aucSSID);
+		DBGLOG(SCN, TRACE, "Report specific SSID[%s] ValidSSID[%d]\n",
+			prSpecificBssDesc->aucSSID, prSpecificBssDesc->fgIsValidSSID);
 
 		if (eBSSType == BSS_TYPE_INFRASTRUCTURE) {
-			kalIndicateBssInfo(prAdapter->prGlueInfo,
-					   (PUINT_8) prSpecificBssDesc->aucRawBuf,
-					   prSpecificBssDesc->u2RawLength,
-					   prSpecificBssDesc->ucChannelNum,
-					   RCPI_TO_dBm(prSpecificBssDesc->ucRCPI));
+			if (prSpecificBssDesc->fgIsValidSSID)
+				kalIndicateBssInfo(prAdapter->prGlueInfo,
+					(PUINT_8) prSpecificBssDesc->aucRawBuf,
+					prSpecificBssDesc->u2RawLength,
+					prSpecificBssDesc->ucChannelNum,
+					RCPI_TO_dBm(prSpecificBssDesc->ucRCPI));
 		} else {
 			rChannelInfo.ucChannelNum = prSpecificBssDesc->ucChannelNum;
 			rChannelInfo.eBand = prSpecificBssDesc->eBand;
@@ -1889,21 +1898,23 @@ VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSTyp
 #endif
 			    ) {
 
-				DBGLOG(SCN, TRACE, "Report SSID[%s]\n", prBssDesc->aucSSID);
+				DBGLOG(SCN, TRACE, "Report SSID[%s] ValidSSID[%d]\n",
+					prBssDesc->aucSSID, prBssDesc->fgIsValidSSID);
 
 				if (eBSSType == BSS_TYPE_INFRASTRUCTURE) {
-					if (prBssDesc->u2RawLength != 0) {
+					if (prBssDesc->u2RawLength != 0 && prBssDesc->fgIsValidSSID) {
 						kalIndicateBssInfo(prAdapter->prGlueInfo,
 								   (PUINT_8) prBssDesc->aucRawBuf,
 								   prBssDesc->u2RawLength,
 								   prBssDesc->ucChannelNum,
 								   RCPI_TO_dBm(prBssDesc->ucRCPI));
-						kalMemZero(prBssDesc->aucRawBuf, CFG_RAW_BUFFER_SIZE);
-						prBssDesc->u2RawLength = 0;
-#if CFG_ENABLE_WIFI_DIRECT
-						prBssDesc->fgIsP2PReport = FALSE;
-#endif
 					}
+					kalMemZero(prBssDesc->aucRawBuf, CFG_RAW_BUFFER_SIZE);
+#if CFG_ENABLE_WIFI_DIRECT
+					prBssDesc->fgIsP2PReport = FALSE;
+#endif
+					prBssDesc->u2RawLength = 0;
+
 				} else {
 #if CFG_ENABLE_WIFI_DIRECT
 					if (prBssDesc->fgIsP2PReport == TRUE) {
@@ -2075,8 +2086,20 @@ WLAN_STATUS scanProcessBeaconAndProbeResp(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_
 #endif
 			rsnCheckSecurityModeChanged(prAdapter, prAisBssInfo, prBssDesc)) {
 				DBGLOG(SCN, INFO, "Beacon security mode change detected\n");
+				DBGLOG_MEM8(SCN, INFO, prSwRfb->pvHeader, prSwRfb->u2PacketLen);
 				fgNeedDisconnect = FALSE;
-				aisBssSecurityChanged(prAdapter);
+				if (!prConnSettings->fgSecModeChangeStartTimer) {
+					cnmTimerStartTimer(prAdapter,
+						&prAdapter->rWifiVar.rAisFsmInfo.rSecModeChangeTimer,
+						SEC_TO_MSEC(3));
+					prConnSettings->fgSecModeChangeStartTimer = TRUE;
+				}
+			} else {
+				if (prConnSettings->fgSecModeChangeStartTimer) {
+					cnmTimerStopTimer(prAdapter,
+						&prAdapter->rWifiVar.rAisFsmInfo.rSecModeChangeTimer);
+					prConnSettings->fgSecModeChangeStartTimer = FALSE;
+				}
 			}
 #endif
 
@@ -3038,7 +3061,8 @@ static UINT_16 scanCalculateScoreBySnrRssi(P_BSS_DESC_T prBssDesc)
 		u2Score = 20;
 	else if (cRssi <= HARD_TO_CONNECT_RSSI_THRESOLD)
 		u2Score = 0;
-	u2Score = 8 * ((cRssi + 69)/5) + 28;
+	else
+		u2Score = 8 * ((cRssi + 69)/5) + 28;
 	u2Score *= WEIGHT_IDX_RSSI;
 
 	/* TODO: we don't know the valid value for SNR, so don't take it into account */
@@ -3210,7 +3234,7 @@ try_again:
 				aisCalculateBlackListScore(prAdapter, prBssDesc);
 
 		cRssi = RCPI_TO_dBm(prBssDesc->ucRCPI);
-		DBGLOG(SCN, INFO, "cRSSI %d, %pM\n", cRssi, prBssDesc->aucBSSID);
+
 #if CFG_SELECT_BSS_BASE_ON_RSSI
 		if (cMaxRssi >= -55) {
 			if (cRssi < -55)
@@ -3248,8 +3272,8 @@ try_again:
 			u2ScoreScanMiss + u2ScoreSnrRssi + u2ScoreStaCnt + u2ScoreSTBC + u2ScoreBand + u2BlackListScore;
 
 		DBGLOG(SCN, INFO,
-			"%pM Score, Total %d: BW[%d], CI[%d], DE[%d], PR[%d], SM[%d], SC[%d], SR[%d], ST[%d], BD[%d]\n",
-			prBssDesc->aucBSSID, u2ScoreTotal, u2ScoreBandwidth, u2ScoreChnlInfo, u2ScoreDeauth,
+			"%pM cRSSI[%d] Score, Total %d: BW[%d], CI[%d], DE[%d], PR[%d], SM[%d], SC[%d], SR[%d], ST[%d], BD[%d]\n",
+			prBssDesc->aucBSSID, cRssi, u2ScoreTotal, u2ScoreBandwidth, u2ScoreChnlInfo, u2ScoreDeauth,
 			u2ScoreProbeRsp, u2ScoreScanMiss, u2ScoreStaCnt, u2ScoreSnrRssi, u2ScoreSTBC, u2ScoreBand);
 		/*if (cRssi < HARD_TO_CONNECT_RSSI_THRESOLD) {
 			if (!prCandBssDescForLowRssi) {

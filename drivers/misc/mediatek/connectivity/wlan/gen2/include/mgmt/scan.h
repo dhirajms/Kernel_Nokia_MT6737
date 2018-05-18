@@ -165,6 +165,7 @@ struct _BSS_DESC_T {
 				 * don't removed this record from BSS list.
 				 */
 
+	BOOLEAN fgIsValidSSID; /* This flag is TRUE if the SSID is not hidden */
 	BOOLEAN fgIsHiddenSSID;	/* When this flag is TRUE, means the SSID
 				 * of this BSS is not known yet.
 				 */
@@ -780,7 +781,9 @@ BOOLEAN scnCombineParamsIntoPSCN(IN P_ADAPTER_T prAdapter,
 
 VOID scnPSCNFsm(IN P_ADAPTER_T prAdapter, IN ENUM_PSCAN_STATE_T eNextPSCNState);
 #endif
-
+#if CFG_NLO_MSP
+VOID scnSetMspParameterIntoPSCN(IN P_ADAPTER_T prAdapter, IN P_CMD_SET_PSCAN_PARAM prCmdPscnParam);
+#endif
 #if CFG_SUPPORT_GSCN
 BOOLEAN scnSetGSCNParam(IN P_ADAPTER_T prAdapter, IN P_PARAM_WIFI_GSCAN_CMD_PARAMS prCmdGscnParam);
 

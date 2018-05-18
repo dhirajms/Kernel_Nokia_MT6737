@@ -1171,6 +1171,7 @@ static int rt_charger_run_aicl(struct mtk_charger_info *mchr_info, void *data)
 		aicr = 70000;
 	else if (aicr == 70000) /* from 700mA to 500mA */
 		aicr = 50000;
+//Jason.
 //	else if (aicr == 50000) /* from 500mA to 100mA */
 //		aicr = 10000;
 	else { /* already the smallest value */
@@ -1297,7 +1298,7 @@ static int rt9458_probe(struct i2c_client *client,
 	mtk_charger_set_info(&info->mchr_info);
 		
 	if (battery_charging_control == NULL) {
-		battery_charging_control = rt9458_chr_control_interface;
+			battery_charging_control = rt9458_chr_control_interface;
 	}		
 		
 	chargin_hw_init_done = KAL_TRUE;

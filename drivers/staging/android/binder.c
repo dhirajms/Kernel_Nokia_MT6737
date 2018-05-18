@@ -1193,6 +1193,8 @@ static void binder_check_buf(struct binder_proc *target_proc, size_t size, int i
 		ptr += snprintf(aee_msg+ptr, sizeof(aee_msg)-ptr,
 			"large data size,check sender %d(%s)! check kernel log\n",
 			binder_check_buf_pid, sender ? sender->comm : "");
+		ptr += snprintf(aee_msg+ptr, sizeof(aee_msg)-ptr,
+			"CR_DISPATCH_PROCESSNAME:%s\n", sender ? sender->comm : "");
 	} else {
 		if (target_proc->large_buffer) {
 			pr_debug("on %d:0 the largest pending trans is:\n", target_proc->pid);
@@ -1224,7 +1226,7 @@ static void binder_check_buf(struct binder_proc *target_proc, size_t size, int i
 				tm.tm_hour, tm.tm_min, tm.tm_sec,
 				(unsigned long)(tv.tv_usec / USEC_PER_MSEC));
 			ptr += snprintf(aee_msg+ptr, sizeof(aee_msg)-ptr,
-				"large data size,check sender %d(%s)! check kernel log\n",
+				"large data size,check sender %d(%s)!\n",
 				(larger != NULL) ? larger->pid : 0,
 				(larger != NULL) ? larger->comm : "");
 		} else {
@@ -1251,8 +1253,11 @@ static void binder_check_buf(struct binder_proc *target_proc, size_t size, int i
 				(tm.tm_mon + 1), tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
 				(unsigned long)(tv.tv_usec / USEC_PER_MSEC));
 			ptr += snprintf(aee_msg+ptr, sizeof(aee_msg)-ptr,
-				"%d small trans pending, check receiver %d(%s)! check kernel log\n",
+				"%d small trans pending, check receiver %d(%s)!\n",
 				i, target_proc->pid,
+				target_proc->tsk ? target_proc->tsk->comm : "");
+			ptr += snprintf(aee_msg+ptr, sizeof(aee_msg)-ptr,
+				"CR_DISPATCH_PROCESSNAME:%s\n",
 				target_proc->tsk ? target_proc->tsk->comm : "");
 		}
 
@@ -4111,9 +4116,6 @@ static int binder_ioctl_set_ctx_mgr(struct file *filp, struct binder_thread
 		goto out;
 	}
 
-	ret = security_binder_set_context_mgr(proc->tsk);
-	if (ret < 0)
-		goto out;
 	if (uid_valid(binder_context_mgr_uid)) {
 		if (!uid_eq(binder_context_mgr_uid, curr_euid)) {
 			pr_err("BINDER_SET_CONTEXT_MGR bad uid %d != %d\n",
@@ -4181,6 +4183,9 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case BINDER_SET_CONTEXT_MGR:
 		ret = binder_ioctl_set_ctx_mgr(filp, thread);
 		if (ret)
+			goto err;
+		ret = security_binder_set_context_mgr(proc->tsk);
+		if (ret < 0)
 			goto err;
 		break;
 	case BINDER_THREAD_EXIT:

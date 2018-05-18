@@ -1281,6 +1281,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 {
 	int retval;
 	struct task_struct *p;
+	unsigned long sig[_NSIG_WORDS];
+	unsigned long shared_sig[_NSIG_WORDS];
+	int i;
 
 	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS)) {
 		pr_err("[%d:%s] fork fail at cpp 1, clone_flags:0x%x\n",
@@ -1601,9 +1604,15 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	*/
 	recalc_sigpending();
 	if (signal_pending(current)) {
+		memcpy(sig, current->pending.signal.sig, sizeof(sig));
+		memcpy(shared_sig, current->signal->shared_pending.signal.sig,
+		       sizeof(shared_sig));
 		spin_unlock(&current->sighand->siglock);
 		write_unlock_irq(&tasklist_lock);
 		retval = -ERESTARTNOINTR;
+		for (i = 0; i < _NSIG_WORDS; ++i)
+			pr_err("pending i=%d sig=0x%lx shared_sig=0x%lx\n",
+			       i, sig[i], shared_sig[i]);
 		goto bad_fork_free_pid;
 	}
 

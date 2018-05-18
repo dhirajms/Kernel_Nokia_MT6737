@@ -652,8 +652,9 @@ initrd=0x44000000,0x1000000 loglevel=8 androidboot.hardware=mt6735";
 			reg = <0x10008000 0x1000>;
 			interrupts = <GIC_SPI 174 IRQ_TYPE_LEVEL_LOW>;
 		};
-/* hall sensor*/
-    kpd_slide: kpd_slide {
+
+		/* hall sensor*/
+		kpd_slide: kpd_slide {
 			compatible = "mediatek, kpd_slide-eint";
 		};
 
@@ -1196,30 +1197,30 @@ initrd=0x44000000,0x1000000 loglevel=8 androidboot.hardware=mt6735";
 						"mediatek,mt6735m-touch";
 			vtouch-supply = <&mt_pmic_vgp1_ldo_reg>;
 		};
-		
+
 		/*charger IC start */
 		charger_bq: charger_bq@ {
 			compatible = "mediatek,charger_bq24157";
 		};
 		/* charger IC end */
-		
-        rt9458@6a {
-        	compatible = "richtek,rt9458";
-        	reg = <0x6a>;
-        	charger_name = "primary_charger";
-        	ichg = <50000>;		/* 10uA */
-        	/*
-        	 * For AICR, only support 100/500/700/1000mA/no limit
-        	 * Value higher than 1000mA stands for no limit
-        	 */
-        	aicr = <50000>;		/* 10uA */
-        	mivr = <4500>;		/* mV */
-        	cv = <4350000>;		/* uV */
-        	ieoc = <150000>;	/* uA */
-        	status = "okay";
-        	enable_te;
-        	enable_wdt;
-        };
+
+		rt9458@6a {
+			compatible = "richtek,rt9458";
+			reg = <0x6a>;
+			charger_name = "primary_charger";
+			ichg = <50000>;		/* 10uA */
+			/*
+			* For AICR, only support 100/500/700/1000mA/no limit
+			* Value higher than 1000mA stands for no limit
+			*/
+			aicr = <50000>;		/* 10uA */
+			mivr = <4500>;		/* mV */
+			cv = <4350000>;		/* uV */
+			ieoc = <150000>;	/* uA */
+			status = "okay";
+			enable_te;
+			enable_wdt;
+		};
 
 		accdet: accdet@ {
 			compatible = "mediatek,mt6735-accdet",

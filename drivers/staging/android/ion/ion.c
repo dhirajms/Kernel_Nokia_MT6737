@@ -498,7 +498,6 @@ static int user_ion_handle_put_nolock(struct ion_handle *handle)
 
 	return ret;
 }
-
 static struct ion_handle *ion_handle_lookup(struct ion_client *client,
 					    struct ion_buffer *buffer)
 {
@@ -677,6 +676,7 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 {
 	return __ion_alloc(client, len, align, heap_id_mask, flags, false);
 }
+
 EXPORT_SYMBOL(ion_alloc);
 
 static void ion_free_nolock(struct ion_client *client, struct ion_handle *handle)

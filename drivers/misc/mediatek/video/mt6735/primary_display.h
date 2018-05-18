@@ -292,8 +292,7 @@ int primary_display_config_input(primary_disp_input_config *input);
 int primary_display_user_cmd(unsigned int cmd, unsigned long arg);
 int primary_display_trigger(int blocking, void *callback, unsigned int userdata);
 int primary_display_ext_trigger(int blocking, void *callback, unsigned int userdata);
-int primary_display_memory_trigger(int blocking, void *callback, unsigned int userdata);
-int primary_display_merge_session_cmd(disp_session_config *config);
+void primary_display_trigger_and_merge(disp_session_config *config, int session_id);
 int primary_display_config_output(disp_mem_output_config *output, unsigned int session_id);
 int primary_display_mem_out_trigger(int blocking, void *callback, unsigned int userdata);
 int primary_display_switch_mode(int sess_mode, unsigned int session, int force);
@@ -389,4 +388,8 @@ int init_ext_decouple_buffers(void);
 int deinit_ext_decouple_buffers(void);
 
 int primary_display_get_session_mode(void);
+int primary_display_get_init_status(void);
 int display_freeze_mode(int enable, int need_lock);
+#if defined(OVL_TIME_SHARING)
+int primary_display_disable_ovl2mem(void);
+#endif

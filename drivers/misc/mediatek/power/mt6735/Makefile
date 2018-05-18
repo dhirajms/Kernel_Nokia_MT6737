@@ -20,6 +20,7 @@ endif
 
 obj-$(CONFIG_MTK_SMART_BATTERY) += battery_meter_hal.o pmic_chr_type_det.o
 
+
 obj-$(CONFIG_MTK_CHARGER_INTERFACE) += mtk_charger_intf.o
 ifeq ($(CONFIG_CHARGER_RT9458),y)
 	obj-$(CONFIG_MTK_SMART_BATTERY) += rt9458.o

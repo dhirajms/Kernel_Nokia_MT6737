@@ -138,6 +138,7 @@ void kpd_slide_qwerty_init(void)
 	}
 #endif
 
+	kpd_print("------alex------ test -----11111----\n");
 
 	power_op = powerOn_slidePin_interface();
 	if (!power_op)

@@ -46,6 +46,7 @@ const UINT_8 aucPhyCfg2PhyTypeSet[PHY_CONFIG_NUM] = {
 
 #define GATING_CONTROL_POLL_LIMIT   64
 #endif
+#define QUEUE_CMD_TIMEOUT_MS 10000
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -803,6 +804,7 @@ P_CMD_INFO_T nicGetPendingCmdInfo(IN P_ADAPTER_T prAdapter, IN UINT_8 ucSeqNum)
 	P_QUE_T prTempCmdQue = &rTempCmdQue;
 	P_QUE_ENTRY_T prQueueEntry = (P_QUE_ENTRY_T) NULL;
 	P_CMD_INFO_T prCmdInfo = (P_CMD_INFO_T) NULL;
+	UINT_32 u4CurrTick = 0;
 
 	GLUE_SPIN_LOCK_DECLARATION();
 
@@ -816,6 +818,12 @@ P_CMD_INFO_T nicGetPendingCmdInfo(IN P_ADAPTER_T prAdapter, IN UINT_8 ucSeqNum)
 	QUEUE_REMOVE_HEAD(prTempCmdQue, prQueueEntry, P_QUE_ENTRY_T);
 	while (prQueueEntry) {
 		prCmdInfo = (P_CMD_INFO_T) prQueueEntry;
+
+		u4CurrTick = kalGetTimeTick();
+		if ((prCmdInfo->u4InqueTime != 0) &&
+			(u4CurrTick - prCmdInfo->u4InqueTime) > QUEUE_CMD_TIMEOUT_MS)
+			DBGLOG(REQ, WARN, "CMD que is pending too long (%u)-(%u),CmdSeq=%d,ucSeq=%d\n"
+			, u4CurrTick, prCmdInfo->u4InqueTime, prCmdInfo->ucCmdSeqNum, ucSeqNum);
 
 		if (prCmdInfo->ucCmdSeqNum == ucSeqNum)
 			break;
@@ -1257,6 +1265,8 @@ UINT_32 nicFreq2ChannelNum(UINT_32 u4FreqInKHz)
 		return 136;
 	case 5700000:
 		return 140;
+	case 5720000:
+		return 144;
 	case 5745000:
 		return 149;
 	case 5765000:
@@ -1955,6 +1965,83 @@ WLAN_STATUS nicQmSetRxBASize(IN P_ADAPTER_T prAdapter, BOOLEAN enable, UINT32 si
 				   NULL, NULL, sizeof(CMD_SPECIFIC_RX_BA_WIN_SIZE_T), (PUINT_8)&rCmdRxBASize, NULL, 0);
 }
 
+WLAN_STATUS nicSetUApsdParam(IN P_ADAPTER_T prAdapter,
+	IN PARAM_CUSTOM_UAPSD_PARAM_STRUCT_T rUapsdParams, IN ENUM_NETWORK_TYPE_INDEX_T eNetworkTypeIdx)
+{
+	CMD_CUSTOM_UAPSD_PARAM_STRUCT_T rCmdUapsdParam;
+	P_PM_PROFILE_SETUP_INFO_T prPmProfSetupInfo;
+	P_BSS_INFO_T prBssInfo;
+	WLAN_STATUS ret;
+
+	DEBUGFUNC("nicSetUApsdParam");
+
+	ASSERT(prAdapter);
+
+	if (eNetworkTypeIdx >= NETWORK_TYPE_INDEX_NUM) {
+		DBGLOG(NIC, ERROR, "nicSetUApsdParam Invalid eNetworkTypeIdx\n");
+		return WLAN_STATUS_FAILURE;
+	}
+
+	prBssInfo = &(prAdapter->rWifiVar.arBssInfo[eNetworkTypeIdx]);
+	prPmProfSetupInfo = &prBssInfo->rPmProfSetupInfo;
+
+	kalMemZero(&rCmdUapsdParam, sizeof(CMD_CUSTOM_UAPSD_PARAM_STRUCT_T));
+
+	rCmdUapsdParam.fgEnAPSD = rUapsdParams.fgEnAPSD;
+	rCmdUapsdParam.fgEnAPSD_AcBe = rUapsdParams.fgEnAPSD_AcBe;
+	rCmdUapsdParam.fgEnAPSD_AcBk = rUapsdParams.fgEnAPSD_AcBk;
+	rCmdUapsdParam.fgEnAPSD_AcVo = rUapsdParams.fgEnAPSD_AcVo;
+	rCmdUapsdParam.fgEnAPSD_AcVi = rUapsdParams.fgEnAPSD_AcVi;
+	rCmdUapsdParam.ucMaxSpLen = rUapsdParams.ucMaxSpLen;
+
+	/* Fill BmpDeliveryAC and BmpTriggerAC by UapsdParams */
+	prPmProfSetupInfo->ucBmpDeliveryAC =
+	    ((rUapsdParams.fgEnAPSD_AcBe << 0) |
+	     (rUapsdParams.fgEnAPSD_AcBk << 1) |
+	     (rUapsdParams.fgEnAPSD_AcVi << 2) | (rUapsdParams.fgEnAPSD_AcVo << 3));
+	prPmProfSetupInfo->ucBmpTriggerAC =
+	    ((rUapsdParams.fgEnAPSD_AcBe << 0) |
+	     (rUapsdParams.fgEnAPSD_AcBk << 1) |
+	     (rUapsdParams.fgEnAPSD_AcVi << 2) | (rUapsdParams.fgEnAPSD_AcVo << 3));
+	prPmProfSetupInfo->ucUapsdSp = rUapsdParams.ucMaxSpLen;
+
+	DBGLOG(NIC, INFO, "nicSetUApsdParam EnAPSD[%d] Be[%d] Bk[%d] Vo[%d] Vi[%d] SPLen[%d]\n",
+		rCmdUapsdParam.fgEnAPSD, rCmdUapsdParam.fgEnAPSD_AcBe, rCmdUapsdParam.fgEnAPSD_AcBk,
+		rCmdUapsdParam.fgEnAPSD_AcVo, rCmdUapsdParam.fgEnAPSD_AcVi, rCmdUapsdParam.ucMaxSpLen);
+
+	switch (eNetworkTypeIdx) {
+	case NETWORK_TYPE_AIS_INDEX:
+		ret = wlanSendSetQueryCmd(prAdapter,
+			CMD_ID_SET_UAPSD_PARAM,
+			TRUE,
+			FALSE,
+			FALSE,
+			NULL,
+			NULL,
+			sizeof(CMD_CUSTOM_UAPSD_PARAM_STRUCT_T),
+			(PUINT_8)&rCmdUapsdParam, NULL, 0);
+			break;
+
+	case NETWORK_TYPE_P2P_INDEX:
+		ret = wlanoidSendSetQueryP2PCmd(prAdapter,
+			CMD_ID_SET_UAPSD_PARAM,
+			TRUE,
+			FALSE,
+			FALSE,
+			NULL,
+			NULL,
+			sizeof(CMD_CUSTOM_UAPSD_PARAM_STRUCT_T),
+			(PUINT_8)&rCmdUapsdParam, NULL, 0);
+			break;
+
+	default:
+		ret = WLAN_STATUS_FAILURE;
+		break;
+	}
+
+	return ret;
+}
+
 /*----------------------------------------------------------------------------*/
 /*!
 * @brief This utility function is used to update TX power gain corresponding to
@@ -1978,7 +2065,65 @@ WLAN_STATUS nicUpdateTxPower(IN P_ADAPTER_T prAdapter, IN P_CMD_TX_PWR_T prTxPwr
 				   TRUE,
 				   FALSE, FALSE, NULL, NULL, sizeof(CMD_TX_PWR_T), (PUINT_8) prTxPwrParam, NULL, 0);
 }
+#if CFG_SUPPORT_TX_BACKOFF
+/*----------------------------------------------------------------------------*/
+/*!
+* @brief This utility function is used to update TX power offset corresponding to
+*        each band/modulation/channel combination
+*
+* @param prAdapter          Pointer of ADAPTER_T
+*        prTxPwrOffsetParam       Pointer of TX power offset parameters
+*
+* @retval WLAN_STATUS_PENDING
+*         WLAN_STATUS_FAILURE
+*/
+/*----------------------------------------------------------------------------*/
+WLAN_STATUS nicUpdateTxPowerOffset(IN P_ADAPTER_T prAdapter, IN P_CMD_MITIGATED_PWR_OFFSET_T prTxPwrOffsetParam)
+{
+	DEBUGFUNC("nicUpdateTxPowerOffset");
 
+	ASSERT(prAdapter);
+
+	return wlanSendSetQueryCmd(prAdapter,
+					CMD_ID_SET_TX_PWR_OFFSET,
+					TRUE,
+					FALSE,
+					FALSE,
+					NULL,
+					NULL,
+					sizeof(CMD_MITIGATED_PWR_OFFSET_T),
+					(PUINT_8) prTxPwrOffsetParam, NULL, 0);
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
+* @brief This utility function is used to update TX BackOff Start/Stop
+*
+* @param prAdapter          Pointer of ADAPTER_T
+*        prTxPwrOffsetParam       Pointer of TX power offset parameters
+*
+* @retval WLAN_STATUS_PENDING
+*         WLAN_STATUS_FAILURE
+*/
+/*----------------------------------------------------------------------------*/
+WLAN_STATUS nicTxPowerBackOff(IN P_ADAPTER_T prAdapter, IN UINT32 TxPowerBackOffParam)
+{
+	DEBUGFUNC("nicTxPowerBackOff");
+
+	ASSERT(prAdapter);
+
+	DBGLOG(REQ, INFO, "%s: TxPowerBackOffParam = 0x%x\n", __func__, TxPowerBackOffParam);
+	return wlanSendSetQueryCmd(prAdapter,
+					CMD_ID_SET_TX_PWR_BACKOFF,
+					TRUE,
+					FALSE,
+					FALSE,
+					NULL,
+					NULL,
+					sizeof(UINT32),
+					(PUINT_8)&TxPowerBackOffParam, NULL, 0);
+}
+#endif
 /*----------------------------------------------------------------------------*/
 /*!
 * @brief This utility function is used to set auto tx power parameter

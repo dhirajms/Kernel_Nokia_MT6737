@@ -19,16 +19,21 @@
 #define TALKING_RECHARGE_VOLTAGE 3800
 #define TALKING_SYNC_TIME		   60
 
+//for EVB.
+//#define BATTERY_ZL3
+
+
 #define MAX_WORKING_TEMPERATURE      65
 
 //add for retry charger type
-#define F_CHECK_CHR_TYPE
-#ifdef F_CHECK_CHR_TYPE
+#define FIH_CHECK_CHR_TYPE
+#ifdef FIH_CHECK_CHR_TYPE
 #define CHECK_CHR_TYPE_SUM      3
 #define CHECK_CHR_TYPE_TIME     30//s
 #endif
+
 /* Battery Temperature Protection */
-// reference battery SPEC...(waiting)
+//reference battery SPEC...(waiting)
 #define MTK_TEMPERATURE_RECHARGE_SUPPORT
 #define MAX_CHARGE_TEMPERATURE  56
 #define MAX_CHARGE_TEMPERATURE_MINUS_X_DEGREE	55
@@ -106,13 +111,13 @@
 //#define BATTERY_NOTIFY_CASE_0005_TOTAL_CHARGINGTIME
 */
 /* High battery support */
-//modify for High voltage battery.
+//modify High voltage battery.
 #ifndef BATTERY_ZL3
 #define HIGH_BATTERY_VOLTAGE_SUPPORT
 #endif
 #ifdef HIGH_BATTERY_VOLTAGE_SUPPORT
 #define BATTERY_MAX_VOLTAGE 4400
-/* add  for value of CV is 4400, 40mv is margin.
+/* add for value of CV is 4400, 40mv is margin.
 	(battery value of voltage is 4400).
    It is that resolve charging don't terminor, when system consumption too high.
 */
@@ -120,12 +125,13 @@
 #define BATTERY_CV_VOLTAGE_E1	4400
 //add end
 #else
+//add for ZL3
 #define BATTERY_JUDGE_FULL_VOLTAGE_E1 (4200 - 40)
 #define BATTERY_CV_VOLTAGE_E1	4200
 #define BATTERY_MAX_VOLTAGE 4200
 #endif
 
-//Modify 200->100
+//Modify 200->100 for Nokia
 #define BATTERY_DROP_OFFSET 100
 //when Vbat>4.0V,value of SP change. 
 #define SPECIAL_CHARGING_VOLTAGE 4000
@@ -168,8 +174,8 @@
  add for Different temperatures corresponding to respective 
  voltages and current.
 */
-#define F_CHARG_TEMP_CURR_CTRL
-#ifdef F_CHARG_TEMP_CURR_CTRL
+#define FIH_CHARG_TEMP_CURR_CTRL
+#ifdef FIH_CHARG_TEMP_CURR_CTRL
 #define CHARG_TEMP_LEVEL_1  15  //Should higher than MIN_CHARGE_TEMPERATURE
 #define AC_CHARG_CURR_TEMP_LEVEL_1  CHARGE_CURRENT_650_00_MA
 #define CHARG_VOLTAGE_TEMP_LEVEL_1  BATTERY_VOLT_04_400000_V

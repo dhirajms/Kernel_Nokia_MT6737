@@ -361,7 +361,6 @@ BATTERY_PROFILE_STRUCT battery_profile_t3[] =
 };
 
 #else
-// NE1's battery use ZCV of E1's battery...
 
 /* T0 -10C */
 BATTERY_PROFILE_STRUCT battery_profile_t0[] = {

@@ -43,7 +43,7 @@
 #define SYSLOG_ACTION_SIZE_UNREAD    9
 /* Return size of the log buffer */
 #define SYSLOG_ACTION_SIZE_BUFFER   10
-//add for BBS by johnny,2016/10/19
+//add for BBS ,2016/10/19
 /* Return size of the bbs log buffer */
 #define SYSLOG_ACTION_GET_KERNEL_BUFFER   11
 

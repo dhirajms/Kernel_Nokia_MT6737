@@ -892,6 +892,7 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 		} else {
 			DISPERR("information for displayid: %d is not available now\n",
 				displayid);
+			return -EFAULT;
 		}
 
 		if (copy_to_user((void __user *)arg, &(dispif_info[displayid]), sizeof(mtk_dispif_info_t))) {
@@ -1072,6 +1073,8 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 			if (layerInfo->layer_id >= TOTAL_OVL_LAYER_NUM) {
 				DISPERR("MTKFB_SET_OVERLAY_LAYER, layer_id invalid=%d\n",
 					 layerInfo->layer_id);
+				kfree(layerInfo);
+				return -EFAULT;
 			} else {
 				input = &session_input.config[session_input.config_layer_num++];
 				_convert_fb_layer_to_disp_input(layerInfo, input);
@@ -1758,8 +1761,9 @@ static int init_framebuffer(struct fb_info *info)
 	/* clean whole frame buffer as black */
 	int size = info->var.xres_virtual * info->var.yres * info->var.bits_per_pixel/8;
 
-	DISP_memset_io(buffer, 0, size);
-
+	if ((info->var.yres + info->var.yoffset <= info->var.yres_virtual) &&
+		info->var.yoffset >= 0)
+		DISP_memset_io(buffer, 0, size);
 
 	return 0;
 }
@@ -1970,7 +1974,6 @@ size_t mtkfb_get_fb_size(void)
 EXPORT_SYMBOL(mtkfb_get_fb_size);
 #endif
 
-
 char *mtkfb_find_lcm_driver(void)
 {
 
@@ -2004,6 +2007,7 @@ char *mtkfb_find_lcm_driver(void)
 #endif
 
     printk("%s, %s\n", __func__, mtkfb_lcm_name);
+
 	return mtkfb_lcm_name;
 }
 
@@ -2454,6 +2458,9 @@ static int mtkfb_suspend(struct device *pdev, pm_message_t mesg)
 	/* NOT_REFERENCED(pdev); */
 	MSG_FUNC_ENTER();
 	MTKFB_LOG("[FB Driver] mtkfb_suspend(): 0x%x\n", mesg.event);
+#if defined(OVL_TIME_SHARING)
+	primary_display_disable_ovl2mem();
+#endif
 	ovl2mem_wait_done();
 
 	MSG_FUNC_LEAVE();

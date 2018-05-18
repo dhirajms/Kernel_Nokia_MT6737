@@ -1209,6 +1209,44 @@ static void rt_regmap_cache_release(struct rt_regmap_device *rd)
 }
 
 #ifdef CONFIG_DEBUG_FS
+#if 0
+static void rt_check_dump_config_file(struct rt_regmap_device *rd,
+				long int *reg_dump, int *cnt, char *type)
+{
+	char *token, *buf, *tmp_type;
+	char PATH[64];
+	mm_segment_t fs;
+	struct file *fp;
+	int ret, tmp_cnt = 0;
+
+	buf = devm_kzalloc(&rd->dev, 64*sizeof(char), GFP_KERNEL);
+	snprintf(PATH, 64, "/sdcard/%s_dump_config.txt", rd->props.name);
+	fp = filp_open(PATH, O_RDONLY, 0);
+	if (IS_ERR(fp)) {
+		pr_info("There is no Dump config file in sdcard\n");
+		devm_kfree(&rd->dev, buf);
+	} else {
+		fs = get_fs();
+		set_fs(get_ds());
+		fp->f_op->read(fp, buf, 64, &fp->f_pos);
+		set_fs(fs);
+
+		tmp_type = token = strsep(&buf, " ");
+		token = strsep(&buf, " ");
+		while (token != NULL) {
+			ret = kstrtoul(token, 16, &reg_dump[tmp_cnt]);
+			if (ret == 0)
+				tmp_cnt++;
+			token = strsep(&buf, " ");
+		}
+		filp_close(fp, NULL);
+		*cnt = tmp_cnt;
+		memcpy(type, tmp_type, 16);
+		devm_kfree(&rd->dev, buf);
+	}
+}
+#endif
+
 static void rt_show_regs(struct rt_regmap_device *rd, struct seq_file *seq_file)
 {
 	int i = 0, k = 0, ret, count = 0;

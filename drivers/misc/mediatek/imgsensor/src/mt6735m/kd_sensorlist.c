@@ -496,6 +496,7 @@ int iWriteReg(u16 a_u2Addr, u32 a_u4Data, u32 a_u4Bytes, u16 i2cId)
 	/* KD_IMGSENSOR_PROFILE("iWriteReg"); */
 	return 0;
 }
+
 /**add for i2c err**/
 int iWriteReg_otp(u16 a_u2Addr, u32 a_u4Data, u32 a_u4Bytes, u16 i2cId, char * sensorname )
 {
@@ -510,10 +511,12 @@ int iWriteReg_otp(u16 a_u2Addr, u32 a_u4Data, u32 a_u4Bytes, u16 i2cId, char * s
 	};
 
 /* PK_DBG("Addr : 0x%x,Val : 0x%x\n",a_u2Addr,a_u4Data); */
+    //PK_ERR(" %s\n",sensorname);
 	/* KD_IMGSENSOR_PROFILE_INIT(); */
 	spin_lock(&kdsensor_drv_lock);
 
 	if (gI2CBusNum == SUPPORT_I2C_BUS_NUM1) {
+		//PK_ERR("  hhhhhhhhhh \n");
         if( !strcmp (sensorname ,"S5K4H8JKSUB") || !strcmp (sensorname ,"S5K4H8SUB")){
 		//PK_ERR("this is mian camera \n");
        	i2c = 1;
@@ -2833,11 +2836,8 @@ inline static int kdSetSensorMclk(int *pBuf)
 	PK_INFO("[CAMERA SENSOR] kdSetSensorMclk on=%d, freq= %d\n", pSensorCtrl->on,
 		pSensorCtrl->freq);
 	if (1 == pSensorCtrl->on) {
-		enable_mux(MT_MUX_CAMTG, "CAMERA_SENSOR");
-		clkmux_sel(MT_MUX_CAMTG, pSensorCtrl->freq, "CAMERA_SENSOR");
-	} else {
-
-		disable_mux(MT_MUX_CAMTG, "CAMERA_SENSOR");
+		if (0 < (pSensorCtrl->freq) && (pSensorCtrl->freq) < MCLK_MAX_GROUP)
+			clkmux_sel(MT_MUX_CAMTG, pSensorCtrl->freq, "CAMERA_SENSOR");
 	}
 	return ret;
 /* #endif */
@@ -2959,7 +2959,7 @@ bool Get_Cam_Regulator(void)
 				sensor_device->of_node =
 				    of_find_compatible_node(NULL, NULL,
 							    "mediatek,camera_hw");
-				/* 若你需要sub也定義的話，需要自己加上
+				/*
 				   if (regVCAMA == NULL) {
 				   regVCAMA_SUB = regulator_get(sensor_device, "SUB_CAMERA_POWER_A");
 				   }
@@ -3502,7 +3502,7 @@ static long CAMERA_HW_Ioctl(struct file *a_pstFile,
 		break;
 
 	case KDIMGSENSORIOC_X_SET_SHUTTER_GAIN_WAIT_DONE:
-		i4RetValue = kdSensorSetExpGainWaitDone((int *)pBuff);
+		/*i4RetValue = kdSensorSetExpGainWaitDone((int *)pBuff);*/
 		break;
 
 	case KDIMGSENSORIOC_X_SET_CURRENT_SENSOR:
@@ -3591,6 +3591,7 @@ static int CAMERA_HW_Open(struct inode *a_pstInode, struct file *a_pstFile)
 
 	/*  */
 	atomic_inc(&g_CamDrvOpenCnt);
+	enable_mux(MT_MUX_CAMTG, "CAMERA_SENSOR");
 	return 0;
 }
 
@@ -3608,6 +3609,7 @@ static int CAMERA_HW_Release(struct inode *a_pstInode, struct file *a_pstFile)
 /* PK_DBG("[CAMERA_HW_Release] g_CamDrvOpenCnt %d\n",g_CamDrvOpenCnt); */
 	/* if (atomic_read(&g_CamDrvOpenCnt) == 0) */
 	checkPowerBeforClose(CAMERA_HW_DRVNAME1);
+	disable_mux(MT_MUX_CAMTG, "CAMERA_SENSOR");
 
 	return 0;
 }

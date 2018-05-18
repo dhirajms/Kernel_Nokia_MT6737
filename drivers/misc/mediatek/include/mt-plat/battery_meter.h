@@ -251,7 +251,6 @@ struct battery_meter_custom_data {
 	int apsleep_battery_voltage_compensate;
 
 	int bat_task_period;
-
 	int bat_full_chk_thr;
 	int shutdown_gauge0_voltage;
 };

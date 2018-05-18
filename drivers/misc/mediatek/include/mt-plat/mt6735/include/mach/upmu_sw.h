@@ -17,7 +17,7 @@
 #define AUXADC_SUPPORT_IMM_CURRENT_MODE
 #define BATTERY_DTS_SUPPORT
 
-// sometimes value of SOC is 50%.
+//sometimes value of SOC is 50%.
 //#define BATTERY_CDP_WORKAROUND
 //end.50%.
 

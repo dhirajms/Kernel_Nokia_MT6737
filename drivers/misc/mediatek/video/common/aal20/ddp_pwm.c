@@ -457,13 +457,13 @@ static void disp_pwm_log(int level_1024, int log_type)
 
 	if (print_log == 1) {
 		if (log_type == MSG_LOG)
-			{
+		{
 			//PWM_MSG("%s", buffer);
-			}
+		}
 		else
-			{
+		{
 			PWM_NOTICE("%s", buffer);
-			}
+		}
 	}
 
 }

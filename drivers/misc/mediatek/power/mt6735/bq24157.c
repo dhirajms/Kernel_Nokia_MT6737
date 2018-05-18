@@ -125,10 +125,12 @@ int bq24157_write_byte_base(unsigned char cmd, unsigned char writeData)
 		return 0;
 	}
 
+
 	new_client->ext_flag = ((new_client->ext_flag) & I2C_MASK_FLAG) | I2C_DIRECTION_FLAG;
 
 	ret = i2c_master_send(new_client, write_data, 2);
 	if (ret < 0) {
+
 		new_client->ext_flag = 0;
 		mutex_unlock(&bq24157_i2c_access);
 		return 0;
@@ -634,7 +636,7 @@ void charger_pin_cd_config(kal_bool status)
 {
 #ifdef CONFIG_OF
 
-    if (KAL_TRUE == status)  { // cd pin out put High
+    if (KAL_TRUE == status)  { //cd pin out put High
         pinctrl_select_state(pinctrll, charger_cd_high);
 		//battery_log(BAT_LOG_CRTI, "%s for test: cd out put High!\n", __func__);
     } else {
@@ -688,6 +690,7 @@ struct platform_device bq24157_user_space_device = {
 
 static int __init bq24157_init(void)
 {
+
 	return 0;
 }
 

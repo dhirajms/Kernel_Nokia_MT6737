@@ -71,6 +71,7 @@
 /*=============================================================
  *Local variable definition
  *=============================================================*/
+static int doing_tz_unregister;
 static kuid_t uid = KUIDT_INIT(0);
 static kgid_t gid = KGIDT_INIT(1000);
 
@@ -234,6 +235,9 @@ void tscpu_met_unlock(unsigned long *flags)
 EXPORT_SYMBOL(tscpu_met_unlock);
 
 #endif
+static int g_is_temp_valid;
+static void temp_valid_lock(unsigned long *flags);
+static void temp_valid_unlock(unsigned long *flags);
 /*=============================================================
  *Weak functions
  *=============================================================*/
@@ -339,6 +343,10 @@ static void tscpu_fast_initial_sw_workaround(void)
 
 		mt_ptp_unlock(&flags);
 	}
+
+	temp_valid_lock(&flags);
+	g_is_temp_valid = 0;
+	temp_valid_unlock(&flags);
 }
 
 void tscpu_thermal_tempADCPNP(int adc, int order)
@@ -1384,8 +1392,10 @@ static void tscpu_unregister_thermal(void)
 
 	tscpu_dprintk("tscpu_unregister_thermal\n");
 	if (thz_dev) {
+		doing_tz_unregister = 1;
 		mtk_thermal_zone_device_unregister(thz_dev);
 		thz_dev = NULL;
+		doing_tz_unregister = 0;
 	}
 
 }
@@ -2144,6 +2154,48 @@ static void tscpu_thermal_release(void)
 }
 #endif
 
+static DEFINE_SPINLOCK(temp_valid_spinlock);
+static void temp_valid_lock(unsigned long *flags)
+{
+	spin_lock_irqsave(&temp_valid_spinlock, *flags);
+}
+
+static void temp_valid_unlock(unsigned long *flags)
+{
+	spin_unlock_irqrestore(&temp_valid_spinlock, *flags);
+}
+
+static void check_all_temp_valid(void)
+{
+	int i, j, raw;
+
+	for (i = 0; i < ARRAY_SIZE(tscpu_g_bank); i++) {
+		for (j = 0; j < tscpu_g_bank[i].ts_number; j++) {
+			raw = tscpu_bank_ts_r[i][tscpu_g_bank[i].ts[j].type];
+
+			if (raw == THERMAL_INIT_VALUE)
+				return;	/* The temperature is not valid. */
+		}
+	}
+
+	g_is_temp_valid = 1;
+}
+
+int tscpu_is_temp_valid(void)
+{
+	int is_valid = 0;
+	unsigned long flags;
+
+	temp_valid_lock(&flags);
+	if (g_is_temp_valid == 0)
+		check_all_temp_valid();
+
+	is_valid = g_is_temp_valid;
+	temp_valid_unlock(&flags);
+
+	return is_valid;
+}
+
 static void read_all_bank_temperature(void)
 {
 	int i = 0;
@@ -2159,6 +2211,8 @@ static void read_all_bank_temperature(void)
 
 		mt_ptp_unlock(&flags);
 	}
+
+	tscpu_is_temp_valid();
 }
 
 void tscpu_update_tempinfo(void)
@@ -2223,7 +2277,7 @@ int is_worktimer_en = 1;
 void tscpu_workqueue_cancel_timer(void)
 {
 #ifdef FAST_RESPONSE_ATM
-	if (is_worktimer_en && thz_dev) {
+	if (is_worktimer_en && thz_dev && !doing_tz_unregister) {
 		cancel_delayed_work(&(thz_dev->poll_queue));
 
 		tscpu_dprintk("[tTimer] workqueue stopping\n");
@@ -2232,7 +2286,7 @@ void tscpu_workqueue_cancel_timer(void)
 		spin_unlock(&timer_lock);
 	}
 #else
-	if (thz_dev)
+	if (thz_dev && !doing_tz_unregister)
 		cancel_delayed_work(&(thz_dev->poll_queue));
 #endif
 }
@@ -2240,7 +2294,7 @@ void tscpu_workqueue_cancel_timer(void)
 void tscpu_workqueue_start_timer(void)
 {
 #ifdef FAST_RESPONSE_ATM
-	if (!is_worktimer_en && thz_dev != NULL && interval != 0) {
+	if (!is_worktimer_en && thz_dev != NULL && interval != 0 && !doing_tz_unregister) {
 		mod_delayed_work(system_freezable_wq, &(thz_dev->poll_queue), 0);
 
 		tscpu_dprintk("[tTimer] workqueue starting\n");
@@ -2250,7 +2304,7 @@ void tscpu_workqueue_start_timer(void)
 	}
 #else
 	/* resume thermal framework polling when leaving deep idle */
-	if (thz_dev != NULL && interval != 0)
+	if (thz_dev != NULL && interval != 0 && !doing_tz_unregister)
 		mod_delayed_work(system_freezable_wq, &(thz_dev->poll_queue), round_jiffies(msecs_to_jiffies(1000)));
 #endif
 

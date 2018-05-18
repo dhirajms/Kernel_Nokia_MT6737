@@ -484,6 +484,11 @@ int _ioctl_destroy_session(unsigned long arg)
 		)
 		primary_display_set_secondary_display(0, config.type);
 
+#if defined(OVL_TIME_SHARING)
+	if (config.type == DISP_SESSION_MEMORY)
+		primary_display_disable_ovl2mem();
+#endif
+
 	return ret;
 }
 
@@ -540,8 +545,7 @@ int _ioctl_trigger_session(unsigned long arg)
 			MMProfileLogEx(ddp_mmp_get_events()->present_fence_set, MMProfileFlagPulse,
 				       config.present_fence_idx, 0);
 		}
-		primary_display_merge_session_cmd(&config);
-		primary_display_trigger(0, NULL, 0);
+		primary_display_trigger_and_merge(&config, session_id);
 	} else if (DISP_SESSION_TYPE(session_id) == DISP_SESSION_EXTERNAL) {
 #if defined(CONFIG_MTK_HDMI_SUPPORT) || defined(CONFIG_MTK_EPD_SUPPORT)
 		mutex_lock(&disp_session_lock);
@@ -550,8 +554,7 @@ int _ioctl_trigger_session(unsigned long arg)
 #endif
 	} else if (DISP_SESSION_TYPE(session_id) == DISP_SESSION_MEMORY) {
 #if defined(OVL_TIME_SHARING)
-		primary_display_merge_session_cmd(&config);
-		primary_display_memory_trigger(0, NULL, 0);
+		primary_display_trigger_and_merge(&config, session_id);
 #else
 		ovl2mem_trigger(1, NULL, 0);
 #endif

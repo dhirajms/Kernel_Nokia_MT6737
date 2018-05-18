@@ -233,7 +233,7 @@
 		snprintf(str, 199, "DISP:"fmt, ##args);                \
 		DISPERR(fmt, ##args);                                  \
 		aee_kernel_warning_api(__FILE__, __LINE__,             \
-			DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER,      \
+			DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER | DB_OPT_DUMP_DISPLAY,  \
 			str, fmt, ##args);                             \
 		pr_err("[DISP]"fmt, ##args);                           \
 	} while (0)

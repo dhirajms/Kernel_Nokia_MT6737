@@ -697,7 +697,6 @@ void get_md_postfix(int md_id, char k[], char buf[], char buf_ex[])
 		CCCI_UTIL_ERR_MSG_WITH_ID(md_id, "request MD type %d not supported\n", feature_val);
 		feature_val = md_type_invalid;
 	}
-	/*Begin:modify for multi modem*/
 	#if 0
 	/* K */
 	if (k == NULL)

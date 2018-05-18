@@ -935,7 +935,7 @@ void ovl_get_info(int idx, void *data)
 static int ovl_check_input_param(OVL_CONFIG_STRUCT *config)
 {
 	if ((config->addr == 0 && config->source == 0) || config->dst_w == 0 || config->dst_h == 0) {
-		DISPERR("ovl parameter invalidate, addr=%lx, w=%d, h=%d\n",
+		DISPAEE("ovl parameter invalidate, addr=%lx, w=%d, h=%d\n",
 		       config->addr, config->dst_w, config->dst_h);
 		ASSERT(0);
 		return -1;

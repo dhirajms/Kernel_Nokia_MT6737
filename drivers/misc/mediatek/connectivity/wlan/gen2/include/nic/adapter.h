@@ -162,6 +162,11 @@ typedef struct _CONNECTION_SETTINGS_T {
 	RSN_INFO_T rRsnInfo;
 
 	BOOLEAN fgUseOkc;
+
+#if CFG_SUPPORT_DETECT_SECURITY_MODE_CHANGE
+	BOOLEAN fgSecModeChangeStartTimer;
+#endif
+
 	struct LINK_MGMT rBlackList;
 } CONNECTION_SETTINGS_T, *P_CONNECTION_SETTINGS_T;
 
@@ -475,6 +480,7 @@ typedef struct _WIFI_VAR_T {
 	UINT_8 aucInterfaceAddress[MAC_ADDR_LEN];
 
 	UINT_8 ucAvailablePhyTypeSet;
+	UINT_8 ucWithPhyTypeSpecificIE;
 
 	ENUM_PHY_TYPE_INDEX_T eNonHTBasicPhyType2G4;	/* Basic Phy Type used by SCN according
 							 * to the set of Available PHY Types
@@ -518,7 +524,14 @@ typedef struct _WIFI_VAR_T {
 #if CFG_AUTO_CHANNEL_SEL_SUPPORT
 	PARAM_GET_CHN_INFO rChnLoadInfo;
 #endif
-
+#if CFG_RX_BA_REORDERING_ENHANCEMENT
+	BOOLEAN fgEnableReportIndependentPkt;
+#endif
+#if CFG_SUPPORT_MTK_SYNERGY
+	UINT_8 ucMtkOui;
+	UINT_32 u4MtkOuiCap;
+	UINT_8 aucMtkFeature[4];
+#endif
 } WIFI_VAR_T, *P_WIFI_VAR_T;	/* end of _WIFI_VAR_T */
 
 /* cnm_timer module */
@@ -585,8 +598,8 @@ struct PERF_MONITOR_T {
 	ULONG ulLastRxBytes;
 	ULONG ulP2PLastTxBytes;
 	ULONG ulP2PLastRxBytes;
-	ULONG ulThroughput; /*in bps*/
-	UINT32 u4UpdatePeriod; /*in ms*/
+	ULONG ulThroughput;     /* in bps */
+	UINT32 u4UpdatePeriod;  /* in ms */
 	UINT32 u4TarPerfLevel;
 	UINT32 u4CurrPerfLevel;
 	UINT8 u1ShutdownCoreCount;
@@ -825,6 +838,7 @@ struct _ADAPTER_T {
 
 	UINT_32 u4AirDelayTotal;	/*  dbg privilege power mode, always keep in active */
 	ULONG	ulSuspendFlag;
+	UINT_8 ucFlushCount;	/*FW flush packet count*/
 	struct PERF_MONITOR_T rPerMonitor;
 
 
@@ -909,9 +923,16 @@ struct _ADAPTER_T {
 #define PERF_MON_STOP_BIT       (1)
 #define PERF_MON_RUNNING_BIT    (2)
 
-#define THROUGHPUT_L1_THRESHOLD		(20*1024*1024)
-#define THROUGHPUT_L2_THRESHOLD		(60*1024*1024)
-#define THROUGHPUT_L3_THRESHOLD		(135*1024*1024)
+#define THROUGHPUT_L1_THRESHOLD		(25*1024*1024)
+#define THROUGHPUT_L2_THRESHOLD		(40*1024*1024)
+#define THROUGHPUT_L3_THRESHOLD		(60*1024*1024)
+#define THROUGHPUT_L4_THRESHOLD		(135*1024*1024)
+
+#define THROUGHPUT_AP_L1_THRESHOLD	(5*1024*1024)
+#define THROUGHPUT_AP_L2_THRESHOLD	(10*1024*1024)
+#define THROUGHPUT_AP_L3_THRESHOLD	(60*1024*1024)
+#define THROUGHPUT_AP_L4_THRESHOLD	(135*1024*1024)
+
 
 #define THROUGHPUT_SHUTDOWN_CORE_COUNT	5
 

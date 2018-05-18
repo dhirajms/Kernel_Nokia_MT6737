@@ -99,18 +99,17 @@ struct pinctrl *accdet_pinctrl1;
 struct pinctrl_state *pins_eint_int;
 #endif
 
-
 //struct pinctrl *pinctrl7;
 struct pinctrl_state *HeadsetSwitchEnableDefault;
 struct pinctrl_state *HeadsetSwitchEnableLow;
 struct pinctrl_state *HeadsetSwitchEnableHigh;
-
+extern unsigned short fih_hwid;
 
 
 #ifdef DEBUG_THREAD
 #endif
 
-// press hook twice or three times 
+//add to press hook twice or three times 
 static struct hrtimer accdet_timer;
 static int short_timer = 0;
 static struct hrtimer accdet_timer2;
@@ -295,10 +294,10 @@ static inline void disable_accdet(void)
 	/*sync with accdet_irq_handler set clear accdet irq bit to avoid  set clear accdet irq bit after disable accdet
 	disable accdet irq*/
 	
-	//press hook twice or three times
+	//add to press hook twice or three times  [
     hrtimer_cancel(&accdet_timer);
     hrtimer_cancel(&accdet_timer2);
-
+    //end ]
 	
 	pmic_pwrap_write(INT_CON_ACCDET_CLR, RG_ACCDET_IRQ_CLR);
 	clear_accdet_interrupt();
@@ -661,7 +660,7 @@ static int key_check(int b)
 	return NO_KEY;
 }
 	
-// press hook twice or three times 
+//add to press hook twice or three times 
 static enum hrtimer_restart accdet_timer_func(struct hrtimer *timer)
 {
     ACCDET_DEBUG("[Accdet]accdet_timer_func: accdet hook short press %d.\n", short_timer);
@@ -763,7 +762,7 @@ static void send_key_event(int keycode, int flag)
 		ACCDET_DEBUG("[accdet]KEY_VOLUMEUP %d\n", flag);
 		break;
 	case MD_KEY:
-         //press hook twice or three times 
+         //add to press hook twice or three times 
          if (call_status == 0)
          {
              if (!flag) {
@@ -1774,14 +1773,14 @@ int mt_accdet_probe(struct platform_device *dev)
 	__set_bit(KEY_VOLUMEUP, kpd_accdet_dev->keybit);
 	__set_bit(KEY_VOICECOMMAND, kpd_accdet_dev->keybit);
 	
-	// Begin, for press hook twice or three times
+	//add to press hook twice or three times  [
 	__set_bit(KEY_NEXTSONG, kpd_accdet_dev->keybit);
 	__set_bit(KEY_PREVIOUSSONG, kpd_accdet_dev->keybit);
 
 	__set_bit(KEY_CALL, kpd_accdet_dev->keybit);
 	__set_bit(KEY_ENDCALL, kpd_accdet_dev->keybit);
 	__set_bit(KEY_STOPCD, kpd_accdet_dev->keybit);
-	// End, for press hook twice or three times
+	//add to press hook twice or three times  ]
 
 	kpd_accdet_dev->id.bustype = BUS_HOST;
 	kpd_accdet_dev->name = "ACCDET";

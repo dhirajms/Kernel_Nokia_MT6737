@@ -816,7 +816,7 @@ static int kpd_open(struct input_dev *dev)
 	return 0;
 }
 
-//[ start, add reboot node ,20151222 
+//[ add reboot node ,20151222 
 #if 1
 static ssize_t kpd_reboot_show(struct device_driver *ddri, char *buf)
 {
@@ -862,15 +862,16 @@ static ssize_t kpd_reboot_store(struct device_driver *ddri, const char *buf, siz
 	switch (reboot_time)
     {
         case 5:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,3);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,3);//mt6328_upmu_set_rg_pwrkey_rst_td(3);
             break;
         case 8:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,0);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,0);//mt6328_upmu_set_rg_pwrkey_rst_td(0);
+            break;
         case 11:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,1);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,1);//mt6328_upmu_set_rg_pwrkey_rst_td(1);
             break;
         case 14:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,2);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,2);//mt6328_upmu_set_rg_pwrkey_rst_td(2);
             break;
 		default:
             break;
@@ -879,7 +880,7 @@ static ssize_t kpd_reboot_store(struct device_driver *ddri, const char *buf, siz
 }
 static DRIVER_ATTR(reboot, 0755, kpd_reboot_show, kpd_reboot_store);
 #endif
-// end add reboot node ,20151222 ]
+// add reboot node ,20151222 ]
 
 
 void kpd_get_dts_info(struct device_node *node)
@@ -1045,11 +1046,11 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 #ifndef KPD_EARLY_PORTING	/*add for avoid early porting build err the macro is defined in custom file */
 	long_press_reboot_function_setting();	/* /API 4 for kpd long press reboot function setting */
 
-//[ start, add reboot node ,20151222 
+//[ add reboot node ,20151222 
     err = driver_create_file(&kpd_pdrv.driver, &driver_attr_reboot);
 	if(err)
         printk("create reboot node failed\n");
-// end, add reboot node ,20151222 ]
+//  add reboot node ,20151222 ]
 
 #endif
 	hrtimer_init(&aee_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);

@@ -3969,7 +3969,7 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 
 		cpufreq_info("@%s: limited_power_idx = %d\n", __func__, p->limited_power_idx);
 
-	// Sunyongshan, ALPS03166419
+	//ALPS03166419
 #ifdef CONFIG_SYSTEM_BOOTUP_CPU_BOOST
 		p->limited_min_freq_by_kdriver = cpu_dvfs_get_max_freq(p);
 #endif
@@ -4042,7 +4042,7 @@ static void _mt_cpufreq_lcm_status_switch(int onoff)
 		_allow_dpidle_ctrl_vproc = false;
 
 		for_each_cpu_dvfs(i, p) {
-			if (!cpu_dvfs_is_available(p) || !p->dvfs_disable_by_early_suspend)		// Sunyongshan, ALPS03166419
+			if (!cpu_dvfs_is_available(p) || !p->dvfs_disable_by_early_suspend)		//ALPS03166419
 				continue;
 
 			p->dvfs_disable_by_early_suspend = false;
@@ -5096,6 +5096,11 @@ static ssize_t cpufreq_freq_proc_write(struct file *file, const char __user *buf
 			if (freq != 0)
 				cpufreq_err("frequency should higher than %dKHz!\n",
 						cpu_dvfs_get_min_freq(p));
+			p->dvfs_disable_by_procfs = false;
+			goto end;
+		} else if (freq > cpu_dvfs_get_max_freq(p)) {
+			cpufreq_err("frequency should lower than %dKHz!\n",
+					cpu_dvfs_get_max_freq(p));
 			p->dvfs_disable_by_procfs = false;
 			goto end;
 		} else {

@@ -15,7 +15,7 @@
 #define __MT65XX_LCM_LIST_H__
 
 #include <lcm_drv.h>
-extern LCM_DRIVER nt35512_fwvga_dsi_vdo_zgd_lcm_drv;
+
 extern LCM_DRIVER nt35521_hd720_dsi_vdo_innolux_lcm_drv;
 extern LCM_DRIVER otm1282a_hd720_dsi_vdo_60hz_lcm_drv;
 extern LCM_DRIVER otm1282a_hd720_dsi_vdo_lcm_drv;

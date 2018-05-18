@@ -606,7 +606,6 @@ extern unsigned int g_bcct_flag;
 /* ============================================================ */
 extern signed int chr_control_interface(CHARGING_CTRL_CMD cmd, void *data);
 
-
 #if defined(CONFIG_MTK_BQ24157_SUPPORT)
 extern kal_bool bq24157_chargin_hw_init_done;
 extern signed int bq24157_chr_control_interface(CHARGING_CTRL_CMD cmd, void *data);

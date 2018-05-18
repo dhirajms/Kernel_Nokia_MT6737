@@ -38,10 +38,6 @@ LCM_DRIVER *lcm_driver_list[] = {
 	&nt35521_hd720_dsi_vdo_innolux_lcm_drv,
 #endif
 
-#if defined(NT35512_FWVGA_DSI_VDO_ZGD)
-	&nt35512_fwvga_dsi_vdo_zgd_lcm_drv,
-#endif
-
 #if defined(OTM1284A_HD720_DSI_VDO_TM)
 	&otm1284a_hd720_dsi_vdo_tm_lcm_drv,
 #endif

@@ -1333,8 +1333,17 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		ret = PTR_ERR(config->f_ms);
 		goto err_usb_get_function;
 	}
+#ifdef CONFIG_MTK_MULTI_STORAGE_SUPPORT
+#ifdef CONFIG_MTK_SHARED_SDCARD
+#define NLUN_STORAGE 1
+#else
+#define NLUN_STORAGE 2
+#endif
+#else
+#define NLUN_STORAGE 1
+#endif
 
-	fsg_mod_data.file_count = 1;
+	fsg_mod_data.file_count = NLUN_STORAGE;
 	for (i = 0 ; i < fsg_mod_data.file_count; i++) {
 		fsg_mod_data.file[i] = "";
 		fsg_mod_data.removable[i] = true;
@@ -2032,7 +2041,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
 
 		/* special case for meta mode */
-		if (serial_string[0] == 0x0) {
+		if (serial_string[0] == 0x20) {
 			cdev->desc.iSerialNumber = 0;
 		} else {
 			cdev->desc.iSerialNumber = device_desc.iSerialNumber;

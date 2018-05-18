@@ -184,11 +184,18 @@ WLAN_STATUS nicQmSetRxBASize(IN P_ADAPTER_T prAdapter, BOOLEAN enable, UINT32 si
 
 WLAN_STATUS nicSetAutoTxPower(IN P_ADAPTER_T prAdapter, IN P_CMD_AUTO_POWER_PARAM_T prAutoPwrParam);
 
+WLAN_STATUS nicSetUApsdParam(IN P_ADAPTER_T prAdapter,
+	IN PARAM_CUSTOM_UAPSD_PARAM_STRUCT_T rUapsdParams, IN ENUM_NETWORK_TYPE_INDEX_T eNetworkTypeIdx);
+
 /*----------------------------------------------------------------------------*/
 /* Calibration Control                                                        */
 /*----------------------------------------------------------------------------*/
 WLAN_STATUS nicUpdateTxPower(IN P_ADAPTER_T prAdapter, IN P_CMD_TX_PWR_T prTxPwrParam);
-
+#if CFG_SUPPORT_TX_BACKOFF
+WLAN_STATUS nicUpdateTxPowerOffset(IN P_ADAPTER_T prAdapter,
+		IN P_CMD_MITIGATED_PWR_OFFSET_T prTxPwrOffsetParam);
+WLAN_STATUS nicTxPowerBackOff(IN P_ADAPTER_T prAdapter, IN UINT32 TxPowerBackOffParam);
+#endif
 WLAN_STATUS nicUpdate5GOffset(IN P_ADAPTER_T prAdapter, IN P_CMD_5G_PWR_OFFSET_T pr5GPwrOffset);
 
 WLAN_STATUS nicUpdateDPD(IN P_ADAPTER_T prAdapter, IN P_CMD_PWR_PARAM_T prDpdCalResult);

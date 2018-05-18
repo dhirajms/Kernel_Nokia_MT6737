@@ -59,18 +59,6 @@
 #include "mt_soc_digital_type.h"
 #include "mt_soc_pcm_common.h"
 
-//cloudie [
-#undef pr_warn
-//#define pr_warn(fmt, arg...) printk(KERN_DEBUG fmt, ##arg)
-//cloudie ]
-
-
-#ifdef _MTK_USER_YU_ 
-#define pr_warn(fmt, arg...)
-#else
-#define pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
-#endif
-
 #define _DEBUG_6328_CLK
 
 #define MAGIC_NUMBER 0xFFFFFFC0

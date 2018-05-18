@@ -35,8 +35,3 @@ obj-$(CONFIG_MT_SND_SOC_V3) += mt_soc_dai_stub.o mt_soc_dai_routing.o mt_soc_cod
 obj-$(CONFIG_MT_SND_SOC_V3) += mt_soc_pcm_hp_impedance.o
 obj-$(CONFIG_MT_SND_SOC_V3) += mt_soc_machine.o
 obj-$(CONFIG_MTK_SPEAKER) += mt_soc_codec_speaker_63xx.o
-
-ifeq ($(TARGET_BUILD_VARIANT),user)
-#$(error yujinyun $(TARGET_BUILD_VARIANT))
-ccflags-y += -D_MTK_USER_YU_
-endif

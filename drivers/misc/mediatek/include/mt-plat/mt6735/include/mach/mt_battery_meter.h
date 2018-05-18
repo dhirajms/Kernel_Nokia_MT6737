@@ -155,7 +155,7 @@
 #define FG_BAT_INT
 #define IS_BATTERY_REMOVE_BY_PMIC
 
-// E1 start
+
 #elif defined(CONFIG_ARCH_MT6735M)
 /* ============================================================
 // define
@@ -192,7 +192,7 @@
 #define FG_METER_RESISTANCE 0
 
 /* Qmax for battery  */
-//these should change,when ZCV of NE1's battery come.
+//these should change,when ZCV battery come.
 #define Q_MAX_POS_50 2568
 #define Q_MAX_POS_25 2554
 #define Q_MAX_POS_0	1780
@@ -214,7 +214,7 @@
 #else
 #define CUST_TRACKING_POINT  1
 #endif
-//modify for E1 project Rsense = 56mR.
+//modify project Rsense = 56mR.
 #define CUST_R_SENSE 56
 #define CUST_HW_CC 0
 #define AGING_TUNING_VALUE 103
@@ -223,7 +223,7 @@
 #define OCV_BOARD_COMPESATE	0 /*mV */
 #define R_FG_BOARD_BASE 1000
 #define R_FG_BOARD_SLOPE 1000 /*slope*/
-
+//need hardware tune.waiting...
 #define CAR_TUNE_VALUE 101 /*1.00*/
 
 
@@ -234,15 +234,15 @@
 #define R_FG_VALUE 10 /* mOhm, base is 20*/
 
 /* fg 2.0 */
-#define DIFFERENCE_HWOCV_RTC		65	/* 30 ->65*/
+#define DIFFERENCE_HWOCV_RTC		65	/*30 ->65*/
 #define DIFFERENCE_HWOCV_SWOCV		10
 #define DIFFERENCE_SWOCV_RTC		50	/*10 -> 50*/
-#define MAX_SWOCV			1	/*Jason: 5 -> 1*/
+#define MAX_SWOCV			1	/*5 -> 1*/
 
 #define DIFFERENCE_VOLTAGE_UPDATE	20
 #define AGING1_LOAD_SOC			70
 #define AGING1_UPDATE_SOC		30
-#define BATTERYPSEUDO100		100	// 95->100.
+#define BATTERYPSEUDO100		100	//95->100.
 #define BATTERYPSEUDO1 2
 
 /* #define Q_MAX_BY_SYS */
@@ -274,7 +274,7 @@
 #define CUST_POWERON_MAX_VBAT_TOLRANCE			90
 #define CUST_POWERON_DELTA_VBAT_TOLRANCE		30
 #define CUST_POWERON_DELTA_VBAT_INDEX           15	//Add for RTC Vbat
-//modify  D0 (10 -> 25).
+//modify D0 (10 -> 25).
 #define CUST_POWERON_DELTA_HW_SW_OCV_CAPACITY_TOLRANCE	25
 
 
@@ -308,7 +308,7 @@
 #define NTC_MIN_TEMP        (-30)   //-30
 #define NO_NTC_TEMP         (-128)
 
-//add for E1 maby need second battery.
+//add maby need second battery.
 #define MTK_MULTI_BAT_PROFILE_SUPPORT
 //BAT_ID
 #define BATTERY_ID_CHECK

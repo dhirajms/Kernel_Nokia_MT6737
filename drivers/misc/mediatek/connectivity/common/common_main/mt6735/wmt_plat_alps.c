@@ -935,12 +935,20 @@ UINT32 wmt_plat_read_cpupcr(void)
 }
 EXPORT_SYMBOL(wmt_plat_read_cpupcr);
 
+UINT32 wmt_plat_read_chipid(void)
+{
+	return CONSYS_REG_READ(conn_reg.mcu_base + CONSYS_CHIP_ID_OFFSET);
+}
+EXPORT_SYMBOL(wmt_plat_read_chipid);
+
 VOID wmt_plat_cpu_sw_rst(VOID)
 {
 	/*3.assert CONNSYS CPU SW reset  0x10007018 "[12]=1'b1  [31:24]=8'h88 (key)" */
 	CONSYS_REG_WRITE((conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET),
 			CONSYS_REG_READ(conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET) |
 			CONSYS_CPU_SW_RST_BIT | CONSYS_CPU_SW_RST_CTRL_KEY);
+	WMT_PLAT_WARN_FUNC("WMT-PLAT: 0x10007018: %x.\n",
+			CONSYS_REG_READ(conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET));
 }
 
 VOID wmt_plat_cpu_sw_rst_deassert(VOID)
@@ -949,6 +957,8 @@ VOID wmt_plat_cpu_sw_rst_deassert(VOID)
 	CONSYS_REG_WRITE(conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET,
 			(CONSYS_REG_READ(conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET) &
 			 ~CONSYS_CPU_SW_RST_BIT) | CONSYS_CPU_SW_RST_CTRL_KEY);
+	WMT_PLAT_WARN_FUNC("WMT-PLAT: 0x10007018: %x.\n",
+			CONSYS_REG_READ(conn_reg.ap_rgu_base + CONSYS_CPU_SW_RST_OFFSET));
 }
 
 UINT32 wmt_plat_read_dmaregs(UINT32 type)

@@ -56,14 +56,20 @@ extern void rtc_bbpu_power_down(void);
 extern void rtc_read_pwron_alarm(struct rtc_wkalrm *alm);
 extern int get_rtc_spare_fg_value(void);
 extern int set_rtc_spare_fg_value(int val);
-
-//Add for RTC Vbat 
+//Add by Jason for RTC Vbat 
 extern int get_rtc_spare_vbat_value(void);
 extern int set_rtc_spare_vbat_value(int val);
 
 extern void rtc_irq_handler(void);
 extern bool crystal_exist_status(void);
 extern void mt_power_off(void);
+/*Begin:add for reboot condition johnny,20116/02/29*/
+extern void rtc_mark_ftm(void);
+extern void rtc_mark_meta(void);
+extern void rtc_mark_preloader(void);
+/*sunjie + */
+extern void rtc_mark_ramtest(void);
+/*End:add for reboot condition johnny,2016/02/29*/
 #else/*ifdef CONFIG_MTK_RTC*/
 #define rtc_read_hw_time()              ({ 0; })
 #define rtc_gpio_enable_32k(user)	do {} while (0)
@@ -83,6 +89,10 @@ extern void mt_power_off(void);
 #define rtc_read_pwron_alarm(alm)	do {} while (0)
 #define get_rtc_spare_fg_value()	({ 0; })
 #define set_rtc_spare_fg_value(val)	({ 0; })
+
+#define get_rtc_spare_vbat_value()	({ 0; })//Add by Jason for RTC Vbat 
+#define set_rtc_spare_vbat_value(val)	({ 0; })//Add by Jason for RTC Vbat 
+
 #define rtc_irq_handler()			do {} while (0)
 #define crystal_exist_status()		do {} while (0)
 __weak void mt_power_off(void);

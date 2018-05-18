@@ -122,20 +122,6 @@
 #include "AudDrv_Common_func.h"
 #include "AudDrv_Gpio.h"
 
-//cloudie [
-#undef pr_warn
-//#define pr_warn(fmt, arg...) printk(KERN_DEBUG fmt, ##arg)
-//cloudie ]
-
-
-#ifdef _MTK_USER_YU_ 
-#define pr_warn(fmt, arg...)
-#else
-#define pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
-#endif
-
-
-
 static DEFINE_SPINLOCK(afe_control_lock);
 static DEFINE_SPINLOCK(afe_sram_control_lock);
 
@@ -211,6 +197,8 @@ static const uint16_t kSideToneCoefficientTable32k[] = {
 	0x08e2, 0x0af7, 0x0cb2, 0x0df0,
 	0x0e96
 };
+
+static uint32 LowLatencyDebug;
 
 
 /*
@@ -2783,13 +2771,24 @@ bool ClearMemBlock(Soc_Aud_Digital_Block MemBlock)
 	return true;
 }
 
+#define MEM_TIMEOUT_CNT 4
 bool RemoveMemifSubStream(Soc_Aud_Digital_Block MemBlock, struct snd_pcm_substream *substream)
 {
 	substreamList *head;
 	substreamList *temp = NULL;
 	unsigned long flags;
+	int i;
 
 	spin_lock_irqsave(&AFE_Mem_Control_context[MemBlock]->substream_lock, flags);
+
+	for (i = 0; i < MEM_TIMEOUT_CNT; i++) {
+		if (AFE_Mem_Control_context[MemBlock]->mWaitForIRQ == true) {
+			pr_debug("%s: enter udelay.\n", __func__);
+			mdelay(5);
+		} else {
+			break;
+		}
+	}
 
 	if (AFE_Mem_Control_context[MemBlock]->MemIfNum == 0)
 		pr_debug("%s AFE_Mem_Control_context[%d]->MemIfNum == 0\n ", __func__, MemBlock);
@@ -2963,8 +2962,10 @@ void Auddrv_AWB_Interrupt_Handler(void)
 	while (temp != NULL) {
 		if (temp->substream != NULL) {
 			temp_cnt = Mem_Block->MemIfNum;
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 			snd_pcm_period_elapsed(temp->substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 
 			if (temp_cnt != Mem_Block->MemIfNum) {
@@ -3048,8 +3049,10 @@ void Auddrv_DAI_Interrupt_Handler(void)
 
 	if (Mem_Block->substreamL != NULL) {
 		if (Mem_Block->substreamL->substream != NULL) {
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 			snd_pcm_period_elapsed(Mem_Block->substreamL->substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 		}
 	}
@@ -3146,8 +3149,10 @@ void Auddrv_DL1_Interrupt_Handler(void)
 
 	if (Mem_Block->substreamL != NULL) {
 		if (Mem_Block->substreamL->substream != NULL) {
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 			snd_pcm_period_elapsed(Mem_Block->substreamL->substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 		}
 	}
@@ -3160,104 +3165,28 @@ void Auddrv_DL2_Interrupt_Handler(void)
 	/* irq2 ISR handler */
 #define MAGIC_NUMBER 0xFFFFFFC0
 	AFE_MEM_CONTROL_T *Mem_Block = AFE_Mem_Control_context[Soc_Aud_Digital_Block_MEM_DL2];
-	kal_int32 Afe_consumed_bytes = 0;
-	kal_int32 HW_memory_index = 0;
-	kal_int32 HW_Cur_ReadIdx = 0;
-	AFE_BLOCK_T *Afe_Block = &(AFE_Mem_Control_context[Soc_Aud_Digital_Block_MEM_DL2]->rBlock);
-
-	/* substreamList *Temp = NULL; */
 	unsigned long flags;
 
-	if (Mem_Block == NULL) {
-		pr_err("-%s(), Mem_Block == NULL\n", __func__);
+	if (Mem_Block == NULL)
 		return;
-	}
 
 	Auddrv_Dl2_Spinlock_lock();
 	spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 
 	if (GetMemoryPathEnable(Soc_Aud_Digital_Block_MEM_DL2) == false) {
-		PRINTK_AUD_DL2
-		    ("%s(), GetMemoryPathEnable(Soc_Aud_Digital_Block_MEM_DL2) == false, return\n ",
-		     __func__);
+		/* printk("%s(), GetMemoryPathEnable(Soc_Aud_Digital_Block_MEM_DL2) == false, return\n ", __func__); */
 		spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 		Auddrv_Dl2_Spinlock_unlock();
 		return;
 	}
 
-	HW_Cur_ReadIdx = Afe_Get_Reg(AFE_DL2_CUR);
-
-	if (HW_Cur_ReadIdx == 0) {
-		PRINTK_AUD_DL2("[Auddrv] DL2 HW_Cur_ReadIdx ==0\n");
-		HW_Cur_ReadIdx = Afe_Block->pucPhysBufAddr;
-	}
-
-	HW_memory_index = (HW_Cur_ReadIdx - Afe_Block->pucPhysBufAddr);
-
-	PRINTK_AUD_DL2
-	    ("[Auddrv] DL2 HW_Cur_ReadIdx=0x%x HW_memory_index = 0x%x Afe_Block->pucPhysBufAddr = 0x%x\n",
-	     HW_Cur_ReadIdx, HW_memory_index, Afe_Block->pucPhysBufAddr);
-
-	/* get hw consume bytes */
-	if (HW_memory_index > Afe_Block->u4DMAReadIdx) {
-		Afe_consumed_bytes = HW_memory_index - Afe_Block->u4DMAReadIdx;
-	} else {
-		Afe_consumed_bytes =
-		    Afe_Block->u4BufferSize + HW_memory_index - Afe_Block->u4DMAReadIdx;
-	}
-
-	Afe_consumed_bytes = Afe_consumed_bytes & MAGIC_NUMBER;	/* 64 bytes align */
-
-	/*
-	   if ((Afe_consumed_bytes & 0x1f) != 0)
-	   {
-	   pr_debug("[Auddrv] DMA address is not aligned 32 bytes\n");
-	   } */
-
-	PRINTK_AUD_DL2("+%s ReadIdx:%x WriteIdx:%x,Remained:%x, consumed_bytes:%x HW_memory_index = %x\n",
-	__func__, Afe_Block->u4DMAReadIdx, Afe_Block->u4WriteIdx,
-	Afe_Block->u4DataRemained, Afe_consumed_bytes, HW_memory_index);
-
-	if (Afe_Block->u4DataRemained < Afe_consumed_bytes
-	    || Afe_Block->u4DataRemained <= 0 || Afe_Block->u4DataRemained >
-	    Afe_Block->u4BufferSize) {
-#if 0  /* DL2 have false alarm about underflow, so temporarily disable */
-		if (AFE_dL_Abnormal_context.u4UnderflowCnt < DL_ABNORMAL_CONTROL_MAX) {
-			AFE_dL_Abnormal_context.pucPhysBufAddr[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_Block->pucPhysBufAddr;
-			AFE_dL_Abnormal_context.u4BufferSize[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_Block->u4BufferSize;
-			AFE_dL_Abnormal_context.u4ConsumedBytes[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_consumed_bytes;
-			AFE_dL_Abnormal_context.u4DataRemained[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_Block->u4DataRemained;
-			AFE_dL_Abnormal_context.u4DMAReadIdx[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_Block->u4DMAReadIdx;
-			AFE_dL_Abnormal_context.u4HwMemoryIndex[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									HW_memory_index;
-			AFE_dL_Abnormal_context.u4WriteIdx[AFE_dL_Abnormal_context.u4UnderflowCnt] =
-									Afe_Block->u4WriteIdx;
-			AFE_dL_Abnormal_context.MemIfNum[AFE_dL_Abnormal_context.u4UnderflowCnt] = MEM_DL2;
-		}
-		AFE_dL_Abnormal_context.u4UnderflowCnt++;
-#endif
-	} else {
-		PRINTK_AUD_DL2("+DL2_Handling normal ReadIdx:%x ,DataRemained:%x, WriteIdx:%x\n",
-			       Afe_Block->u4DMAReadIdx, Afe_Block->u4DataRemained,
-			       Afe_Block->u4WriteIdx);
-		Afe_Block->u4DataRemained -= Afe_consumed_bytes;
-		Afe_Block->u4DMAReadIdx += Afe_consumed_bytes;
-		Afe_Block->u4DMAReadIdx %= Afe_Block->u4BufferSize;
-	}
-
-	AFE_Mem_Control_context[Soc_Aud_Digital_Block_MEM_DL2]->interruptTrigger = 1;
-	PRINTK_AUD_DL2("-DL2_Handling normal ReadIdx:%x ,DataRemained:%x, WriteIdx:%x\n",
-		       Afe_Block->u4DMAReadIdx, Afe_Block->u4DataRemained, Afe_Block->u4WriteIdx);
 
 	if (Mem_Block->substreamL != NULL) {
 		if (Mem_Block->substreamL->substream != NULL) {
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 			snd_pcm_period_elapsed(Mem_Block->substreamL->substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 		}
 	}
@@ -3316,6 +3245,7 @@ void Auddrv_UL1_Interrupt_Handler(void)
 	kal_int32 Hw_Get_bytes = 0;
 	AFE_BLOCK_T *mBlock = NULL;
 	unsigned long flags;
+	struct snd_pcm_substream *temp_substream = NULL;
 
 	if (Mem_Block == NULL) {
 		pr_err("Mem_Block == NULL\n ");
@@ -3372,8 +3302,11 @@ void Auddrv_UL1_Interrupt_Handler(void)
 
 	if (Mem_Block->substreamL != NULL) {
 		if (Mem_Block->substreamL->substream != NULL) {
+			temp_substream = Mem_Block->substreamL->substream;
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
-			snd_pcm_period_elapsed(Mem_Block->substreamL->substream);
+			snd_pcm_period_elapsed(temp_substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 		}
 	}
@@ -3532,8 +3465,10 @@ void Auddrv_UL2_Interrupt_Handler(void)
 
 	if (Mem_Block->substreamL != NULL) {
 		if (Mem_Block->substreamL->substream != NULL) {
+			Mem_Block->mWaitForIRQ = true;
 			spin_unlock_irqrestore(&Mem_Block->substream_lock, flags);
 			snd_pcm_period_elapsed(Mem_Block->substreamL->substream);
+			Mem_Block->mWaitForIRQ = false;
 			spin_lock_irqsave(&Mem_Block->substream_lock, flags);
 		}
 	}
@@ -4193,4 +4128,15 @@ int irq_update_user(const void *_user,
 }
 /* IRQ Manager END*/
 
+/* low latency debug */
+int get_LowLatencyDebug(void)
+{
+	return LowLatencyDebug;
+}
+
+void set_LowLatencyDebug(uint32 bFlag)
+{
+	LowLatencyDebug = bFlag;
+	pr_warn("%s LowLatencyDebug = %d\n", __func__, LowLatencyDebug);
+}
 

@@ -1308,7 +1308,7 @@ static inline INT32 _stp_psm_do_wait(MTKSTP_PSM_T *stp_psm, MTKSTP_PSM_STATE_T s
 		_stp_psm_opid_dbg_out_printk(g_stp_psm_opid_dbg);
 		return STP_PSM_OPERATION_FAIL;
 	}
-	STP_PSM_INFO_FUNC("+Total waits for %s takes %d msec\n", g_psm_state[state], i * POLL_WAIT);
+	STP_PSM_DBG_FUNC("+Total waits for %s takes %d msec\n", g_psm_state[state], i * POLL_WAIT);
 	return STP_PSM_OPERATION_SUCCESS;
 }
 
@@ -1540,6 +1540,7 @@ INT32 stp_psm_disable_by_tx_rx_density(MTKSTP_PSM_T *stp_psm, INT32 dir, INT32 l
 				stp_psm->idle_time_to_sleep = STP_PSM_IDLE_TIME_SLEEP;
 				osal_clear_bit(STP_PSM_WMT_EVENT_DISABLE_MONITOR_TX_HIGH_DENSITY, &stp_psm->flag);
 			}
+			wmt_lib_ps_set_idle_time(stp_psm->idle_time_to_sleep);
 			sample_start = 0;
 			rx_sum_len = 0;
 			tx_sum_len = 0;

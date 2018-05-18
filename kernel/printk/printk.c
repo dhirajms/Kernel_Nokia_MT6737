@@ -137,6 +137,7 @@ extern void printascii(char *);
 #endif
 
 bool printk_disable_uart = 0;
+bool testaeewarning = 0;
 
 bool mt_get_uartlog_status(void)
 {
@@ -1186,6 +1187,7 @@ static inline void boot_delay_msec(int level)
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
 module_param_named(disable_uart, printk_disable_uart, bool, S_IRUGO | S_IWUSR);
+module_param_named(testaee, testaeewarning, bool, S_IRUGO | S_IWUSR);
 
 static size_t print_time(u64 ts, char *buf)
 {
@@ -1658,7 +1660,7 @@ static void call_console_drivers(int level, const char *text, size_t len)
 	char cur_time[32];
 	int idx = 0;
 
-	char dump_uart[64];
+	char dump_uart[512];
 #endif
 
 	trace_console(text, len);
@@ -1702,7 +1704,8 @@ static void call_console_drivers(int level, const char *text, size_t len)
 
 #ifdef CONFIG_CONSOLE_LOCK_DURATION_DETECT
 	/* console duration over 15 seconds, Calc console write rate recently */
-	if ((local_clock() - con_dura_time) > 15000000000) {
+	if (((local_clock() - con_dura_time) > 15000000000) || testaeewarning) {
+		testaeewarning = 0;
 #ifdef CONFIG_MTK_SERIAL
 		/* dump uart regs */
 		memset(dump_uart, 0x00, sizeof(dump_uart));
@@ -1734,8 +1737,8 @@ static void call_console_drivers(int level, const char *text, size_t len)
 		scnprintf(cur_time, sizeof(cur_time), "[%llu.%06lu]", tmp2, rem_nsec/1000);
 
 		aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_DEFAULT | DB_OPT_FTRACE,
-			"Console Lock dur over 15 seconds", "%s %s%s, cpu: %d, ConList(%d): %s\n",
-			cur_time, dump_uart, aee_str, smp_processor_id(), cnt, con_name);
+			"Console 15", "%s %s%s, cpu: %d, ConList(%d): %s\n",
+			cur_time, aee_str, dump_uart, smp_processor_id(), cnt, con_name);
 
 		con_dura_time = local_clock();
 	}

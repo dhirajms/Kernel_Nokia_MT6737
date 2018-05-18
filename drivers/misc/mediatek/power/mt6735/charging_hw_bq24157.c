@@ -116,7 +116,7 @@ const u32 bq24157_VCDT_HV_VTH[] = {
 	    BATTERY_VOLT_10_500000_V
 };
 
-// add for DPM at 20150604
+//add for DPM at 20150604
 const unsigned int bq24157_VBAT_SCV_VTH[]=
 {
     BATTERY_VOLT_04_200000_V, BATTERY_VOLT_04_280000_V, BATTERY_VOLT_04_360000_V, BATTERY_VOLT_04_440000_V,
@@ -193,7 +193,7 @@ static u32 charging_hw_init(void *data)
 
 	#if defined(HIGH_BATTERY_VOLTAGE_SUPPORT)
 	//bq24157_reg_config_interface(0x06,0x79); // ISAFE = 1250mA, VSAFE = 4.38V
-	bq24157_reg_config_interface(0x06,0x7b); // ISAFE = 1518mA, VSAFE = 4.42V
+	bq24157_reg_config_interface(0x06,0x7b); //ISAFE = 1518mA, VSAFE = 4.42V
 	#else
 	bq24157_reg_config_interface(0x06,0x70);
 	#endif
@@ -202,7 +202,7 @@ static u32 charging_hw_init(void *data)
 	//bq24157_reg_config_interface(0x05,0x02); //VDPM=4.36V
 	bq24157_reg_config_interface(0x05,0x03); //VDPM=4.44V
 	if (!charging_init_flag) {
-		bq24157_reg_config_interface(0x04, 0x1A);	/* termination current 121mA */
+		bq24157_reg_config_interface(0x04, 0x1A);	/*termination current 121mA */
 		charging_init_flag = KAL_TRUE;
 	}
 	return status;
@@ -253,7 +253,7 @@ static u32 charging_set_cv_voltage(void *data)
 {
 	u32 status = STATUS_OK;
 	u16 register_value;
-// not use,Just wait.
+//add but not use,Just wait.
 #if 1
     u32 cv_value = *(u32 *) (data);
 
@@ -299,11 +299,11 @@ static u32 charging_set_current(void *data)
 	u32 current_value = *(u32 *) data;
 
 	//if (current_value <= CHARGE_CURRENT_350_00_MA) {
-	if (current_value <= CHARGE_CURRENT_400_00_MA) {//Jason.
+	if (current_value <= CHARGE_CURRENT_400_00_MA) {
 		bq24157_set_io_level(1);
 	} else {
 		bq24157_set_io_level(0);
-	//modify by Jason for E1 volue of Rsense is 56mR
+	//modify for E1 volue of Rsense is 56mR
 	/*	array_size = GETARRAYNUM(bq24157_CS_VTH);
 		set_chr_current = bmt_find_closest_level(bq24157_CS_VTH, array_size, current_value);
 		register_value = bq24157_charging_parameter_to_value(bq24157_CS_VTH, array_size, set_chr_current);
@@ -393,7 +393,7 @@ static u32 charging_set_hv_threshold(void *data)
 	array_size = GETARRAYNUM(bq24157_VCDT_HV_VTH);
 	set_hv_voltage = bmt_find_closest_level(bq24157_VCDT_HV_VTH, array_size, voltage);
 	register_value = bq24157_charging_parameter_to_value(bq24157_VCDT_HV_VTH, array_size, set_hv_voltage);
-	pmic_set_register_value(PMIC_RG_VCDT_HV_VTH, register_value);// PMIC register setting, while not charger IC.
+	pmic_set_register_value(PMIC_RG_VCDT_HV_VTH, register_value);//PMIC register setting, while not charger IC.
     pmic_set_register_value(PMIC_RG_VCDT_LV_VTH,0);//change VBUS threadhold to 4.2V
 	return status;
 }

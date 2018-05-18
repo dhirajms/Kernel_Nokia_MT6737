@@ -88,8 +88,10 @@ long mt_accdet_unlocked_ioctl(unsigned int cmd, unsigned long arg);
 int mt_accdet_probe(struct platform_device *dev);
 int accdet_get_cable_type(void);
 
+
 void accdet_hrtimer_init(void);
 void accdet_hrtimer2_init(void);
+
 
 /****************************************************
 globle ACCDET variables

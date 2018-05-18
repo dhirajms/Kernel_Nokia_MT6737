@@ -1323,6 +1323,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 		#endif
 
 		modem_type = 0x000060;
+
 		j = 0;
 
 		for(i = 1; i < modem_ulfctg; i++)

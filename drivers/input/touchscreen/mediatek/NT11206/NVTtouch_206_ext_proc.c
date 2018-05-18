@@ -62,12 +62,20 @@ static struct proc_dir_entry *NVT_proc_baseline_entry;
 static struct proc_dir_entry *NVT_proc_raw_entry;
 static struct proc_dir_entry *NVT_proc_diff_entry;
 
+#define FIH_E1_KeyTest_20170523	1
+#if FIH_E1_KeyTest_20170523
+	static struct proc_dir_entry *NVT_proc_keytest_entry;
+	#define NVT_KEYTEST "nvt_keyTest"
+	#include <linux/uaccess.h>
+	#include <linux/slab.h>
+#endif//~:FIH_E1_KeyTest_20170523
 extern struct nvt_ts_data *ts;
 extern int32_t CTP_I2C_READ(struct i2c_client *client, uint16_t address, uint8_t *buf, uint16_t len);
 extern int32_t CTP_I2C_READ_DUMMY(struct i2c_client *client, uint16_t address);
 extern int32_t CTP_I2C_WRITE(struct i2c_client *client, uint16_t address, uint8_t *buf, uint16_t len);
 extern int32_t nvt_clear_fw_status(void);
 extern int32_t nvt_check_fw_status(void);
+extern int nvt_selftest(void);
 
 /*******************************************************
 Description:
@@ -564,6 +572,225 @@ static const struct file_operations nvt_diff_fops = {
 	.release = seq_release,
 };
 
+#if FIH_E1_KeyTest_20170523
+#define KEY_TEST_LOOP	(100)//MAX is 300
+#define KEY_TEST_LV		(33)
+#define KEY_TEST_CNT_TH	(2)
+#define KEY_TEST_PASS	(1)
+#define KEY_TEST_FAIL	(0)
+#define KEY_RESULT_FILE	("/data/local/tmp/keyTestResult.txt")
+struct KeyA{	
+	int16_t BT[3];
+};
+struct KeyA Key3Arrey[300];
+uint16_t u16KeyPtr=0;
+void nvt_change_mode_0xBB(void)
+{
+	uint8_t buf[8] = {0};
+
+	//---dummy read to resume TP before writing command---
+	CTP_I2C_READ_DUMMY(ts->client, I2C_FW_Address);
+
+	//---set xdata index to 0x14700---
+	buf[0] = 0xFF;
+	buf[1] = 0x01;
+	buf[2] = 0x47;
+	CTP_I2C_WRITE(ts->client, I2C_FW_Address, buf, 3);
+
+	buf[0] = 0x51;
+	buf[1] = 0xBB;
+	CTP_I2C_WRITE(ts->client, I2C_FW_Address, buf, 2);
+}
+
+static int32_t c_keyTest_show(struct seq_file *m, void *v)
+{
+
+#if TOUCH_KEY_NUM > 0
+
+uint8_t u8Loop=0;
+uint16_t u16Cnt,u16Err[3]={0,0,0};///jx
+
+
+int16_t i16LV_p = (int16_t)KEY_TEST_LV;
+int16_t i16LV_n = 0-(int16_t)KEY_TEST_LV ;
+int16_t i16tmp;
+int16_t i16Return=KEY_TEST_PASS;//0:FAIL;1:PASS
+
+seq_printf(m, "u16KeyPtr=[%5d], u16LV(%d,%d),cnt_TH=%d\n"
+	,u16KeyPtr,i16LV_p,i16LV_n,(int16_t)KEY_TEST_CNT_TH);		
+for(u16Cnt = 0;u16Cnt < u16KeyPtr;u16Cnt ++){
+	seq_printf(m, "u16Cnt[NO.%3d]->%3d,%3d,%3d \n"
+		,u16Cnt,Key3Arrey[u16Cnt].BT[0],Key3Arrey[u16Cnt].BT[1],Key3Arrey[u16Cnt].BT[2]);		
+
+	for(u8Loop=0;u8Loop<3;u8Loop++){
+		i16tmp = Key3Arrey[u16Cnt].BT[u8Loop];
+		
+		if((i16tmp > i16LV_p)||(i16tmp < i16LV_n)){
+			u16Err[u8Loop] ++;
+			if(u16Err[u8Loop] >= (int16_t)KEY_TEST_CNT_TH)
+			{
+				i16Return=KEY_TEST_FAIL;
+				break;
+			}
+		}else{
+			u16Err[u8Loop]=0;
+		}
+	}
+	if(i16Return==KEY_TEST_FAIL)
+		break;
+}
+
+//<write result to file>
+{
+	struct file *fp = NULL;
+	mm_segment_t org_fs;
+	char *fbufp = NULL;
+	char file_path[64]=KEY_RESULT_FILE;
+	loff_t pos = 0;
+	int32_t write_ret = 0;
+	uint32_t output_len = 0;
+
+	fbufp = (char *)kzalloc(8192, GFP_KERNEL);
+	if (!fbufp) {
+		printk("kzalloc for fbufp failed.\n");
+		return -ENOMEM;
+	}
+	if(i16Return==KEY_TEST_PASS){
+		seq_printf(m,"%d PASS\n",KEY_TEST_PASS);
+		sprintf(fbufp ,"1\n");
+	}else{
+		seq_printf(m,"%d FAIL\n",KEY_TEST_FAIL);
+		sprintf(fbufp ,"0\n");
+	}
+	output_len=2;
+
+
+	org_fs = get_fs();
+	set_fs(KERNEL_DS);
+	fp = filp_open(file_path, O_RDWR | O_CREAT, 0644);
+	if (fp == NULL || IS_ERR(fp)) {
+		printk("open %s failed\n", file_path);
+		set_fs(org_fs);
+		if (fbufp) {
+			kfree(fbufp);
+			fbufp = NULL;
+		}
+		return -1;
+	}
+
+	
+
+	write_ret = vfs_write(fp, (char __user *)fbufp, output_len, &pos);
+	if (write_ret <= 0) {
+		printk("write %s failed\n", file_path);
+		set_fs(org_fs);
+		if (fp) {
+			filp_close(fp, NULL);
+			fp = NULL;
+		}
+		if (fbufp) {
+			kfree(fbufp);
+			fbufp = NULL;
+		}
+		return -1;
+	}
+
+	set_fs(org_fs);
+	if (fp) {
+		filp_close(fp, NULL);
+		fp = NULL;
+	}
+	if (fbufp) {
+		kfree(fbufp);
+		fbufp = NULL;
+	}
+
+	
+	seq_printf(m, "SaveFileTo:\t%s\n",KEY_RESULT_FILE);
+}
+#endif
+	seq_printf(m, "\n");
+	return 0;
+}
+
+const struct seq_operations nvtc_keyTest_seq_ops = {
+	.start  = c_start,
+	.next   = c_next,
+	.stop   = c_stop,
+	.show   = c_keyTest_show
+};
+
+static int32_t nvtc_keyTest_proc(struct inode *inode, struct file *file)
+{
+	uint16_t u16Loop = KEY_TEST_LOOP;
+	uint16_t u16Cnt  = 0;	
+		
+	if (mutex_lock_interruptible(&ts->lock)) {
+		return -ERESTARTSYS;
+	}
+
+	dev_info(&ts->client->dev, "%s:++\n", __func__);
+
+	if (nvt_clear_fw_status() != 0) {
+		mutex_unlock(&ts->lock);
+		return -EAGAIN;
+	}
+
+	nvt_change_mode(TEST_MODE_2);
+
+	if (nvt_check_fw_status() != 0) {
+		mutex_unlock(&ts->lock);
+		return -EAGAIN;
+	}
+
+	nvt_get_fw_info();
+
+	u16KeyPtr=0;
+	for(u16Cnt=0;u16Cnt<u16Loop;u16Cnt++){		
+		if (nvt_get_fw_pipe() == 0)
+			nvt_read_mdata(DIFF_PIPE0_ADDR, DIFF_BTN_PIPE0_ADDR);
+		else
+			nvt_read_mdata(DIFF_PIPE1_ADDR, DIFF_BTN_PIPE1_ADDR);
+		//
+		{
+			u_int8_t u8btn;
+		    if(button_num==3){
+				for (u8btn = 0; u8btn < button_num; u8btn++){								
+					Key3Arrey[u16KeyPtr].BT[u8btn%3]=(short)xdata[y_num*x_num+u8btn];
+					printk("key %5d,", (short)xdata[y_num*x_num+u8btn]);								
+				}								
+				u16KeyPtr ++;				
+				printk("\n");	
+			}			
+		}
+		
+		if(u16Cnt>=(u16Loop-1)){
+			nvt_change_mode(NORMAL_MODE);		
+			break;
+		}else{
+			nvt_change_mode_0xBB();
+		}
+	}
+
+
+	mutex_unlock(&ts->lock);
+
+	dev_info(&ts->client->dev, "%s:--\n", __func__);
+
+	return seq_open(file, &nvtc_keyTest_seq_ops);
+}
+
+
+static const struct file_operations nvtc_keyTest_fops = {
+	.owner = THIS_MODULE,
+	.open = nvtc_keyTest_proc,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+
+
+#endif//~:FIH_E1_KeyTest_20170523
 /*******************************************************
 Description:
 	Novatek touchscreen extra function proc. file node
@@ -574,6 +801,18 @@ return:
 *******************************************************/
 int32_t nvt_extra_proc_init(void)
 {
+#if FIH_E1_KeyTest_20170523
+	  //struct proc_dir_entry *for_FIH_parent;			
+	  proc_mkdir("AllHWList", NULL);	  
+	  //NVT_proc_keytest_entry = proc_create(NVT_KEYTEST, 0444, for_FIH_parent,&nvtc_keyTest_fops);
+	  NVT_proc_keytest_entry = proc_create("AllHWList/nvt_keyTest", 0444, NULL,&nvtc_keyTest_fops); //sunjie 2017.5.25
+	if (NVT_proc_keytest_entry == NULL) {
+		dev_err(&ts->client->dev,"%s: create proc/AllHWList/nvt_keyTest Failed!\n", __func__);
+		return -ENOMEM;
+	} else {
+		dev_info(&ts->client->dev,"%s: create proc/AllHWList/nvt_keyTest Succeeded!\n", __func__);
+	}
+#endif//~:FIH_E1_KeyTest_20170523
 	NVT_proc_fw_version_entry = proc_create(NVT_FW_VERSION, 0444, NULL,&nvt_fw_version_fops);
 	if (NVT_proc_fw_version_entry == NULL) {
 		dev_err(&ts->client->dev,"%s: create proc/nvt_fw_version Failed!\n", __func__);

@@ -25,6 +25,10 @@
 /******************************************************************************
  * Function Configuration
 ******************************************************************************/
+#define ENABLE_CONSOLE_DEBUG
+
+#define ENABLE_FEATURE_SEL
+
 #define ENABLE_DEBUG
 #define ENABLE_VFIFO
 /* Fix-me: marked for early porting */
@@ -244,6 +248,16 @@ enum {
 #define UART_LSR             (unsigned long)(base+0x14)
 #define UART_MSR             (unsigned long)(base+0x18)
 #define UART_SCR             (unsigned long)(base+0x1c)
+#if defined(ENABLE_FEATURE_SEL)
+#define UART_FEATURE_SEL     (unsigned long)(base+0x9c)
+#define UART_DLL             (unsigned long)(base+0x90)
+#define UART_DLH             (unsigned long)(base+0x94)
+#define UART_EFR             (unsigned long)(base+0x98)
+#define UART_XON1            (unsigned long)(base+0xA0)
+#define UART_XON2            (unsigned long)(base+0xA4)
+#define UART_XOFF1           (unsigned long)(base+0xA8)
+#define UART_XOFF2           (unsigned long)(base+0xAc)
+#else
 #define UART_DLL             (unsigned long)(base+0x00)	/* Only when LCR.DLAB = 1 */
 #define UART_DLH             (unsigned long)(base+0x04)	/* Only when LCR.DLAB = 1 */
 #define UART_EFR             (unsigned long)(base+0x08)	/* Only when LCR = 0xbf */
@@ -251,6 +265,7 @@ enum {
 #define UART_XON2            (unsigned long)(base+0x14)	/* Only when LCR = 0xbf */
 #define UART_XOFF1           (unsigned long)(base+0x18)	/* Only when LCR = 0xbf */
 #define UART_XOFF2           (unsigned long)(base+0x1c)	/* Only when LCR = 0xbf */
+#endif
 #define UART_AUTOBAUD_EN     (unsigned long)(base+0x20)
 #define UART_HIGHSPEED       (unsigned long)(base+0x24)
 #define UART_SAMPLE_COUNT    (unsigned long)(base+0x28)
@@ -433,6 +448,10 @@ enum {
 /* UART sleep ack*/
 #define UART_CLK_OFF_ACK			(1 << 0)
 /*---------------------------------------------------------------------------*/
+#if defined(ENABLE_FEATURE_SEL)
+#define UART_FEATURE_SEL_SET		(1 << 0)
+#endif
+
 /* Debugging */
 typedef struct {
 	u32 NINT:1;

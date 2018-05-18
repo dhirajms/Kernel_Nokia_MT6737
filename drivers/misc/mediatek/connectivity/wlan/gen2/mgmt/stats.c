@@ -141,6 +141,8 @@ static void statsInfoEnvDisplay(GLUE_INFO_T *prGlueInfo, UINT8 *prInBuf, UINT32 
 
 	/* init */
 	prAdapter = prGlueInfo->prAdapter;
+	/* show pkt status */
+	wlanPktStatusDebugDumpInfo(prAdapter);
 	/*prInfo = &rStatsInfoEnv;*/
 	prInfo = kalMemAlloc(sizeof(STATS_INFO_ENV_T), VIR_MEM_TYPE);
 	if (prInfo == NULL) {
@@ -181,13 +183,25 @@ static void statsInfoEnvDisplay(GLUE_INFO_T *prGlueInfo, UINT8 *prInBuf, UINT32 
 		}
 
 		if (prInfo->u4TxDataCntErr == 0) {
-			DBGLOG(RX, INFO, "<stats> TOS(%u) OK(%u %u)\n",
+			DBGLOG(RX, INFO, "<stats> TOS(%u) OK(%u %u) PendingPKT(%u) SE(%u) Num(%u %u %u %u)\n",
 					    (UINT32) prGlueInfo->rNetDevStats.tx_packets,
-					    prInfo->u4TxDataCntAll, prInfo->u4TxDataCntOK);
+					    prInfo->u4TxDataCntAll, prInfo->u4TxDataCntOK,
+					prGlueInfo->i4TxPendingFrameNum,
+					prGlueInfo->i4TxPendingSecurityFrameNum,
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][0],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][1],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][2],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][4]);
 		} else {
-			DBGLOG(RX, INFO, "<stats> TOS(%u) OK(%u %u) ERR(%u)\n",
+			DBGLOG(RX, INFO, "<stats> TOS(%u) OK(%u %u) ERR(%u) PendingPKT(%u) SE(%u) Num(%u %u %u %u)\n",
 					    (UINT32) prGlueInfo->rNetDevStats.tx_packets,
-					    prInfo->u4TxDataCntAll, prInfo->u4TxDataCntOK, prInfo->u4TxDataCntErr);
+					    prInfo->u4TxDataCntAll, prInfo->u4TxDataCntOK, prInfo->u4TxDataCntErr,
+					prGlueInfo->i4TxPendingFrameNum,
+					prGlueInfo->i4TxPendingSecurityFrameNum,
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][0],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][1],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][2],
+					prGlueInfo->ai4TxPendingFrameNumPerQueue[NETWORK_TYPE_AIS_INDEX][4]);
 			DBGLOG(RX, INFO, "<stats> ERR type(%u %u %u %u %u %u)\n",
 					    prInfo->u4TxDataCntErrType[0], prInfo->u4TxDataCntErrType[1],
 					    prInfo->u4TxDataCntErrType[2], prInfo->u4TxDataCntErrType[3],
@@ -1009,6 +1023,7 @@ static VOID statsParsePktInfo(PUINT_8 pucPkt, UINT_8 status, UINT_8 eventType, P
 			prMsduInfo->fgIsBasicRate = TRUE;
 
 		wlanPktDebugTraceInfoARP(status, eventType, u2OpCode);
+		wlanPktStatusDebugTraceInfoARP(status, eventType, u2OpCode, pucPkt);
 
 		if ((su2TxDoneCfg & CFG_ARP) == 0)
 			break;
@@ -1019,7 +1034,7 @@ static VOID statsParsePktInfo(PUINT_8 pucPkt, UINT_8 status, UINT_8 eventType, P
 				DBGLOG(RX, TRACE, "<RX> Arp Req From IP: %d.%d.%d.%d\n",
 					pucEthBody[14], pucEthBody[15], pucEthBody[16], pucEthBody[17]);
 			else if (u2OpCode == ARP_PRO_RSP)
-				DBGLOG(RX, INFO, "<RX> Arp Rsp from IP: %d.%d.%d.%d\n",
+				DBGLOG(RX, TRACE, "<RX> Arp Rsp from IP: %d.%d.%d.%d\n",
 					pucEthBody[14], pucEthBody[15], pucEthBody[16], pucEthBody[17]);
 			break;
 		case EVENT_TX:
@@ -1048,9 +1063,8 @@ static VOID statsParsePktInfo(PUINT_8 pucPkt, UINT_8 status, UINT_8 eventType, P
 		UINT_8 ucIpVersion = (pucEthBody[0] & IPVH_VERSION_MASK) >> IPVH_VERSION_OFFSET;
 		UINT_16 u2IpId = pucEthBody[4]<<8 | pucEthBody[5];
 
-
 		wlanPktDebugTraceInfoIP(status, eventType, ucIpProto, u2IpId);
-
+		wlanPktStatusDebugTraceInfoIP(status, eventType, ucIpProto, u2IpId, pucPkt);
 
 		if (ucIpVersion != IPVERSION)
 			break;
@@ -1229,10 +1243,12 @@ static VOID statsParsePktInfo(PUINT_8 pucPkt, UINT_8 status, UINT_8 eventType, P
 					pucEapol[21], pucEapol[22], pucEapol[23], pucEapol[24]);
 				break;
 			case EVENT_TX_DONE:
-				DBGLOG(TX, INFO,
-					"<TX status: %d> EAPOL: key, KeyInfo 0x%04x, Nonce %02x%02x%02x%02x%02x%02x%02x%02x...\n",
-					status, u2KeyInfo, pucEapol[17], pucEapol[18], pucEapol[19],
-					pucEapol[20], pucEapol[21], pucEapol[22], pucEapol[23], pucEapol[24]);
+				if (status != 0) {
+					DBGLOG(TX, INFO,
+						"<TX status: %d> EAPOL: key, KeyInfo 0x%04x, Nonce %02x%02x%02x%02x%02x%02x%02x%02x...\n",
+						status, u2KeyInfo, pucEapol[17], pucEapol[18], pucEapol[19],
+						pucEapol[20], pucEapol[21], pucEapol[22], pucEapol[23], pucEapol[24]);
+				}
 				break;
 			}
 

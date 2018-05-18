@@ -84,8 +84,6 @@ module_param(delay_time1, int, 0644);
 u32 iddig_cnt = 0;
 module_param(iddig_cnt, int, 0644);
 
-
-
 void mt_usb_set_vbus(struct musb *musb, int is_on)
 {
 	DBG(0, "mt65xx_usb20_vbus++,is_on=%d\r\n", is_on);
@@ -97,7 +95,7 @@ void mt_usb_set_vbus(struct musb *musb, int is_on)
 		fan5405_set_otg_pl(1);
 		fan5405_set_otg_en(1);
 	#elif defined(CONFIG_MTK_BQ24157_SUPPORT)
-		set_chr_enable_otg(1);    // RT9458.
+			set_chr_enable_otg(1);//RT9458
 	#elif defined(CONFIG_MTK_BQ24261_SUPPORT)
 		bq24261_set_en_boost(1);
 	#elif defined(CONFIG_MTK_BQ24296_SUPPORT)
@@ -132,7 +130,7 @@ void mt_usb_set_vbus(struct musb *musb, int is_on)
 		fan5405_reg_config_interface(0x01, 0x30);
 		fan5405_reg_config_interface(0x02, 0x8e);
 	#elif defined(CONFIG_MTK_BQ24157_SUPPORT)
-		set_chr_enable_otg(0);    // RT9458.
+			set_chr_enable_otg(0);//RT9458.
 	#elif defined(CONFIG_MTK_BQ24261_SUPPORT)
 		bq24261_set_en_boost(0);
 	#elif defined(CONFIG_MTK_BQ24296_SUPPORT)

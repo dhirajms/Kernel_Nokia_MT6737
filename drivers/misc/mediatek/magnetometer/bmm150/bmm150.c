@@ -40,6 +40,8 @@
 #include "mt_boot_common.h"
 
 
+static u8 chip_id = 0; //add for FTM test by alex
+
 static DEFINE_MUTEX(bmm150_i2c_mutex);
 
 /*----------------------------------------------------------------------------*/
@@ -2099,7 +2101,7 @@ static long bmm150_unlocked_ioctl(struct file *file, unsigned int cmd,unsigned l
 				break;
 			}
 			
-			//sprintf(buff, "%x", chip_id);   //add for FTM test by alex
+			sprintf(buff, "%x", chip_id);   //add for FTM test by alex
 
 			if(copy_to_user(argp, buff, strlen(buff)+1))
 			{
@@ -2242,7 +2244,8 @@ static int bmm150_wakeup(struct i2c_client *client)
 /*----------------------------------------------------------------------------*/
 static int bmm150_checkchipid(struct i2c_client *client)
 {
-	u8 chip_id = 0;
+//	int err = 0;
+//	u8 chip_id = 0;
 
 	hwmsen_read_block(client, BMM150_CHIP_ID, &chip_id, 1);
 	MSE_LOG("read chip id result: %#x", chip_id);
@@ -2256,6 +2259,10 @@ static int bmm150_checkchipid(struct i2c_client *client)
 		return 0;
 	}
 }
+
+
+
+//add by alex
 
 static int mag_i2c_read_block(struct i2c_client *client, u8 addr, u8 *data, u8 len)
 {
@@ -2445,6 +2452,9 @@ int bmm150_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	memset(data, 0, sizeof(struct bmm150_i2c_data));
 
 	data->hw = hw;
+
+	  data->hw->direction = 7;	 
+	  
 	err = hwmsen_get_convert(data->hw->direction, &data->cvt);
 	if(err)
 	{

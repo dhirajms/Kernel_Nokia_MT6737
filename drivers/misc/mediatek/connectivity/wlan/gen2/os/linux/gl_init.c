@@ -664,6 +664,14 @@ static void glLoadNvram(IN P_GLUE_INFO_T prGlueInfo, OUT P_REG_INFO_T prRegInfo)
 				 OFFSET_OF(WIFI_CFG_PARAM_STRUCT, fgRssiCompensationValidbit), (PUINT_16) aucTmp);
 		prRegInfo->fgRssiCompensationValidbit = aucTmp[0];
 		prRegInfo->ucRxAntennanumber = aucTmp[1];
+
+#if CFG_SUPPORT_TX_BACKOFF
+		/* load Tx Power offset perchannel per mode 40 : MAXNUM_MITIGATED_PWR_BY_CH_BY_MODE */
+		kalCfgDataRead(prGlueInfo,
+			OFFSET_OF(WIFI_CFG_PARAM_STRUCT, arRlmMitigatedPwrByChByMode),
+			sizeof(MITIGATED_PWR_BY_CH_BY_MODE)*40,
+			(PUINT_16) prRegInfo->arRlmMitigatedPwrByChByMode);
+#endif
 	} else {
 		prGlueInfo->fgNvramAvailable = FALSE;
 	}
@@ -1932,7 +1940,7 @@ void wlanHandleSystemSuspend(void)
 	UINT_32 u4PacketFilter = 0;
 	UINT_32 u4SetInfoLen = 0;
 #endif
-
+	DBGLOG(INIT, INFO, "******wlan System Suspend*******.\n");
 	/* <1> Sanity check and acquire the net_device */
 	ASSERT(u4WlanDevNum <= CFG_MAX_WLAN_DEVICES);
 	if (u4WlanDevNum == 0) {
@@ -1960,6 +1968,7 @@ void wlanHandleSystemSuspend(void)
 	if (!prDev || !(prDev->ip_ptr) ||
 	    !((struct in_device *)(prDev->ip_ptr))->ifa_list ||
 	    !(&(((struct in_device *)(prDev->ip_ptr))->ifa_list->ifa_local))) {
+		DBGLOG(INIT, INFO, "ip is not available.\n");
 		goto notify_suspend;
 	}
 	kalMemCopy(ip, &(((struct in_device *)(prDev->ip_ptr))->ifa_list->ifa_local), sizeof(ip));
@@ -1971,6 +1980,7 @@ void wlanHandleSystemSuspend(void)
 	if (!prDev || !(prDev->ip6_ptr) ||
 	    !((struct in_device *)(prDev->ip6_ptr))->ifa_list ||
 	    !(&(((struct in_device *)(prDev->ip6_ptr))->ifa_list->ifa_local))) {
+		DBGLOG(INIT, INFO, "ipv6 is not available.\n");
 		goto notify_suspend;
 	}
 	kalMemCopy(ip6, &(((struct in_device *)(prDev->ip6_ptr))->ifa_list->ifa_local), sizeof(ip6));
@@ -2028,8 +2038,7 @@ void wlanHandleSystemSuspend(void)
 
 notify_suspend:
 	DBGLOG(INIT, INFO, "IP: %d.%d.%d.%d, rStatus: %u\n", ip[0], ip[1], ip[2], ip[3], rStatus);
-	if (rStatus != WLAN_STATUS_SUCCESS)
-		wlanNotifyFwSuspend(prGlueInfo, TRUE);
+	wlanNotifyFwSuspend(prGlueInfo, TRUE);
 }
 
 void wlanHandleSystemResume(void)
@@ -2047,7 +2056,7 @@ void wlanHandleSystemResume(void)
 	UINT_32 u4PacketFilter = 0;
 	UINT_32 u4SetInfoLen = 0;
 #endif
-
+	DBGLOG(INIT, INFO, "************wlan System Resume.\n");
 	/* <1> Sanity check and acquire the net_device */
 	ASSERT(u4WlanDevNum <= CFG_MAX_WLAN_DEVICES);
 	if (u4WlanDevNum == 0) {
@@ -2098,7 +2107,9 @@ void wlanHandleSystemResume(void)
 	    !((struct in_device *)(prDev->ip_ptr))->ifa_list ||
 	    !(&(((struct in_device *)(prDev->ip_ptr))->ifa_list->ifa_local))) {
 		DBGLOG(INIT, INFO, "ip is not avalible.\n");
+
 		rStatus = WLAN_STATUS_FAILURE;
+
 		goto notify_resume;
 	}
 	/* <4> copy the IPv4 address */
@@ -2110,7 +2121,9 @@ void wlanHandleSystemResume(void)
 	    !((struct in_device *)(prDev->ip6_ptr))->ifa_list ||
 	    !(&(((struct in_device *)(prDev->ip6_ptr))->ifa_list->ifa_local))) {
 		DBGLOG(INIT, INFO, "ipv6 is not avalible.\n");
+
 		rStatus = WLAN_STATUS_FAILURE;
+
 		goto notify_resume;
 	}
 	/* <6> copy the IPv6 address */
@@ -2144,8 +2157,8 @@ notify_resume:
 	DBGLOG(INIT, INFO, "Query BSS result: %d %d %d, IP: %d.%d.%d.%d, rStatus: %u\n",
 		       rParam.eConnectionState, rParam.eCurrentOPMode, rParam.fgIsNetActive,
 		       ip[0], ip[1], ip[2], ip[3], rStatus);
-	if (rStatus != WLAN_STATUS_SUCCESS)
-		wlanNotifyFwSuspend(prGlueInfo, FALSE);
+
+	wlanNotifyFwSuspend(prGlueInfo, FALSE);
 }
 #endif /* ! CONFIG_X86 */
 
@@ -2324,12 +2337,12 @@ static INT_32 wlanProbe(PVOID pvData)
 		prAdapter->u4CSUMFlags = (CSUM_OFFLOAD_EN_TX_TCP | CSUM_OFFLOAD_EN_TX_UDP | CSUM_OFFLOAD_EN_TX_IP);
 #endif
 #if CFG_SUPPORT_CFG_FILE
+		wlanCfgInit(prAdapter, NULL, 0, 0);
 #ifdef ENABLED_IN_ENGUSERDEBUG
 		{
 			PUINT_8 pucConfigBuf;
 			UINT_32 u4ConfigReadLen;
 
-			wlanCfgInit(prAdapter, NULL, 0, 0);
 			pucConfigBuf = (PUINT_8) kalMemAlloc(WLAN_CFG_FILE_BUF_SIZE, VIR_MEM_TYPE);
 			u4ConfigReadLen = 0;
 			DBGLOG(INIT, LOUD, "CFG_FILE: Read File...\n");
@@ -2531,6 +2544,26 @@ bailout:
 		}
 #endif
 
+#if CFG_SUPPORT_EMI_DEBUG
+		{
+			/* set Driver Read EMI	*/
+			WLAN_STATUS rStatus = WLAN_STATUS_FAILURE;
+			CMD_DRIVER_DUMP_EMI_LOG_T rDriverDumpEmiLog;
+			UINT_32 u4SetInfoLen = 0;
+
+			kalMemZero(&rDriverDumpEmiLog, sizeof(CMD_DRIVER_DUMP_EMI_LOG_T));
+			rDriverDumpEmiLog.fgIsDriverDumpEmiLogEnable = TRUE;
+
+			rStatus = kalIoctl(prGlueInfo,
+					   wlanoidSetEnableDumpEMILog,
+					   (PVOID)&rDriverDumpEmiLog,
+					   sizeof(UINT_32), FALSE, FALSE, TRUE, FALSE, &u4SetInfoLen);
+
+			if (rStatus != WLAN_STATUS_SUCCESS)
+				DBGLOG(INIT, WARN, "set Driver read EMI address fail 0x%x\n", rStatus);
+		}
+#endif
+
 		/* 4 <3> Register the card */
 		DBGLOG(INIT, TRACE, "wlanNetRegister...\n");
 		i4DevIdx = wlanNetRegister(prWdev);
@@ -2657,6 +2690,45 @@ bailout:
 		kalPerMonInit(prGlueInfo);
 		/* probe ok */
 		DBGLOG(INIT, TRACE, "wlanProbe ok\n");
+#if CFG_TC10_FEATURE
+	{
+		INT_8 ucPsmFlag = 0xff;
+		INT_8 uaVerInfo[128];
+		UINT_32 u4Ret = 0;
+		PINT_8 pucPtr = &uaVerInfo[0];
+		UINT_16 u2NvramVer = 0;
+
+		memset(pucPtr, 0, sizeof(uaVerInfo));
+		/* If content in /data/.psm.info is 0, we shall disable power save */
+		if (kalReadToFile("/data/.psm.info", &ucPsmFlag, 1, NULL) == 0) {
+			if (ucPsmFlag == '0') {
+				prAdapter->fgEnDbgPowerMode = TRUE;
+				nicEnterCtiaMode(prAdapter, TRUE, FALSE);
+			}
+			DBGLOG(INIT, INFO, "/data/.psm.info = %c\n", ucPsmFlag);
+		}
+		/* Log driver version, firmware version and nvram version into /data/.wifiver.info
+		 * driver version:     DRIVER_VERSION_STRING
+		 * firmware version: prAdapter->rVerInfo.u2FwOwnVersion & prAdapter->rVerInfo.u2FwOwnVersionExtend
+		 * nvram version:    1st 2 bytes in NVRAM
+		*/
+		kalCfgDataRead16(prGlueInfo,
+				 OFFSET_OF(WIFI_CFG_PARAM_STRUCT, u2Part1OwnVersion), &u2NvramVer);
+		SPRINTF(pucPtr, ("%s\nDRIVER_VER: %s\nFW_VER: %x.%x.%x\nNVRAM: 0x%x\n",
+			"Mediatek",
+			NIC_DRIVER_VERSION_STRING,
+			prAdapter->rVerInfo.u2FwOwnVersion >> 8,
+			prAdapter->rVerInfo.u2FwOwnVersion & 0xff,
+			prAdapter->rVerInfo.u2FwOwnVersionExtend,
+			u2NvramVer));
+		u4Ret = kalWriteToFile("/data/.wifiver.info", FALSE, uaVerInfo, sizeof(uaVerInfo));
+		if (u4Ret < 0)
+			DBGLOG(INIT, WARN, "version info write failured, ret:%d\n", u4Ret);
+		else
+			DBGLOG(INIT, INFO, "version info write succeed, ret:%d\n", u4Ret);
+
+	}
+#endif
 	} else {
 		/* we don't care the return value of mtk_wcn_set_connsys_power_off_flag,
 		 * because even this function returns
@@ -2792,7 +2864,7 @@ static VOID wlanRemove(VOID)
 	DBGLOG(INIT, TRACE, "wait_for_completion_interruptible\n");
 
 	/* wait main thread stops */
-	wait_for_completion_interruptible(&prGlueInfo->rHaltComp);
+	wait_for_completion(&prGlueInfo->rHaltComp);
 
 	DBGLOG(INIT, TRACE, "mtk_sdiod stopped\n");
 

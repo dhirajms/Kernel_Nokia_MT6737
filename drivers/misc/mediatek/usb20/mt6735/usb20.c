@@ -658,7 +658,7 @@ void musb_sync_with_bat(struct musb *musb, int usb_state)
 #ifdef CONFIG_MTK_SMART_BATTERY
 	BATTERY_SetUSBState(usb_state);
 
-// sometimes value of SOC is 50%.
+//sometimes value of SOC is 50%.
 	//wake_up_bat();
 	wake_up_bat3();
 //end.50%
