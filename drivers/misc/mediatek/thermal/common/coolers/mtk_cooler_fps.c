@@ -114,10 +114,6 @@ static int fps_stable_period = 10;
 /* FPS is active when over stable tpcb or always */
 static int fps_limit_always_on;
 
-static int leave_fps_limit_duration = 1;
-/* minimum fps that we regard as still in game playing */
-static int in_game_low_fps = 5;
-
 /* FIXME: need someone set/clear this */
 static int in_game_whitelist = 1;
 #endif
@@ -127,6 +123,11 @@ typedef enum GED_INFO_TA {
 GED_EVENT_GAS_MODE,
 GED_UNDEFINED
 } GED_INFO;
+
+enum {
+	GAS_CATEGORY_GAME,
+	GAS_CATEGORY_OTHERS,
+};
 #endif
 
 unsigned long  __attribute__ ((weak))
@@ -140,9 +141,9 @@ static int game_whitelist_check(void)
 {
 	unsigned long result = ged_query_info(GED_EVENT_GAS_MODE);
 
-	if (1 == result)
+	if (result == GAS_CATEGORY_GAME)
 		in_game_whitelist = 1;
-	else if (0 == result)
+	else
 		in_game_whitelist = 0;
 
 	return 0;
@@ -290,6 +291,7 @@ static int decrease_fps_limit(void)
 
 /**
  * floor function applied to fps_level
+ * should also consider fps_error_threshold
  * @retval index of fps_level
  */
 static int find_fps_floor(int fps)
@@ -297,7 +299,8 @@ static int find_fps_floor(int fps)
 	int i;
 
 	for (i = 0; i < nr_fps_levels; i++) {
-		if (fps_level[i] <= fps)
+		/* sma_fps >= fps_limit * 90% */
+		if (fps_level[i] * (100 - fps_error_threshold) / 100 <= fps)
 			return i;
 	}
 
@@ -355,7 +358,7 @@ static int adp_calc_fps_limit(void)
 	if (fps_limit_always_on ||
 		(sma_fps < 40 && sma_tpcb >= mtk_thermal_get_tpcb_target())) {
 		if (is_system_too_busy() &&
-				fps_limit - sma_fps >= fps_limit * fps_error_threshold / 100) {
+				fps_limit - sma_fps > fps_limit * fps_error_threshold / 100) {
 				mtk_cooler_fps_dprintk("[%s] fps_limit = %d, sma_fps = %d\n",
 					__func__, fps_limit, sma_fps);
 			/* we do not limit FPS if not in game */
@@ -384,28 +387,6 @@ static int adp_calc_fps_limit(void)
 		last_change_tpcb = sma_tpcb;
 
 	return fps_limit;
-}
-
-static bool in_consistent_scene(void)
-{
-	static int duration;
-	int fps = tm_input_fps;
-
-	if (!in_game_whitelist)
-		return false;
-
-	if (fps <= in_game_low_fps)
-		duration++;
-	else /* TODO: TBD: should we reset duration or decrease */
-		duration = 0;
-
-	mtk_cooler_fps_dprintk("[%s] fps <= in_game_low_fps = %d\n", __func__, duration);
-
-	if (duration >= leave_fps_limit_duration) {
-		duration = 0;
-		return false;
-	} else
-		return true;
 }
 
 static int adp_fps_set_cur_state(struct thermal_cooling_device *cdev,
@@ -437,10 +418,6 @@ static int adp_fps_set_cur_state(struct thermal_cooling_device *cdev,
 	set_sma_val(gpu_loading_history, gpu_loading_sma_len, &gpu_loading_history_idx,
 			gpu_loading);
 	/* 1. update the parameter of "cl_adp_fps_limit" */
-	/* do we already leave game? */
-	if (!in_consistent_scene())
-		unlimit_fps_limit();
-
 	if (cl_adp_fps_state)
 		cl_adp_fps_limit = adp_calc_fps_limit();
 	else
@@ -827,8 +804,6 @@ static void create_debugfs_entries(void)
 	debugfs_entry(curr_fps_level);
 	debugfs_entry(in_game_whitelist);
 	debugfs_entry(fps_limit_always_on);
-	debugfs_entry(leave_fps_limit_duration);
-	debugfs_entry(in_game_low_fps);
 	debugfs_entry(gpu_loading_threshold);
 }
 

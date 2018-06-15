@@ -314,8 +314,22 @@
 #endif
 #define CFG_NUM_OF_RX1_HIF_DESC                 2
 
-/*! Max. buffer hold by QM */
-#define CFG_NUM_OF_QM_RX_PKT_NUM                512
+/*! Maximum buffer hold by QM, it should cover below two scenarios:
+ *
+ *  - RX_PKT_DESTINATION_HOST
+ *     the maximum packets queued in reordering buffer (consider all BA sessions concurrency):
+ *     CFG_NUM_OF_RX_BA_AGREEMENTS * (WinSize - 1) = 8 * 67 = 536
+ *
+ *  - RX_PKT_DESTINATION_FORWARD
+ *     the maximum packets queued in reordering buffer (consider two BA sessions concurrency for TGn AP 4.2.25)
+ *     +
+ *     the maximum pending forwarding count queued in TxQue (since the SwRfb consumed
+ *     by forwarding frame will be freed in hif_thread until the corresponding MSDU is sent out,
+ *     this may be blocked by hif_thread receiving procedure, we should reserve buffer here):
+ *     2 * (WinSize - 1) + QM_FWD_PKT_QUE_HIGH_THRESHOLD = 2 * 67 + 512 = 646
+ *
+ */
+#define CFG_NUM_OF_QM_RX_PKT_NUM                646
 
 /*! Maximum number of SW RX packet buffer */
 #define CFG_RX_MAX_PKT_NUM                      ((CFG_NUM_OF_RX0_HIF_DESC + CFG_NUM_OF_RX1_HIF_DESC) * 3 \
@@ -359,11 +373,18 @@
 
 #define CFG_PF_ARP_NS_MAX_NUM                   3
 
+#define CFG_RX_BA_REORDERING_ENHANCEMENT		1
+
 /*------------------------------------------------------------------------------
  * Flags and Parameters for CMD/RESPONSE
  *------------------------------------------------------------------------------
  */
-#define CFG_RESPONSE_POLLING_TIMEOUT            512
+#define CFG_RESPONSE_POLLING_TIMEOUT            105
+#define CFG_RESPONSE_CLEAR_RDY_TIMEOUT		100
+#define CFG_MCU_POWER_OFF_POLLING_CNT		5
+#define CFG_MCU_POWER_OFF_MAGIC_CODE		0xa0000001
+#define CFG_MCU_POWER_OFF_MAILBOX_INDEX		0x1
+#define CFG_MCU_POWER_OFF_SOFTINT_BIT		16
 
 /*------------------------------------------------------------------------------
  * Flags and Parameters for Protocol Stack
@@ -416,6 +437,7 @@
  */
 #define MAX_CHN_NUM                             39 /* CH1~CH14, CH36~CH48, CH52~CH64, CH100~CH144, CH149~CH165 */
 #define MAX_2G_BAND_CHN_NUM                     14
+#define ACS_PRINT_BUFFER_LEN                   200
 
 /*------------------------------------------------------------------------------
  * Flags and Parameters for Ad-Hoc
@@ -430,6 +452,10 @@
  * Flags and Parameters for Maximum Scan SSID number
  *------------------------------------------------------------------------------
  */
+#define CFG_SUPPORT_SCHED_SCN_SSID_SETS		1 /* Sched Scan support hidden SSID */
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+#define CFG_SCAN_HIDDEN_SSID_MAX_NUM       (7)
+#endif
 #define CFG_SCAN_SSID_MAX_NUM                   (4)
 #define CFG_SCAN_SSID_MATCH_MAX_NUM             (16)
 
@@ -674,6 +700,7 @@
 #define CFG_SUPPORT_802_11K         0
 #define CFG_SUPPORT_802_11V                    0	/* Support 802.11v Wireless Network Management */
 #define CFG_SUPPORT_802_11V_TIMING_MEASUREMENT 0
+#define CFG_SUPPORT_OKC							1
 #if (CFG_SUPPORT_802_11V_TIMING_MEASUREMENT == 1) && (CFG_SUPPORT_802_11V == 0)
 #error "CFG_SUPPORT_802_11V should be 1 once CFG_SUPPORT_802_11V_TIMING_MEASUREMENT equals to 1"
 #endif
@@ -780,6 +807,12 @@
 #define CFG_SUPPORT_SNIFFER                 1
 
 #define CFG_SUPPORT_DETECT_SECURITY_MODE_CHANGE 1
+
+/*------------------------------------------------------------------------------
+ * Flags of Drop Packet Replay SUPPORT
+ *------------------------------------------------------------------------------
+ */
+#define CFG_SUPPORT_REPLAY_DETECTION		1
 
 /*******************************************************************************
 *                             D A T A   T Y P E S

@@ -328,6 +328,7 @@ enum {
 	BY_TMR,
 	BY_OTH,
 	BY_VTG,
+	BY_FRM,
 	NR_REASONS
 };
 
@@ -606,6 +607,7 @@ static const char *reason_name[NR_REASONS] = {
 	"by_tmr",
 	"by_oth",
 	"by_vtg",
+	"by_frm",
 };
 
 char cg_group_name[][NR_GRPS] = {
@@ -1102,6 +1104,13 @@ static bool soidle_can_enter(int cpu)
 	bool retval = false;
 	char *p;
 
+#if !defined(CONFIG_ARCH_MT6570) && !defined(CONFIG_ARCH_MT6580)
+	if (!spm_load_firmware_status()) {
+		reason = BY_FRM;
+		goto out;
+	}
+#endif
+
 #ifdef CONFIG_SMP
 	if (!mt_idle_cpu_criteria()) {
 		reason = BY_CPU;
@@ -1161,7 +1170,7 @@ static bool soidle_can_enter(int cpu)
 
 		get_monotonic_boottime(&uptime);
 		val = (unsigned long)uptime.tv_sec;
-		if (val <= 20) {
+		if (val <= 90) {
 			sodi_by_uptime_count++;
 			reason = BY_OTH;
 			goto out;
@@ -1326,6 +1335,13 @@ static bool dpidle_can_enter(void)
 	unsigned long long dpidle_block_curr_time = 0;
 	bool retval = false;
 	char *p;
+
+#if !defined(CONFIG_ARCH_MT6570) && !defined(CONFIG_ARCH_MT6580)
+	if (!spm_load_firmware_status()) {
+		reason = BY_FRM;
+		goto out;
+	}
+#endif
 
 #ifdef CONFIG_SMP
 	if (!mt_idle_cpu_criteria()) {
@@ -1857,7 +1873,7 @@ EXPORT_SYMBOL(mt_idle_select);
 
 int dpidle_enter(int cpu)
 {
-	int ret = 1;
+	int ret = IDLE_TYPE_DP;
 
 	idle_ratio_calc_start(IDLE_TYPE_DP, cpu);
 
@@ -1889,7 +1905,7 @@ EXPORT_SYMBOL(dpidle_enter);
 
 int soidle_enter(int cpu)
 {
-	int ret = 1;
+	int ret = IDLE_TYPE_SO;
 
 	idle_ratio_calc_start(IDLE_TYPE_SO, cpu);
 
@@ -1905,7 +1921,7 @@ EXPORT_SYMBOL(soidle_enter);
 
 int slidle_enter(int cpu)
 {
-	int ret = 1;
+	int ret = IDLE_TYPE_SL;
 
 	idle_ratio_calc_start(IDLE_TYPE_SL, cpu);
 
@@ -1919,7 +1935,7 @@ EXPORT_SYMBOL(slidle_enter);
 
 int rgidle_enter(int cpu)
 {
-	int ret = 1;
+	int ret = IDLE_TYPE_RG;
 
 	idle_ratio_calc_start(IDLE_TYPE_RG, cpu);
 
@@ -1964,6 +1980,12 @@ static ssize_t idle_state_read(struct file *filp,
 	char *p = dbg_buf;
 	int i;
 
+	if (!userbuf)
+		return -EFAULT;
+
+	if (0 > *f_pos || *f_pos > count)
+		return -EINVAL;
+
 	p += sprintf(p, "********** idle state dump **********\n");
 
 	for (i = 0; i < nr_cpu_ids; i++) {
@@ -1991,6 +2013,9 @@ static ssize_t idle_state_read(struct file *filp,
 
 	len = p - dbg_buf;
 
+	if ((count - *f_pos) < len)
+		return 0;
+
 	return simple_read_from_buffer(userbuf, count, f_pos, dbg_buf, len);
 }
 
@@ -2002,6 +2027,9 @@ static ssize_t idle_state_write(struct file *filp,
 	char cmd[32];
 	int idx;
 	int param;
+
+	if (!userbuf)
+		return -EFAULT;
 
 	count = min(count, sizeof(cmd_buf) - 1);
 
@@ -2055,6 +2083,12 @@ static ssize_t dpidle_state_read(struct file *filp, char __user *userbuf, size_t
 	char *p = dbg_buf;
 	int i;
 
+	if (!userbuf)
+		return -EFAULT;
+
+	if (0 > *f_pos || *f_pos > count)
+		return -EINVAL;
+
 	p += sprintf(p, "*********** deep idle state ************\n");
 	p += sprintf(p, "dpidle_time_critera=%u\n", dpidle_time_critera);
 
@@ -2087,6 +2121,9 @@ static ssize_t dpidle_state_read(struct file *filp, char __user *userbuf, size_t
 
 	len = p - dbg_buf;
 
+	if ((count - *f_pos) < len)
+		return 0;
+
 	return simple_read_from_buffer(userbuf, count, f_pos, dbg_buf, len);
 }
 
@@ -2097,6 +2134,9 @@ static ssize_t dpidle_state_write(struct file *filp,
 {
 	char cmd[32];
 	int param;
+
+	if (!userbuf)
+		return -EFAULT;
 
 	count = min(count, sizeof(cmd_buf) - 1);
 
@@ -2158,6 +2198,12 @@ static ssize_t soidle_state_read(struct file *filp, char __user *userbuf, size_t
 	char *p = dbg_buf;
 	int i;
 
+	if (!userbuf)
+		return -EFAULT;
+
+	if (0 > *f_pos || *f_pos > count)
+		return -EINVAL;
+
 	p += sprintf(p, "*********** deep idle state ************\n");
 	p += sprintf(p, "soidle_time_critera=%u\n", soidle_time_critera);
 
@@ -2188,6 +2234,9 @@ static ssize_t soidle_state_read(struct file *filp, char __user *userbuf, size_t
 
 	len = p - dbg_buf;
 
+	if ((count - *f_pos) < len)
+		return 0;
+
 	return simple_read_from_buffer(userbuf, count, f_pos, dbg_buf, len);
 }
 
@@ -2198,6 +2247,9 @@ static ssize_t soidle_state_write(struct file *filp,
 {
 	char cmd[32];
 	int param;
+
+	if (!userbuf)
+		return -EFAULT;
 
 	count = min(count, sizeof(cmd_buf) - 1);
 
@@ -2258,6 +2310,12 @@ static ssize_t slidle_state_read(struct file *filp, char __user *userbuf, size_t
 	char *p = dbg_buf;
 	int i;
 
+	if (!userbuf)
+		return -EFAULT;
+
+	if (0 > *f_pos || *f_pos > count)
+		return -EINVAL;
+
 	p += sprintf(p, "*********** slow idle state ************\n");
 	for (i = 0; i < NR_REASONS; i++) {
 		p += sprintf(p, "[%d]slidle_block_cnt[%s]=%lu\n",
@@ -2278,6 +2336,9 @@ static ssize_t slidle_state_read(struct file *filp, char __user *userbuf, size_t
 
 	len = p - dbg_buf;
 
+	if ((count - *f_pos) < len)
+		return 0;
+
 	return simple_read_from_buffer(userbuf, count, f_pos, dbg_buf, len);
 }
 
@@ -2286,6 +2347,9 @@ static ssize_t slidle_state_write(struct file *filp, const char __user *userbuf,
 {
 	char cmd[32];
 	int param;
+
+	if (!userbuf)
+		return -EFAULT;
 
 	count = min(count, sizeof(cmd_buf) - 1);
 
@@ -2380,7 +2444,7 @@ static int mt_cpuidle_debugfs_init(void)
 	return 0;
 }
 
-void mt_cpuidle_framework_init(void)
+void __init mt_cpuidle_framework_init(void)
 {
 	int err = 0;
 #if !defined(CONFIG_ARCH_MT6570) && !defined(CONFIG_ARCH_MT6580)

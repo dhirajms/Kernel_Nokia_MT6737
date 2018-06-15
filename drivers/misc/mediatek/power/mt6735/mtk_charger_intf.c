@@ -142,6 +142,7 @@ static u32 bmt_find_closest_level(const u32 *pList, u32 number, u32 level)
 
 int mtk_charger_sw_init(struct mtk_charger_info *info, void *data)
 {
+
 	return 0;
 }
 

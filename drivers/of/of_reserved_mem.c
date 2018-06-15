@@ -22,9 +22,26 @@
 #include <linux/of_reserved_mem.h>
 #include <mt-plat/mtk_memcfg.h>
 
-#define MAX_RESERVED_REGIONS	16
+#define MAX_RESERVED_REGIONS    40
 static struct reserved_mem reserved_mem[MAX_RESERVED_REGIONS];
 static int reserved_mem_count;
+
+#ifdef CONFIG_MTK_MEMCFG
+int get_reserved_mem_count(void)
+{
+	return reserved_mem_count;
+}
+
+struct reserved_mem get_reserved_mem(int num)
+{
+	if (num >= MAX_RESERVED_REGIONS)
+		BUG();
+	return reserved_mem[num];
+}
+#else
+#define get_reserved_mem_count() do {} while (0)
+#define get_reserved_mem(num) do {} while (0)
+#endif
 
 #if defined(CONFIG_HAVE_MEMBLOCK)
 #include <linux/memblock.h>

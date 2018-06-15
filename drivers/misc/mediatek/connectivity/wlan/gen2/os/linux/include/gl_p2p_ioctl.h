@@ -313,6 +313,11 @@ int mtk_p2p_cfg80211_get_key(struct wiphy *wiphy,
 			     bool pairwise,
 			     const u8 *mac_addr, void *cookie, void (*callback) (void *cookie, struct key_params *)
 );
+int mtk_cfg80211_add_station(struct wiphy *wiphy, struct net_device *ndev,
+				const u8 *mac, struct station_parameters *params);
+
+int mtk_cfg80211_change_station(struct wiphy *wiphy, struct net_device *ndev,
+				const u8 *mac, struct station_parameters *params);
 
 int mtk_p2p_cfg80211_del_key(struct wiphy *wiphy,
 			     struct net_device *ndev, u8 key_index, bool pairwise, const u8 *mac_addr);
@@ -381,6 +386,8 @@ mtk_p2p_cfg80211_set_bitrate_mask(IN struct wiphy *wiphy,
 
 int mtk_p2p_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev *wdev, IN void *data, IN int len);
 
+int mtk_cfg80211_process_str_cmd(IN P_GLUE_INFO_T prGlueInfo, IN PUINT_8 cmd, IN INT_32 len);
+
 int mtk_p2p_cfg80211_testmode_p2p_sigma_pre_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
 
 int mtk_p2p_cfg80211_testmode_p2p_sigma_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
@@ -394,6 +401,9 @@ int mtk_p2p_cfg80211_testmode_hotspot_block_cmd(IN struct wiphy *wiphy, IN void 
 #if CFG_AUTO_CHANNEL_SEL_SUPPORT
 int mtk_p2p_cfg80211_testmode_get_best_channel(IN struct wiphy *wiphy, IN void *data, IN int len);
 #endif
+
+int mtk_p2p_cfg80211_testmode_hotspot_config_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
+
 #else
 #error "Please ENABLE kernel config (CONFIG_NL80211_TESTMODE)"
 #endif

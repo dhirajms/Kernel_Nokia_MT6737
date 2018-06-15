@@ -3170,6 +3170,10 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	ro		[KNL] Mount root device read-only on boot
 
+	rodata=		[KNL]
+		on	Mark read-only kernel memory as read-only (default).
+		off	Leave read-only kernel memory writable for debugging.
+
 	root=		[KNL] Root filesystem
 			See name_to_dev_t comment in init/do_mounts.c.
 
@@ -3329,6 +3333,13 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
+
+	stack_guard_gap=	[MM]
+			override the default stack gap protection. The value
+			is in page units and it defines how many pages prior
+			to (for stacks growing down) resp. after (for stacks
+			growing up) the main stack are reserved for no other
+			mapping. Default value is 256 pages.
 
 	stacktrace	[FTRACE]
 			Enabled the stack tracer on boot up.
@@ -3696,9 +3707,6 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 				nohigh = do not allocate PTE pages in
 					HIGHMEM regardless of setting
 					of CONFIG_HIGHPTE.
-
-	uuid_debug=	(Boolean) whether to enable debugging of TuxOnIce's
-			uuid support.
 
 	vdso=		[X86,SH]
 			On X86_32, this is an alias for vdso32=.  Otherwise:

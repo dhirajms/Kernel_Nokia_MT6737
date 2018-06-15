@@ -1433,3 +1433,63 @@ VOID nicCmdEventQueryCfgRead(IN P_ADAPTER_T prAdapter, IN P_CMD_INFO_T prCmdInfo
 	}
 }
 #endif
+
+VOID nicEventUpdateFwInfo(IN P_ADAPTER_T prAdapter, IN P_WIFI_EVENT_T prEvent)
+{
+	UINT_8 i;
+	P_EVENT_UPDATE_FW_INFO_T prEventUpdateFwInfo;
+
+	prEventUpdateFwInfo = (P_EVENT_UPDATE_FW_INFO_T)(prEvent->aucBuffer);
+
+	for (i = 0; i < (HW_BSSID_NUM + 1); i++) {
+		if (prAdapter->aprBssInfo[i]) {
+			prAdapter->aprBssInfo[i]->u4CoexPhyRateLimit = prEventUpdateFwInfo->au4PhyRateLimit[i];
+			DBGLOG(NIC, INFO, "Coex:BSS[%d]R:%d\n", i, prAdapter->aprBssInfo[i]->u4CoexPhyRateLimit);
+		}
+	}
+}
+
+#if CFG_SUPPORT_REPLAY_DETECTION
+VOID nicCmdEventSetAddKey(IN P_ADAPTER_T prAdapter, IN P_CMD_INFO_T prCmdInfo, IN PUINT_8 pucEventBuf)
+{
+	P_WIFI_CMD_T prWifiCmd = NULL;
+	P_CMD_802_11_KEY prCmdKey = NULL;
+	P_GLUE_INFO_T prGlueInfo = NULL;
+	struct GL_DETECT_REPLAY_INFO *prDetRplyInfo = NULL;
+
+	ASSERT(prAdapter);
+	ASSERT(prCmdInfo);
+
+	if (prCmdInfo->fgIsOid) {
+		/* Update Set Information Length */
+		kalOidComplete(prAdapter->prGlueInfo,
+			       prCmdInfo->fgSetQuery, prCmdInfo->u4InformationBufferLength, WLAN_STATUS_SUCCESS);
+	}
+
+	prGlueInfo = prAdapter->prGlueInfo;
+	prDetRplyInfo = &prGlueInfo->prDetRplyInfo;
+	if (pucEventBuf) {
+		prWifiCmd = (P_WIFI_CMD_T) (pucEventBuf);
+		prCmdKey = (P_CMD_802_11_KEY) (prWifiCmd->aucBuffer);
+		if (!prCmdKey->ucKeyType && prCmdKey->ucKeyId >= 0 && prCmdKey->ucKeyId < 4) {
+			/* Only save data broadcast key info. ucKeyType == 1 means unicast key
+			** ucKeyId == 4 or ucKeyId == 5 means it is a PMF key
+			*/
+			prDetRplyInfo->ucCurKeyId = prCmdKey->ucKeyId;
+			prDetRplyInfo->ucKeyType = prCmdKey->ucKeyType;
+			prDetRplyInfo->arReplayPNInfo[prCmdKey->ucKeyId].fgRekey = TRUE;
+			prDetRplyInfo->arReplayPNInfo[prCmdKey->ucKeyId].fgFirstPkt = TRUE;
+			DBGLOG(NIC, TRACE, "Keyid is %d, ucKeyType is %d\n",
+				prCmdKey->ucKeyId, prCmdKey->ucKeyType);
+		}
+	}
+}
+VOID nicOidCmdTimeoutSetAddKey(IN P_ADAPTER_T prAdapter, IN P_CMD_INFO_T prCmdInfo)
+{
+	ASSERT(prAdapter);
+
+	DBGLOG(NIC, WARN, "Wlan setaddkey timeout.\n");
+	if (prCmdInfo->fgIsOid)
+		kalOidComplete(prAdapter->prGlueInfo, prCmdInfo->fgSetQuery, 0, WLAN_STATUS_FAILURE);
+}
+#endif

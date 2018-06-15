@@ -12,7 +12,6 @@
 #
 
 # drivers/cmdq
-$(warning start to build cmdq normal)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/video/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/video/$(MTK_PLATFORM)/dispsys
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/cmdq/hv1/$(MTK_PLATFORM)
@@ -22,7 +21,6 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/cmdq/hv1
 
 ifeq ($(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT),y)
-$(warning start to build cmdq secure)
 	ccflags-y += -I$(srctree)/include
 	ccflags-y += -I$(srctree)/include/trustzone
 
@@ -43,10 +41,6 @@ endif
 # Enable MET
 ccflags-y += -DMET_USER_EVENT_SUPPORT
 ccflags-y += -DDEBUG_INFO
-
-ifneq ($(TARGET_BUILD_VARIANT),user)
-ccflags-y += -D_CMDQ_TEST_PROC_
-endif
 
 obj-y += cmdq_record.o
 obj-y += cmdq_core.o

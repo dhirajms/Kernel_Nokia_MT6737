@@ -15,7 +15,6 @@
 #define __MT65XX_LCM_LIST_H__
 
 #include <lcm_drv.h>
-
 extern LCM_DRIVER nt35521_hd720_dsi_vdo_innolux_lcm_drv;
 extern LCM_DRIVER otm1282a_hd720_dsi_vdo_60hz_lcm_drv;
 extern LCM_DRIVER otm1282a_hd720_dsi_vdo_lcm_drv;
@@ -211,10 +210,12 @@ extern LCM_DRIVER r69338_hd720_5in_dsi_vdo_jdi_dw8768_drv;
 extern LCM_DRIVER db7436_dsi_vdo_fwvga_drv;
 extern LCM_DRIVER r63417_fhd_dsi_cmd_truly_nt50358_lcm_drv;
 extern LCM_DRIVER r63417_fhd_dsi_cmd_truly_nt50358_720p_lcm_drv;
+extern LCM_DRIVER r63417_fhd_dsi_cmd_truly_nt50358_hdplus_lcm_drv;
 extern LCM_DRIVER r63417_fhd_dsi_cmd_truly_nt50358_qhd_lcm_drv;
 extern LCM_DRIVER r63417_fhd_dsi_vdo_truly_nt50358_lcm_drv;
 extern LCM_DRIVER r63419_wqhd_truly_phantom_cmd_lcm_drv;
 extern LCM_DRIVER r63419_wqhd_truly_phantom_vdo_lcm_drv;
+extern LCM_DRIVER r63419_fhdp_truly_phantom_lcm_drv;
 extern LCM_DRIVER r63419_fhd_truly_phantom_lcm_drv;
 extern LCM_DRIVER r63423_wqhd_truly_phantom_lcm_drv;
 extern LCM_DRIVER kr101ia2s_dsi_vdo_lcm_drv;
@@ -254,9 +255,21 @@ extern LCM_DRIVER nt35595_truly_fhd_dsi_vdo_lcm_drv;
 extern LCM_DRIVER b080uan01_2_wuxga_dsi_vdo_lcm_drv;
 extern LCM_DRIVER nt36850_wqhd_dsi_2k_cmd_lcm_drv;
 extern LCM_DRIVER s6e3ha3_wqhd_2k_cmd_lcm_drv;
+extern LCM_DRIVER s6e3fa3_fhd_cmd_lcm_drv;
 extern LCM_DRIVER nt35595_fhd_dsi_cmd_truly_nt50358_720p_extern_lcm_drv;
 extern LCM_DRIVER nt35695_fhd_dsi_vdo_truly_nt50358_720p_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_cmd_auo_nt50358_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_cmd_auo_nt50358_extern_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_cmd_auo_nt50358_720p_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_cmd_auo_nt50358_720p_extern_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_cmd_auo_rt5081_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_vdo_auo_rt5081_lcm_drv;
 extern LCM_DRIVER ft8707_fhd_dsi_vdo_lgd_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_vdo_auo_nt50358_extern_lcm_drv;
+extern LCM_DRIVER nt35695B_fhd_dsi_vdo_auo_nt50358_lcm_drv;
+extern LCM_DRIVER auo_wuxga_dsi_vdo_lcm_drv;
+extern LCM_DRIVER ili9806e_dsi_vdo_tcl_blu5039_drv;
+extern LCM_DRIVER otm8019a_dsi_vdo_boyi_t50m_drv;
 #ifdef BUILD_LK
 extern void mdelay(unsigned long msec);
 #endif

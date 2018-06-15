@@ -1,6 +1,17 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
 
+# Copyright (C) 2016 MediaTek Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+
 import re
 import string
 import ConfigParser
@@ -61,7 +72,7 @@ class KpdObj(ModuleObj):
                             KpdData._usedKeys.append(item)
                     KpdData._usedKeys.append('POWER')
 
-                if node.nodeName == "keyMatrix_ext":
+                if node.nodeName == "keyMatrix_ext" and node.childNodes:
                     content = node.childNodes[0].nodeValue
                     content = content.replace('\t', '')
                     rows = content.split('''\n''')
@@ -109,7 +120,11 @@ class KpdObj(ModuleObj):
                 if node.nodeName == 'bPwrKeyGpioDinHigh':
                     flag = False
                     if node.childNodes[0].nodeValue == 'false':
-                        KpdData.set_gpioDinHigh(flag)
+                        flag = False
+                    else:
+                        flag = True
+
+                    KpdData.set_gpioDinHigh(flag)
 
                 if node.nodeName == 'pressPeriod':
                     time = string.atoi(node.childNodes[0].nodeValue)

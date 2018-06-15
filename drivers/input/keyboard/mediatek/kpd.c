@@ -20,10 +20,11 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/clk.h>
+
 #include <linux/gpio.h>
 #include <mach/gpio_const.h>
 #include <mt-plat/mt_gpio.h>
-
+#include <mt-plat/upmu_common.h>
 
 
 #define KPD_NAME	"mtk-kpd"
@@ -48,11 +49,22 @@ static struct wake_lock pwrkey_lock;
 
 /* for slide QWERTY */
 #if KPD_HAS_SLIDE_QWERTY
-static void kpd_slide_handler(unsigned long data);
-static DECLARE_TASKLET(kpd_slide_tasklet, kpd_slide_handler, 0);
-//static u8 kpd_slide_state = !KPD_SLIDE_POLARITY;
-unsigned int kpd_slide_irq = 0;
+
+#define HALL_SLIDE        (1)
+#define HALL_CLOSE       (0)
+
+unsigned int hall_gpiopin = 0;
+unsigned int hall_debounce = 0;
+unsigned int hall_slide_irq = 0;
+unsigned int hall_eint_type = IRQ_TYPE_LEVEL_LOW;
+unsigned int hall_current_state = HALL_SLIDE;
+
+struct work_struct hall_irq_work;
+static struct workqueue_struct *hall_irq_workqueue;
+
+static irqreturn_t hall_eint_handler(int irq, void *data);
 #endif
+
 struct keypad_dts_data kpd_dts_data;
 /* for Power key using EINT */
 #ifdef CONFIG_KPD_PWRKEY_USE_EINT
@@ -155,8 +167,7 @@ static ssize_t kpd_show_call_state(struct device_driver *ddri, char *buf)
 static ssize_t kpd_show_hall_state(struct device_driver *ddri, char *buf)
 {
 	ssize_t res;
-
-	static char  hall_status = 2;
+	static char hall_status = 2;
 
 	hall_status = gpio_get_value(66);
 
@@ -165,14 +176,13 @@ static ssize_t kpd_show_hall_state(struct device_driver *ddri, char *buf)
 }
 
 static DRIVER_ATTR(kpd_hall_state, S_IWUSR | S_IRUGO, kpd_show_hall_state, NULL);
-
 #endif
 
 static DRIVER_ATTR(kpd_call_state, S_IWUSR | S_IRUGO, kpd_show_call_state, kpd_store_call_state);
 
 static struct driver_attribute *kpd_attr_list[] = {
 	&driver_attr_kpd_call_state,
-#if KPD_HAS_SLIDE_QWERTY		
+#if KPD_HAS_SLIDE_QWERTY
 	&driver_attr_kpd_hall_state,
 #endif	
 };
@@ -336,63 +346,115 @@ static enum hrtimer_restart aee_timer_5s_func(struct hrtimer *timer)
 #endif
 
 /************************************************************************/
+//for HALL Sensor
+/************************************************************************/
+
 #if KPD_HAS_SLIDE_QWERTY
-static void kpd_slide_handler(unsigned long data)
+void kpd_slide_qwerty_init(void)
+{
+	int ret = 0;
+	u32 ints[2] = {0, 0};
+	struct device_node *node = NULL;
+
+	node = of_find_compatible_node(NULL, NULL, "mediatek, kpd_slide-eint");
+	if (node)
+	{
+		of_property_read_u32_array(node, "debounce", ints, ARRAY_SIZE(ints));
+		hall_gpiopin = ints[0];
+		hall_debounce = ints[1];
+
+		kpd_print("hall_gpiopin = %d, hall_debounce = %d\n", hall_gpiopin, hall_debounce);
+
+		ints[0] = 0;
+		ints[1] = 0;
+
+		of_property_read_u32_array(node, "interrupts", ints, ARRAY_SIZE(ints));
+		hall_eint_type = ints[1];
+
+		kpd_print("hall_eint_type = %d\n", hall_eint_type);
+
+		gpio_set_debounce(hall_gpiopin, hall_debounce);
+
+		hall_slide_irq = irq_of_parse_and_map(node, 0);
+
+		kpd_print("hall_slide_irq = %d\n", hall_slide_irq);
+
+		ret = request_irq(hall_slide_irq, hall_eint_handler, IRQF_TRIGGER_NONE, "KPD_SLIDE-eint", NULL);
+		if (ret != 0)
+		{
+			kpd_print("[HALL Sensor] EINT IRQ LINEN NOT AVAILABLE\n");
+		}
+	}
+	else
+	{
+		kpd_print("[HALL Sensor] Can't find compatible node\n");
+	}
+}
+
+
+static irqreturn_t hall_eint_handler(int irq, void *data)
+{
+	int ret = 0;
+
+	kpd_print("hall_current_state = %d, hall_eint_type = %d\n", hall_current_state, hall_eint_type);
+
+	if (hall_current_state == HALL_CLOSE)
+	{
+		/* To trigger EINT when the hall was slide We set the polarity back as we initialed. */
+		if (hall_eint_type == IRQ_TYPE_LEVEL_HIGH)
+		{
+			irq_set_irq_type(hall_slide_irq, IRQ_TYPE_LEVEL_HIGH);
+		}
+		else
+		{
+			irq_set_irq_type(hall_slide_irq, IRQ_TYPE_LEVEL_LOW);
+		}
+
+		gpio_set_debounce(hall_gpiopin, hall_debounce);
+
+		/* update the eint status */
+		hall_current_state = HALL_SLIDE;
+	}
+	else
+	{
+		/* To trigger EINT when the hall was slide We set the opposite polarity to what we initialed. */
+		if (hall_eint_type == IRQ_TYPE_LEVEL_HIGH)
+		{
+			irq_set_irq_type(hall_slide_irq, IRQ_TYPE_LEVEL_LOW);
+		}
+		else
+		{
+			irq_set_irq_type(hall_slide_irq, IRQ_TYPE_LEVEL_HIGH);
+		}
+
+		gpio_set_debounce(hall_gpiopin, hall_debounce);
+
+		/* update the eint status */
+		hall_current_state = HALL_CLOSE;
+	}
+
+	disable_irq_nosync(hall_slide_irq);
+
+	ret = queue_work(hall_irq_workqueue, &hall_irq_work);
+
+	return IRQ_HANDLED;
+}
+
+
+static void hall_eint_work_callback(struct work_struct *work)
 {
 	bool slid;
-	u8 hall_status  = -1;
-
-//	u8 old_state = kpd_slide_state;
- 
-//	kpd_slide_state = !kpd_slide_state;
-	//slid = (kpd_slide_state == !!KPD_SLIDE_POLARITY);
+	u8 hall_status = -1;
 
     hall_status = gpio_get_value(66);
-
- //   slid = (kpd_slide_state == 0);
-
-
     slid = (hall_status == 0);
-	/* for SW_LID, 1: lid open => slid, 0: lid shut => closed    close is lcm on */
 
 	input_report_switch(kpd_input_dev, SW_LID, slid);
 	input_sync(kpd_input_dev);
 
 	kpd_print("report QWERTY = %s\n", slid ? "slid" : "closed");
 
-
-#if 0
-	if (old_state){
-	//	kpd_hall_gpio_output(0);	
-	    //mt_set_gpio_pull_select(GPIO_QWERTYSLIDE_EINT_PIN, 1);
-		}
-	else
-		{
-
-	//    kpd_hall_gpio_output(1);
-
-	//mt_set_gpio_pull_select(GPIO_QWERTYSLIDE_EINT_PIN, 0);
-		}
-#endif	
-	/* for detecting the return to old_state */
-  //	mt_eint_set_polarity(KPD_SLIDE_EINT, old_state);
-
-  //mt_eint_unmask(KPD_SLIDE_EINT);
-	enable_irq(kpd_slide_irq);
-
-}
-
-
-irqreturn_t kpd_slide_eint_handler(void)
-{
-
-	/* use _nosync to avoid deadlock */
-	disable_irq_nosync(kpd_slide_irq);
-
-   
-	tasklet_schedule(&kpd_slide_tasklet);
-
-	return IRQ_HANDLED;
+	enable_irq(hall_slide_irq);
 }
 #endif
 
@@ -812,11 +874,14 @@ static struct miscdevice kpd_dev = {
 
 static int kpd_open(struct input_dev *dev)
 {
+	hall_irq_workqueue = create_singlethread_workqueue("kpd_slide-eint");
+	INIT_WORK(&hall_irq_work, hall_eint_work_callback);
+
 	kpd_slide_qwerty_init();	/* API 1 for kpd slide qwerty init settings */
 	return 0;
 }
 
-//[ add reboot node ,20151222 
+// Begin, for reboot node, 20171124
 #if 1
 static ssize_t kpd_reboot_show(struct device_driver *ddri, char *buf)
 {
@@ -862,16 +927,16 @@ static ssize_t kpd_reboot_store(struct device_driver *ddri, const char *buf, siz
 	switch (reboot_time)
     {
         case 5:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,3);//mt6328_upmu_set_rg_pwrkey_rst_td(3);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,3);
             break;
         case 8:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,0);//mt6328_upmu_set_rg_pwrkey_rst_td(0);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,0);
             break;
         case 11:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,1);//mt6328_upmu_set_rg_pwrkey_rst_td(1);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,1);
             break;
         case 14:
-            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,2);//mt6328_upmu_set_rg_pwrkey_rst_td(2);
+            pmic_set_register_value(PMIC_RG_PWRKEY_RST_TD,2);
             break;
 		default:
             break;
@@ -880,7 +945,7 @@ static ssize_t kpd_reboot_store(struct device_driver *ddri, const char *buf, siz
 }
 static DRIVER_ATTR(reboot, 0755, kpd_reboot_show, kpd_reboot_store);
 #endif
-// add reboot node ,20151222 ]
+// End, for reboot node, 20171124
 
 
 void kpd_get_dts_info(struct device_node *node)
@@ -1046,11 +1111,11 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 #ifndef KPD_EARLY_PORTING	/*add for avoid early porting build err the macro is defined in custom file */
 	long_press_reboot_function_setting();	/* /API 4 for kpd long press reboot function setting */
 
-//[ add reboot node ,20151222 
+	// Begin, for reboot node, 20171124
     err = driver_create_file(&kpd_pdrv.driver, &driver_attr_reboot);
 	if(err)
         printk("create reboot node failed\n");
-//  add reboot node ,20151222 ]
+	// End, for reboot node, 20171124
 
 #endif
 	hrtimer_init(&aee_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -1073,6 +1138,8 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 /* should never be called */
 static int kpd_pdrv_remove(struct platform_device *pdev)
 {
+    destroy_workqueue(hall_irq_workqueue);
+
 	return 0;
 }
 

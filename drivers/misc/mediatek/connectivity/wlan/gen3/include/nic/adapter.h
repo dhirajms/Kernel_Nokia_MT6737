@@ -101,6 +101,7 @@ typedef struct _WLAN_INFO_T {
 	/* Network Type In Use */
 	UINT_8 ucNetworkTypeInUse;
 
+	BOOLEAN fgEnSpecPwrMgt;
 } WLAN_INFO_T, *P_WLAN_INFO_T;
 
 /* Session for CONNECTION SETTINGS */
@@ -184,6 +185,7 @@ typedef struct _CONNECTION_SETTINGS_T {
 	BOOLEAN fgSecModeChangeStartTimer;
 #endif
 	struct LINK_MGMT rBlackList;
+	BOOLEAN fgUseOkc;
 } CONNECTION_SETTINGS_T, *P_CONNECTION_SETTINGS_T;
 
 struct _BSS_INFO_T {
@@ -401,6 +403,7 @@ struct _BSS_INFO_T {
 	UINT_8 ucRoamSkipTimes;
 	BOOLEAN fgGoodRcpiArea;
 	BOOLEAN fgPoorRcpiArea;
+	UINT_32 u4CoexPhyRateLimit;
 };
 
 struct ESS_CHNL_INFO {
@@ -535,7 +538,8 @@ typedef struct _WIFI_VAR_T {
 
 	AIS_FSM_INFO_T rAisFsmInfo;
 
-	ENUM_PWR_STATE_T aePwrState[BSS_INFO_NUM];
+	/* memory should be matched with max of _BssIndex to avoid buffer overflow. */
+	ENUM_PWR_STATE_T aePwrState[MAX_BSS_INDEX];
 
 	BSS_INFO_T arBssInfoPool[BSS_INFO_NUM];
 
@@ -702,6 +706,10 @@ typedef struct _WIFI_VAR_T {
 	UINT_8 ucArpTxDone;
 	UINT_8 ucIcmpTxDone;
 	PARAM_POWER_MODE ePowerMode;
+#if CFG_RX_BA_REORDERING_ENHANCEMENT
+	BOOLEAN fgEnableReportIndependentPkt;
+#endif
+
 } WIFI_VAR_T, *P_WIFI_VAR_T;	/* end of _WIFI_VAR_T */
 
 /* cnm_timer module */

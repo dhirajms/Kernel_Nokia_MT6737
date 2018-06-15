@@ -202,7 +202,8 @@ typedef enum _ENUM_REG_CH_MAP_T {
 typedef enum _ENUM_FEATURE_OPTION_T {
 	FEATURE_DISABLED,
 	FEATURE_ENABLED,
-	FEATURE_FORCE_ENABLED
+	FEATURE_FORCE_ENABLED,
+	FEATURE_UPPER_CONFIG
 } ENUM_FEATURE_OPTION_T, *P_ENUM_FEATURE_OPTION_T;
 
 /* This enum is for later added feature options which use command reserved field as option switch */
@@ -908,6 +909,8 @@ VOID wlanCfgSetSwCtrl(IN P_ADAPTER_T prAdapter);
 
 VOID wlanCfgSetChip(IN P_ADAPTER_T prAdapter);
 
+VOID wlanGetFwInfo(IN P_ADAPTER_T prAdapter);
+
 VOID wlanCfgSetDebugLevel(IN P_ADAPTER_T prAdapter);
 
 VOID wlanCfgSetCountryCode(IN P_ADAPTER_T prAdapter);
@@ -966,5 +969,9 @@ WLAN_STATUS wlanIcmpTxDone(IN P_ADAPTER_T prAdapter,
 
 WLAN_STATUS wlanTdlsTxDone(IN P_ADAPTER_T prAdapter,
 			  IN P_MSDU_INFO_T prMsduInfo, IN ENUM_TX_RESULT_CODE_T rTxDoneStatus);
+
+WLAN_STATUS wlanDnsTxDone(IN P_ADAPTER_T prAdapter,
+			IN P_MSDU_INFO_T prMsduInfo, IN ENUM_TX_RESULT_CODE_T rTxDoneStatus);
+
 VOID wlanReleasePendingCmdById(P_ADAPTER_T prAdapter, UINT_8 ucCid);
 

@@ -260,9 +260,9 @@ int _btif_suspend(p_mtk_btif p_btif)
 {
 	int i_ret;
 
-	if (_btif_state_hold(p_btif))
-		return E_BTIF_INTR;
-	if (NULL != p_btif) {
+	if (p_btif != NULL) {
+		if (_btif_state_hold(p_btif))
+			return E_BTIF_INTR;
 		if (!(p_btif->enable))
 			i_ret = 0;
 		else {
@@ -292,9 +292,9 @@ int _btif_suspend(p_mtk_btif p_btif)
 				}
 			}
 		}
+		BTIF_STATE_RELEASE(p_btif);
 	} else
 		i_ret = -1;
-	BTIF_STATE_RELEASE(p_btif);
 
 	return i_ret;
 }
@@ -392,9 +392,9 @@ int _btif_resume(p_mtk_btif p_btif)
 	int i_ret = 0;
 	ENUM_BTIF_STATE state = B_S_MAX;
 
-	if (_btif_state_hold(p_btif))
-		return E_BTIF_INTR;
-	if (NULL != p_btif) {
+	if (p_btif != NULL) {
+		if (_btif_state_hold(p_btif))
+			return E_BTIF_INTR;
 		state = _btif_state_get(p_btif);
 		if (!(p_btif->enable))
 			i_ret = 0;
@@ -403,9 +403,9 @@ int _btif_resume(p_mtk_btif p_btif)
 		else
 			BTIF_INFO_FUNC
 				("BTIF state: %s before resume, do nothing\n", g_state[state]);
+		BTIF_STATE_RELEASE(p_btif);
 	} else
 		i_ret = -1;
-	BTIF_STATE_RELEASE(p_btif);
 
 	return i_ret;
 }
@@ -2613,6 +2613,7 @@ unsigned int btif_bbs_write(p_btif_buf_str p_bbs,
 		hal_btif_dump_reg(p_btif->p_btif_info, REG_BTIF_ALL);
 		hal_dma_dump_reg(p_btif->p_rx_dma->p_dma_info, REG_RX_DMA_ALL);
 		_btif_dump_memory("<DMA Rx vFIFO>", p_buf, buf_len);
+		BBS_INIT(p_bbs);
 	}
 
 	return wr_len;

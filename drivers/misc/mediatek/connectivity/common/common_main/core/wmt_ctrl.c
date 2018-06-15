@@ -57,7 +57,7 @@
 ********************************************************************************
 */
 
-
+#define BOOTING_UP_TIME    (5*60)
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -102,7 +102,7 @@ static INT32 wmt_ctrl_soc_paldo_ctrl(P_WMT_CTRL_DATA);
 static INT32 wmt_ctrl_soc_wakeup_consys(P_WMT_CTRL_DATA);
 static INT32 wmt_ctrl_set_stp_dbg_info(P_WMT_CTRL_DATA);
 static INT32 wmt_ctrl_bgw_desense_ctrl(P_WMT_CTRL_DATA);
-static INT32 wmt_ctrl_evt_err_trg_assert(P_WMT_CTRL_DATA);
+static INT32 wmt_ctrl_trg_assert(P_WMT_CTRL_DATA);
 static INT32 wmt_ctrl_evt_parser(P_WMT_CTRL_DATA pWmtCtrlData);
 #if CFG_WMT_LTE_COEX_HANDLING
 static INT32 wmt_ctrl_get_tdm_req_antsel(P_WMT_CTRL_DATA);
@@ -112,10 +112,7 @@ static INT32 wmt_ctrl_gps_sync_set(P_WMT_CTRL_DATA pData);
 
 static INT32 wmt_ctrl_gps_lna_set(P_WMT_CTRL_DATA pData);
 
-
 static INT32 wmt_ctrl_get_patch_name(P_WMT_CTRL_DATA pWmtCtrlData);
-static INT32 wmt_ctrl_set_stp_dbg_info(P_WMT_CTRL_DATA);
-static INT32 wmt_ctrl_evt_err_trg_assert(P_WMT_CTRL_DATA pWmtCtrlData);
 
 /* TODO: [FixMe][GeorgeKuo]: remove unused function */
 /*static INT32  wmt_ctrl_hwver_get(P_WMT_CTRL_DATA);*/
@@ -162,7 +159,7 @@ static const WMT_CTRL_FUNC wmt_ctrl_func[] = {
 	[WMT_CTRL_SOC_WAKEUP_CONSYS] = wmt_ctrl_soc_wakeup_consys,
 	[WMT_CTRL_SET_STP_DBG_INFO] = wmt_ctrl_set_stp_dbg_info,
 	[WMT_CTRL_BGW_DESENSE_CTRL] = wmt_ctrl_bgw_desense_ctrl,
-	[WMT_CTRL_EVT_ERR_TRG_ASSERT] = wmt_ctrl_evt_err_trg_assert,
+	[WMT_CTRL_TRG_ASSERT] = wmt_ctrl_trg_assert,
 	#if CFG_WMT_LTE_COEX_HANDLING
 	[WMT_CTRL_GET_TDM_REQ_ANTSEL] = wmt_ctrl_get_tdm_req_antsel,
 #endif
@@ -174,21 +171,7 @@ static const WMT_CTRL_FUNC wmt_ctrl_func[] = {
 *                              F U N C T I O N S
 ********************************************************************************
 */
-INT32 __weak wmt_plat_soc_paldo_ctrl(ENUM_PALDO_TYPE ePt, ENUM_PALDO_OP ePo)
-{
-	return 0;
-}
 INT32 __weak mtk_wcn_consys_stp_btif_parser_wmt_evt(const PUINT8 str, UINT32 len)
-{
-	return 0;
-}
-
-INT32 __weak wmt_plat_sdio_ctrl(UINT32 sdioPortNum, ENUM_FUNC_STATE on)
-{
-	return 0;
-}
-
-INT32 __weak wmt_plat_get_tdm_antsel_index(VOID)
 {
 	return 0;
 }
@@ -401,6 +384,10 @@ INT32 wmt_ctrl_hw_pwr_on(P_WMT_CTRL_DATA pWmtCtrlData)
 INT32 wmt_ctrl_ul_cmd(P_DEV_WMT pWmtDev, const PUINT8 pCmdStr)
 {
 	INT32 waitRet = -1;
+	PUINT8 pbuf = NULL;
+	INT32 len = 0;
+	UINT64 sec;
+	ULONG nsec;
 	P_OSAL_SIGNAL pCmdSignal;
 	P_OSAL_EVENT pCmdReq;
 
@@ -430,10 +417,17 @@ INT32 wmt_ctrl_ul_cmd(P_DEV_WMT pWmtDev, const PUINT8 pCmdStr)
 	WMT_DBG_FUNC("str(%s) request ok\n", pCmdStr);
 
 /* waitRet = wait_for_completion_interruptible_timeout(&pWmtDev->cmd_comp, msecs_to_jiffies(2000)); */
-	waitRet = osal_wait_for_signal_timeout(pCmdSignal);
+	waitRet = osal_wait_for_signal_timeout(pCmdSignal, NULL);
 	WMT_LOUD_FUNC("wait signal iRet:%d\n", waitRet);
 	if (0 == waitRet) {
 		WMT_ERR_FUNC("wait signal timeout\n");
+		osal_get_local_time(&sec, &nsec);
+		/* ignore this error during boot up */
+		if (sec > BOOTING_UP_TIME) {
+			pbuf = "wmt_ctrl_ul_cmd fail, just collect SYS_FTRACE to DB";
+			len = osal_strlen(pbuf);
+			stp_dbg_trigger_collect_ftrace(pbuf, len);
+		}
 		return -2;
 	}
 
@@ -749,10 +743,8 @@ INT32 wmt_ctrl_free_patch(P_WMT_CTRL_DATA pWmtCtrlData)
 	if (NULL != gDevWmt.pPatch)
 		wmt_dev_patch_put((osal_firmware **) &(gDevWmt.pPatch));
 	WMT_DBG_FUNC("AF free patch, gDevWmt.pPatch(%p)\n", gDevWmt.pPatch);
-	if (patchSeq == gDevWmt.patchNum) {
+	if (patchSeq == gDevWmt.patchNum)
 		WMT_DBG_FUNC("the %d patch has been download\n", patchSeq);
-		wmt_dev_patch_info_free();
-	}
 	return 0;
 }
 
@@ -787,7 +779,7 @@ INT32 wmt_ctrl_crystal_triming_get(P_WMT_CTRL_DATA pWmtCtrlData)
 		iRet = -1;
 		return iRet;
 	}
-	if (0 == wmt_dev_patch_get(pFileName, &pNvram, 0)) {
+	if (0 == wmt_dev_patch_get(pFileName, &pNvram)) {
 		*ppBuf = (PUINT8)(pNvram)->data;
 		*pSize = (pNvram)->size;
 		gDevWmt.pNvram = pNvram;
@@ -808,7 +800,7 @@ INT32 wmt_ctrl_get_patch(P_WMT_CTRL_DATA pWmtCtrlData)
 	pFullPatchName = (PUINT8) pWmtCtrlData->au4CtrlData[1];
 	WMT_DBG_FUNC("BF get patch, pPatch(%p)\n", pPatch);
 	if ((NULL != pFullPatchName)
-	    && (0 == wmt_dev_patch_get(pFullPatchName, &pPatch, BCNT_PATCH_BUF_HEADROOM))) {
+	    && (0 == wmt_dev_patch_get(pFullPatchName, &pPatch))) {
 		/*get full name patch success */
 		WMT_DBG_FUNC("get full patch name(%s) buf(0x%p) size(%zu)\n",
 			     pFullPatchName, (pPatch)->data, (pPatch)->size);
@@ -821,7 +813,7 @@ INT32 wmt_ctrl_get_patch(P_WMT_CTRL_DATA pWmtCtrlData)
 
 	pDefPatchName = (PUINT8) pWmtCtrlData->au4CtrlData[0];
 	if ((NULL != pDefPatchName)
-	    && (0 == wmt_dev_patch_get(pDefPatchName, &pPatch, BCNT_PATCH_BUF_HEADROOM))) {
+	    && (0 == wmt_dev_patch_get(pDefPatchName, &pPatch))) {
 		WMT_DBG_FUNC("get def patch name(%s) buf(0x%p) size(%zu)\n",
 			     pDefPatchName, (pPatch)->data, (pPatch)->size);
 		WMT_DBG_FUNC("AF get patch, pPatch(%p)\n", pPatch);
@@ -939,7 +931,7 @@ INT32 wmt_ctrl_sdio_func(P_WMT_CTRL_DATA pWmtCtrlData)
 					break;
 				}
 			}
-			if (!retry && iRet)
+			if (iRet)
 				WMT_ERR_FUNC
 				    ("mtk_wcn_hif_sdio_wmt_control(%d, TRUE) fail(%d) retry(%d)\n",
 				     sdioFuncType, iRet, retry);
@@ -1069,7 +1061,7 @@ INT32 wmt_ctrl_set_stp_dbg_info(P_WMT_CTRL_DATA pWmtCtrlData)
 					&(pPatch->ucPLat[0]));
 }
 
-static INT32 wmt_ctrl_evt_err_trg_assert(P_WMT_CTRL_DATA pWmtCtrlData)
+static INT32 wmt_ctrl_trg_assert(P_WMT_CTRL_DATA pWmtCtrlData)
 {
 	INT32 iRet = -1;
 
@@ -1080,14 +1072,15 @@ static INT32 wmt_ctrl_evt_err_trg_assert(P_WMT_CTRL_DATA pWmtCtrlData)
 	reason = pWmtCtrlData->au4CtrlData[1];
 	WMT_INFO_FUNC("wmt-ctrl:drv_type(%d),reason(%d)\n", drv_type, reason);
 
-	if (0 == mtk_wcn_stp_get_wmt_evt_err_trg_assert()) {
-		mtk_wcn_stp_set_wmt_evt_err_trg_assert(1);
-		wmt_lib_set_host_assert_info(drv_type, reason, 1);
+	if (mtk_wcn_stp_get_wmt_trg_assert() == 0) {
+		mtk_wcn_stp_set_wmt_trg_assert(1);
+		mtk_wcn_stp_dbg_dump_package();
 
-		iRet = mtk_wcn_stp_wmt_evt_err_trg_assert();
-		if (iRet)
-			mtk_wcn_stp_set_wmt_evt_err_trg_assert(0);
+		iRet = mtk_wcn_stp_wmt_trg_assert();
+		if (iRet == 0)
+			wmt_lib_set_host_assert_info(drv_type, reason, 1);
 	} else
 		WMT_INFO_FUNC("do trigger assert & chip reset in stp noack\n");
+
 	return 0;
 }

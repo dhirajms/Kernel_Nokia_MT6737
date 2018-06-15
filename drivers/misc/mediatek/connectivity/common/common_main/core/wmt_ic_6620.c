@@ -1282,7 +1282,7 @@ static const WMT_IC_INFO_S *mt6620_find_wmt_ic_info(const UINT32 hw_ver)
 static INT32 wmt_stp_init_coex(VOID)
 {
 	INT32 iRet;
-	ULONG addr;
+	ULONG addr = 0;
 	WMT_GEN_CONF *pWmtGenConf;
 
 #define COEX_WMT  0
@@ -1473,6 +1473,11 @@ static INT32 mt6620_patch_dwn(UINT32 index)
 	/* remove patch header:
 	 * |<-patch body: X Bytes (X=patchSize)--->|
 	 */
+	if (patchSize < sizeof(WMT_PATCH)) {
+		WMT_ERR_FUNC("error patch size\n");
+		iRet = -1;
+		goto done;
+	}
 	patchSize -= sizeof(WMT_PATCH);
 	pbuf += sizeof(WMT_PATCH);
 
@@ -1750,6 +1755,10 @@ static INT32 mt6620_patch_dwn(VOID)
 	/* remove patch header:
 	 * |<-patch body: X Bytes (X=patchSize)--->|
 	 */
+	if (patchSize < sizeof(WMT_PATCH)) {
+		WMT_ERR_FUNC("error patch size\n");
+		return -1;
+	}
 	patchSize -= sizeof(WMT_PATCH);
 	pbuf += sizeof(WMT_PATCH);
 	WMT_INFO_FUNC("===========================================\n");

@@ -252,7 +252,6 @@ int dpmgr_module_notify(DISP_MODULE_ENUM module, DISP_PATH_EVENT event)
 	MMProfileLogEx(ddp_mmp_get_events()->primary_display_aalod_trigger, MMProfileFlagPulse,
 		       module, 0);
 	return dpmgr_signal_event(handle, event);
-	return 0;
 }
 
 static int assign_default_irqs_table(DDP_SCENARIO_ENUM scenario, DDP_IRQ_EVENT_MAPPING *irq_events)
@@ -509,19 +508,19 @@ int dpmgr_destroy_path(disp_path_handle dp_handle, cmdqRecHandle cmdq_handle)
 
 	DISPDBG("destroy path handle %p on scenario %s\n", handle,
 		   ddp_get_scenario_name(handle->scenario));
-	if (handle != NULL) {
-		release_mutex(handle->hwmutexid);
-		ddp_disconnect_path(handle->scenario, cmdq_handle);
-		for (i = 0; i < module_num; i++) {
-			module_name = modules[i];
-			content->module_usage_table[module_name]--;
-			content->module_path_table[module_name] = NULL;
-		}
-		content->handle_cnt--;
-		ASSERT(content->handle_cnt >= 0);
-		content->handle_pool[handle->hwmutexid] = NULL;
-		kfree(handle);
+
+	release_mutex(handle->hwmutexid);
+	ddp_disconnect_path(handle->scenario, cmdq_handle);
+	for (i = 0; i < module_num; i++) {
+		module_name = modules[i];
+		content->module_usage_table[module_name]--;
+		content->module_path_table[module_name] = NULL;
 	}
+	content->handle_cnt--;
+	ASSERT(content->handle_cnt >= 0);
+	content->handle_pool[handle->hwmutexid] = NULL;
+	kfree(handle);
+
 	return 0;
 }
 
@@ -1805,6 +1804,8 @@ int dpmgr_path_user_cmd(disp_path_handle dp_handle, int msg, unsigned long arg, 
 
 		break;
 	case DISP_IOCTL_SET_CCORR:
+	case DISP_IOCTL_CCORR_EVENTCTL:
+	case DISP_IOCTL_CCORR_GET_IRQ:
 		if (ddp_modules_driver[DISP_MODULE_CCORR]->cmd != NULL)
 			ret = ddp_modules_driver[DISP_MODULE_CCORR]->cmd(DISP_MODULE_CCORR, msg, arg, cmdqhandle);
 
@@ -1814,6 +1815,7 @@ int dpmgr_path_user_cmd(disp_path_handle dp_handle, int msg, unsigned long arg, 
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
 	case DISP_IOCTL_GET_PQINDEX:
+	case DISP_IOCTL_SET_COLOR_REG:
 	case DISP_IOCTL_SET_TDSHPINDEX:
 	case DISP_IOCTL_GET_TDSHPINDEX:
 	case DISP_IOCTL_SET_PQ_CAM_PARAM:
@@ -2026,9 +2028,9 @@ int dpmgr_check_status(disp_path_handle dp_handle)
 	{
 		DISPMSG("path:");
 		for (i = 0; i < module_num; i++)
-			pr_debug("%s-", ddp_get_module_name(modules[i]));
+			DISPMSG("%s-", ddp_get_module_name(modules[i]));
 
-		pr_debug("\n");
+		DISPMSG("\n");
 	}
 	ddp_dump_analysis(DISP_MODULE_MUTEX);
 
@@ -2040,8 +2042,6 @@ int dpmgr_check_status(disp_path_handle dp_handle)
 
 	ddp_dump_reg(DISP_MODULE_CONFIG);
 	ddp_dump_reg(DISP_MODULE_MUTEX);
-
-	dump_stack();
 
 	return 0;
 }

@@ -363,7 +363,8 @@ static void mtkfb_ion_free_handle(struct ion_client *client, struct ion_handle *
 static size_t mtkfb_ion_phys_mmu_addr(struct ion_client *client, struct ion_handle *handle,
 				      unsigned int *mva)
 {
-	size_t size;
+	size_t size = 0;
+	ion_phys_addr_t phy_addr = 0;
 
 	if (!ion_client) {
 		MTKFB_FENCE_ERR("invalid ion client!\n");
@@ -372,7 +373,8 @@ static size_t mtkfb_ion_phys_mmu_addr(struct ion_client *client, struct ion_hand
 	if (!handle)
 		return 0;
 
-	ion_phys(client, handle, (ion_phys_addr_t *) mva, &size);
+	ion_phys(client, handle, &phy_addr, &size);
+	*mva = (unsigned int)phy_addr;
 	MTKFB_FENCE_LOG("alloc mmu addr hnd=0x%p,mva=0x%08x\n", handle, (unsigned int)*mva);
 	return size;
 }
@@ -537,7 +539,7 @@ unsigned int mtkfb_update_buf_ticket(unsigned int session_id, unsigned int layer
 	if (layer_id >= DISP_SESSION_TIMELINE_COUNT) {
 		DISPERR("mtkfb_update_buf_state return MVA=0x0 mtkfb_query_buf_mva layer_id %d !!!!!!(Warning)\n",
 			layer_id);
-		return mva;
+		return -1;
 	}
 
 	session_info = _get_session_sync_info(session_id);
@@ -695,14 +697,20 @@ unsigned int mtkfb_query_frm_seq_by_addr(unsigned int session_id, unsigned int l
 {
 	struct mtkfb_fence_buf_info *buf;
 	unsigned int frm_seq = 0x0;
-	disp_session_sync_info *session_info;
+	/* disp_session_sync_info *session_info; */
 	disp_sync_info *layer_info;
 
 	if (session_id <= 0)
 		return 0;
 
-	session_info = _get_session_sync_info(session_id);
-	layer_info = &(session_info->session_layer_info[layer_id]);
+	/* session_info = _get_session_sync_info(session_id);
+	 * layer_info = &(session_info->session_layer_info[layer_id]);
+	 */
+	layer_info = _get_sync_info(session_id, layer_id);
+	if (layer_info == NULL) {
+		DISPERR("layer_info is null\n");
+		return 0;
+	}
 
 	if (layer_id != layer_info->layer_id) {
 		MTKFB_FENCE_ERR("wrong layer id %d(rt), %d(in)!\n", layer_info->layer_id, layer_id);

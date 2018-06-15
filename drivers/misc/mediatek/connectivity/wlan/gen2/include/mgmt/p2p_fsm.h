@@ -154,6 +154,13 @@ typedef struct _P2P_CONNECTION_REQ_INFO_T {
 	UINT_8 aucIEBuf[MAX_IE_LENGTH];
 } P2P_CONNECTION_REQ_INFO_T, *P_P2P_CONNECTION_REQ_INFO_T;
 
+typedef struct _P2P_GC_DISCONNECTION_REQ_INFO_T {
+	P_STA_RECORD_T prTargetStaRec;
+	UINT_32 u4RetryCount;
+	UINT_16 u2ReasonCode;
+	BOOLEAN fgSendDeauth;
+} P2P_GC_DISCONNECTION_REQ_INFO_T, *P_P2P_GC_DISCONNECTION_REQ_INFO_T;
+
 typedef struct _P2P_MGMT_TX_REQ_INFO_T {
 	BOOLEAN fgIsMgmtTxRequested;
 	P_MSDU_INFO_T prMgmtTxMsdu;
@@ -261,6 +268,9 @@ struct _P2P_FSM_INFO_T {
 	/* Connection related. */
 	P2P_CONNECTION_REQ_INFO_T rConnReqInfo;
 
+	/* Disconnection related. */
+	P2P_GC_DISCONNECTION_REQ_INFO_T rGcDisConnReqInfo;
+
 	/* Mgmt tx related. */
 	P2P_MGMT_TX_REQ_INFO_T rMgmtTxInfo;
 
@@ -305,6 +315,9 @@ struct _P2P_FSM_INFO_T {
 	BOOLEAN fgIsWPSMode;
 
 	enum _ENUM_P2P_DEV_EXT_LISTEN_T eListenExted;
+
+	/* GO start and scan its channel first. */
+	BOOLEAN fgIsFirstGOScan;
 };
 
 /*---------------- Messages -------------------*/
@@ -364,7 +377,7 @@ typedef struct _MSG_P2P_START_AP_T {
 	UINT_32 u4BcnInterval;
 	UINT_8 aucSsid[32];
 	UINT_16 u2SsidLen;
-	ENUM_HIDDEN_SSID_TYPE_T eHiddenSsidType;
+	UINT_8 ucHiddenSsidType;
 	BOOLEAN fgIsPrivacy;
 	AP_CRYPTO_SETTINGS_T rEncryptionSettings;
 	INT_32 i4InactiveTimeout;
@@ -375,6 +388,10 @@ typedef struct _MSG_P2P_BEACON_UPDATE_T {
 	UINT_32 u4BcnHdrLen;
 	UINT_32 u4BcnBodyLen;
 	PUINT_8 pucBcnHdr;
+#if CFG_SUPPORT_P2P_GO_OFFLOAD_PROBE_RSP
+	PUINT_8 pucProbeRsp;
+	UINT_32 u4ProbeRsp_len;
+#endif
 	PUINT_8 pucBcnBody;
 	UINT_8 aucBuffer[1];	/* Header & Body are put here. */
 } MSG_P2P_BEACON_UPDATE_T, *P_MSG_P2P_BEACON_UPDATE_T;
@@ -403,6 +420,19 @@ typedef struct _MSG_P2P_NETDEV_REGISTER_T {
 	UINT_8 ucMode;
 } MSG_P2P_NETDEV_REGISTER_T, *P_MSG_P2P_NETDEV_REGISTER_T;
 
+typedef struct _P2P_ECSA_SETTING_T {
+	u8 mode;
+	u8 channel;
+	u8 sco;
+	u8 op_class;
+	u8 count;
+} P2P_ECSA_SETTING_T, *P_P2P_ECSA_SETTING_T;
+
+typedef struct _MSG_P2P_ECSA_T {
+	MSG_HDR_T rMsgHdr;	/* Must be the first member */
+	P2P_ECSA_SETTING_T rP2pECSA;
+} MSG_P2P_ECSA_T, *P_MSG_P2P_ECSA_T;
+
 #if CFG_SUPPORT_WFD
 typedef struct _MSG_WFD_CONFIG_SETTINGS_CHANGED_T {
 	MSG_HDR_T rMsgHdr;	/* Must be the first member */
@@ -419,6 +449,8 @@ VOID p2pFsmStateTransition(IN P_ADAPTER_T prAdapter, IN P_P2P_FSM_INFO_T prP2pFs
 VOID p2pFsmRunEventAbort(IN P_ADAPTER_T prAdapter, IN P_P2P_FSM_INFO_T prP2pFsmInfo);
 
 VOID p2pFsmRunEventScanRequest(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
+
+VOID p2pFsmRunEventScanAbort(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
 
 VOID p2pFsmRunEventMgmtFrameTx(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
 
@@ -451,6 +483,9 @@ VOID p2pFsmRunEventMgmtFrameRegister(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T pr
 #if CFG_SUPPORT_WFD
 VOID p2pFsmRunEventWfdSettingUpdate(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
 #endif
+
+VOID p2pFsmRunEventSendCSA(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
+VOID p2pFsmRunEventSendECSA(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
 
 #if 0
 /* ////////////////////////////////////////////////////////////////////////////////////////////////////// */
@@ -1541,6 +1576,8 @@ VOID p2pFsmRunEventFsmTimeout(IN P_ADAPTER_T prAdapter, IN ULONG u4Param);
 
 VOID p2pFsmRunEventRejoinTimeout(IN P_ADAPTER_T prAdapter, IN UINT_32 u4Parm);
 
+VOID p2pFsmRunEventDeauthTimeout(IN P_ADAPTER_T prAdapter, IN ULONG u4Param);
+
 /*=============== P2P Function Related ================*/
 
 /*=============== P2P Function Related ================*/
@@ -1725,7 +1762,10 @@ VOID
 p2pProcessEvent_UpdateNOAParam(IN P_ADAPTER_T prAdapter,
 			       UINT_8 ucNetTypeIndex, P_EVENT_UPDATE_NOA_PARAMS_T prEventUpdateNoaParam);
 
+WLAN_STATUS p2pUpdateBeaconEcsaIE(IN P_ADAPTER_T prAdapter, IN UINT_8 ucNetTypeIndex);
+
 VOID p2pFuncCompleteIOCTL(IN P_ADAPTER_T prAdapter, IN WLAN_STATUS rWlanStatus);
+VOID p2pFsmRunEventTdlsTimeout(IN P_ADAPTER_T prAdapter, IN ULONG ulParam);
 
 /*******************************************************************************
 *                              F U N C T I O N S

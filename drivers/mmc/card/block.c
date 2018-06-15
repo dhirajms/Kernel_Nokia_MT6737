@@ -36,7 +36,6 @@
 #include <linux/compat.h>
 #include <linux/pm_runtime.h>
 
-#define CREATE_TRACE_POINTS
 #include <trace/events/mmc.h>
 
 #include <linux/mmc/ioctl.h>
@@ -50,17 +49,11 @@
 #endif
 
 #include <asm/uaccess.h>
-/*add vmstat info with block tag log*/
-#include <linux/vmstat.h>
-#include <linux/vmalloc.h>
-#include <linux/memblock.h>
 
-#ifdef CONFIG_MTK_EXTMEM
+#ifdef CONFIG_MTK_USE_RESERVED_EXT_MEM
 #include <linux/exm_driver.h>
 #endif
 #include "queue.h"
-#include <linux/time.h>
-#include <linux/debugfs.h>
 #include <linux/cpumask.h>
 #include <linux/kernel_stat.h>
 #include <linux/tick.h>
@@ -1299,6 +1292,9 @@ static inline int mmc_blk_part_switch(struct mmc_card *card,
 	struct mmc_blk_data *main_md = mmc_get_drvdata(card);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	/* add for reset emmc when error happen */
+	current_mmc_part_type = md->part_type;
+
 	if (card->host->cmdq_support_changed == 1)
 		card->host->cmdq_support_changed = 0;
 	else
@@ -2436,7 +2432,7 @@ static void mmc_blk_packed_hdr_wrq_prep(struct mmc_queue_req *mqrq,
 	struct mmc_blk_data *md = mq->data;
 	struct mmc_packed *packed = mqrq->packed;
 	bool do_rel_wr, do_data_tag;
-	u32 *packed_cmd_hdr;
+	__le32 *packed_cmd_hdr;
 	u8 hdr_blocks;
 	u8 i = 1;
 
@@ -2448,8 +2444,8 @@ static void mmc_blk_packed_hdr_wrq_prep(struct mmc_queue_req *mqrq,
 
 	packed_cmd_hdr = packed->cmd_hdr;
 	memset(packed_cmd_hdr, 0, sizeof(packed->cmd_hdr));
-	packed_cmd_hdr[0] = (packed->nr_entries << 16) |
-		(PACKED_CMD_WR << 8) | PACKED_CMD_VER;
+	packed_cmd_hdr[0] = cpu_to_le32((packed->nr_entries << 16) |
+		(PACKED_CMD_WR << 8) | PACKED_CMD_VER);
 	hdr_blocks = mmc_large_sector(card) ? 8 : 1;
 
 	/*
@@ -2463,14 +2459,14 @@ static void mmc_blk_packed_hdr_wrq_prep(struct mmc_queue_req *mqrq,
 			((brq->data.blocks * brq->data.blksz) >=
 			 card->ext_csd.data_tag_unit_size);
 		/* Argument of CMD23 */
-		packed_cmd_hdr[(i * 2)] =
+		packed_cmd_hdr[(i * 2)] = cpu_to_le32(
 			(do_rel_wr ? MMC_CMD23_ARG_REL_WR : 0) |
 			(do_data_tag ? MMC_CMD23_ARG_TAG_REQ : 0) |
-			blk_rq_sectors(prq);
+			blk_rq_sectors(prq));
 		/* Argument of CMD18 or CMD25 */
-		packed_cmd_hdr[((i * 2)) + 1] =
+		packed_cmd_hdr[((i * 2)) + 1] = cpu_to_le32(
 			mmc_card_blockaddr(card) ?
-			blk_rq_pos(prq) : blk_rq_pos(prq) << 9;
+			blk_rq_pos(prq) : blk_rq_pos(prq) << 9);
 		packed->blocks += blk_rq_sectors(prq);
 		i++;
 	}
@@ -2858,7 +2854,7 @@ int mmc_blk_end_queued_req(struct mmc_host *host,
 	struct mmc_card *card = host->card;
 	struct mmc_blk_request *brq;
 	struct mmc_host *mmc;
-	int ret = 1, type;
+	int ret = 1, type, areq_cnt;
 	struct mmc_queue_req *mq_rq;
 	struct request *req;
 	unsigned long flags;
@@ -2952,8 +2948,15 @@ int mmc_blk_end_queued_req(struct mmc_host *host,
 	/*
 	 * one request is removed from queue,
 	 * we wakeup mmcqd to insert new request to queue
+	 * wakeup only when queue full or queue empty
 	 */
-	wake_up_process(mq->thread);
+	areq_cnt = atomic_read(&host->areq_cnt);
+	if (areq_cnt >= host->card->ext_csd.cmdq_depth -
+			EMMC_MIN_RT_CLASS_TAG_COUNT - 1)
+		wake_up_process(mq->thread);
+	else if (areq_cnt == 0)
+		wake_up_interruptible(&host->cmp_que);
+
 	return 1;
 
 cmd_abort:
@@ -2976,8 +2979,14 @@ start_new_req:
 	/*
 	 * one request is removed from queue,
 	 * we wakeup mmcqd to insert new request to queue
+	 * wakeup only when queue full or queue empty
 	 */
-	wake_up_process(mq->thread);
+	areq_cnt = atomic_read(&host->areq_cnt);
+	if (areq_cnt >= host->card->ext_csd.cmdq_depth -
+			EMMC_MIN_RT_CLASS_TAG_COUNT - 1)
+		wake_up_process(mq->thread);
+	else if (areq_cnt == 0)
+		wake_up_interruptible(&host->cmp_que);
 
 	return 0;
 }
@@ -3598,7 +3607,7 @@ static const struct mmc_fixup blk_fixups[] = {
 		  MMC_QUIRK_DISABLE_CACHE),
 #endif
 	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_SANDISK_EMMC, CID_OEMID_ANY, add_quirk_mmc,
-		MMC_QUIRK_DISABLE_SNO),
+		  MMC_QUIRK_DISABLE_SNO),
 
 	END_FIXUP
 };
@@ -3697,7 +3706,25 @@ static void mmc_blk_shutdown(struct mmc_card *card)
 #ifdef CONFIG_PM
 static int mmc_blk_suspend(struct mmc_card *card)
 {
-	return _mmc_blk_suspend(card);
+	struct mmc_blk_data *md = mmc_get_drvdata(card);
+	int ret;
+
+	ret = _mmc_blk_suspend(card);
+	if (ret)
+		goto out;
+
+	/*
+	 * Make sure partition is the main one when
+	 * suspend.
+	 */
+	if (md) {
+		ret = mmc_blk_part_switch(card, md);
+		if (ret)
+			pr_info("%s: error %d during suspend\n",
+				md->disk->disk_name, ret);
+	}
+out:
+	return ret;
 }
 
 static int mmc_blk_resume(struct mmc_card *card)

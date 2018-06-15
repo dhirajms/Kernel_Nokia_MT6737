@@ -95,6 +95,7 @@
 /*----------------------------------------------------------------------------*/
 /* NDIS_802_11_AUTHENTICATION_MODE */
 typedef enum _ENUM_PARAM_AUTH_MODE_T {
+	AUTH_MODE_NON_RSN_FT, /* Fast Bss Transition in a Non FT */
 	AUTH_MODE_OPEN,		/*!< Open system */
 	AUTH_MODE_SHARED,	/*!< Shared key */
 	AUTH_MODE_AUTO_SWITCH,	/*!< Either open system or shared key */
@@ -103,6 +104,8 @@ typedef enum _ENUM_PARAM_AUTH_MODE_T {
 	AUTH_MODE_WPA_NONE,	/*!< For Ad hoc */
 	AUTH_MODE_WPA2,
 	AUTH_MODE_WPA2_PSK,
+	AUTH_MODE_WPA2_FT, /* Fast Bss Transition for 802.1x */
+	AUTH_MODE_WPA2_FT_PSK, /* Fast Bss Transition for WPA2 PSK */
 	AUTH_MODE_WPA_OSEN,
 	AUTH_MODE_NUM		/*!< Upper bound, not real case */
 } ENUM_PARAM_AUTH_MODE_T, *P_ENUM_PARAM_AUTH_MODE_T;
@@ -186,7 +189,8 @@ typedef enum _ENUM_PARAM_AD_HOC_MODE_T {
 typedef enum _ENUM_PARAM_MEDIA_STATE_T {
 	PARAM_MEDIA_STATE_CONNECTED,
 	PARAM_MEDIA_STATE_DISCONNECTED,
-	PARAM_MEDIA_STATE_TO_BE_INDICATED	/* for following MSDN re-association behavior */
+	PARAM_MEDIA_STATE_DISCONNECT_PREV,
+	PARAM_MEDIA_STATE_TO_BE_INDICATED,	/* for following MSDN re-association behavior */
 } ENUM_PARAM_MEDIA_STATE_T, *P_ENUM_PARAM_MEDIA_STATE_T;
 
 typedef enum _ENUM_PARAM_NETWORK_TYPE_T {
@@ -230,6 +234,7 @@ typedef enum _ENUM_STATUS_TYPE_T {
 	ENUM_STATUS_TYPE_AUTHENTICATION,
 	ENUM_STATUS_TYPE_MEDIA_STREAM_MODE,
 	ENUM_STATUS_TYPE_CANDIDATE_LIST,
+	ENUM_STATUS_TYPE_FT_AUTH_STATUS,
 	ENUM_STATUS_TYPE_NUM	/*!< Upper bound, not real case */
 } ENUM_STATUS_TYPE_T, *P_ENUM_STATUS_TYPE_T;
 
@@ -473,6 +478,14 @@ typedef struct _PARAM_CUSTOM_CHIP_CONFIG_STRUCT_T {
 	UINT_8 aucCmd[CHIP_CONFIG_RESP_SIZE];
 } PARAM_CUSTOM_CHIP_CONFIG_STRUCT_T, *P_PARAM_CUSTOM_CHIP_CONFIG_STRUCT_T;
 
+typedef struct _PARAM_ECSA_CONFIG_STRUCT_T {
+	UINT_8 mode;
+	UINT_8 channel;
+	UINT_8 op_class;
+	UINT_8 sco;
+	UINT_8 count;
+} PARAM_ECSA_CONFIG_STRUCT_T, *P_PARAM_ECSA_CONFIG_STRUCT_T;
+
 typedef struct _PARAM_CUSTOM_KEY_CFG_STRUCT_T {
 	UINT_8 aucKey[WLAN_CFG_KEY_LEN_MAX];
 	UINT_8 aucValue[WLAN_CFG_VALUE_LEN_MAX];
@@ -560,6 +573,7 @@ typedef struct _PARAM_QOS_TSPEC {
 	UINT_32 u4MinPHYRate;	/* minimum PHY rate */
 	UINT_16 u2Sba;		/* surplus bandwidth allowance */
 	UINT_16 u2MediumTime;	/* medium time */
+	UINT_8 ucDialogToken;
 } PARAM_QOS_TSPEC, *P_PARAM_QOS_TSPEC;
 
 typedef struct _PARAM_QOS_ADDTS_REQ_INFO {
@@ -831,8 +845,15 @@ typedef struct _PARAM_SCAN_REQUEST_ADV_T {
 /*! \brief CFG80211 Scheduled Scan Request Container            */
 /*--------------------------------------------------------------*/
 typedef struct _PARAM_SCHED_SCAN_REQUEST_T {
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	UINT_32 u4SsidNum; /*passed in the probe_reqs*/
+	PARAM_SSID_T arSsid[CFG_SCAN_HIDDEN_SSID_MAX_NUM];
+	UINT_32 u4MatchSsidNum; /*matched for a scan request*/
+	PARAM_SSID_T arMatchSsid[CFG_SCAN_SSID_MATCH_MAX_NUM];
+#else
 	UINT_32 u4SsidNum;
 	PARAM_SSID_T arSsid[CFG_SCAN_SSID_MATCH_MAX_NUM];
+#endif
 	UINT_32 u4IELength;
 	PUINT_8 pucIE;
 	UINT_16 u2ScanInterval;	/* in milliseconds */
@@ -1626,10 +1647,36 @@ WLAN_STATUS
 wlanoidSetEnableDumpEMILog(IN P_ADAPTER_T prAdapter,
 				IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
 #endif
+
+WLAN_STATUS
+wlanoidUpdateFtIes(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidSync11kCapbilities(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidSendNeighborRequest(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS wlanoidSendBTMQuery(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS wlanoidTspecOperation(
+	IN  P_ADAPTER_T prAdapter, IN  PVOID pvBuffer, IN  UINT_32 u4BufferLen, OUT PUINT_32 pu4InfoLen);
+
 #endif /* _WLAN_OID_H */
 WLAN_STATUS
 wlanoidSetChipConfig(IN P_ADAPTER_T prAdapter,
 		     IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+#if CFG_SUPPORT_P2P_ECSA
+WLAN_STATUS
+wlanoidSetECSAConfig(IN P_ADAPTER_T prAdapter,
+		     IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+#endif
+
 WLAN_STATUS
 wlanoidNotifyFwSuspend(IN P_ADAPTER_T prAdapter,
 								IN PVOID pvSetBuffer,
@@ -1651,4 +1698,142 @@ WLAN_STATUS wlanoidSetPacketFilter(P_ADAPTER_T prAdapter, UINT_32 u4PacketFilter
 WLAN_STATUS wlanoidSetDrvRoamingPolicy(IN P_ADAPTER_T prAdapter,
 			 IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
 
+WLAN_STATUS wlanoidRadioMeasurementIT(
+	P_ADAPTER_T prAdapter, PVOID pvBuffer, UINT_32 u4BufferLen, PUINT_32 pu4InfoLen);
+
+WLAN_STATUS
+wlanoidDumpUapsdSetting(P_ADAPTER_T prAdapter, PVOID pvBuffer, UINT_32 u4BufferLen,
+									  PUINT_32 pu4InfoLen);
+
+#if CFG_SUPPORT_FCC_POWER_BACK_OFF
+WLAN_STATUS
+wlanoidSetFccCert(IN P_ADAPTER_T prAdapter,
+		  IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+#endif
+
+#if CFG_SUPPORT_NCHO
+#define NCHO_CMD_MAX_LENGTH	128
+
+WLAN_STATUS
+wlanoidSetNchoRoamTrigger(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoRoamTrigger(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoRoamDelta(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoRoamDelta(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoRoamScnPeriod(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoRoamScnPeriod(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoRoamScnChnl(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoRoamScnChnl(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoRoamScnCtrl(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoRoamScnCtrl(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoScnChnlTime(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoScnChnlTime(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoScnHomeTime(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoScnHomeTime(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoScnHomeAwayTime(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoScnHomeAwayTime(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoScnNprobes(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoScnNprobes(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidGetNchoReassocInfo(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSendNchoActionFrameStart(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidSendNchoActionFrameEnd(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoWesMode(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoWesMode(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoBand(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoBand(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoDfsScnMode(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoDfsScnMode(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+WLAN_STATUS
+wlanoidSetNchoEnable(IN P_ADAPTER_T prAdapter,
+			IN PVOID pvSetBuffer, IN UINT_32 u4SetBufferLen, OUT PUINT_32 pu4SetInfoLen);
+
+WLAN_STATUS
+wlanoidQueryNchoEnable(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen, OUT PUINT_32 pu4QueryInfoLen);
+
+#endif /* CFG_SUPPORT_NCHO */
+
+WLAN_STATUS
+wlanoidAbortScan(IN P_ADAPTER_T prAdapter,
+			OUT PVOID pvQueryBuffer, IN UINT_32 u4QueryBufferLen,
+			OUT PUINT_32 pu4QueryInfoLen);
 

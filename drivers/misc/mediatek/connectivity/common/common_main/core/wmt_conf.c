@@ -143,7 +143,7 @@ static const struct parse_data wmtcfg_fields[] = {
 static INT32 wmt_conf_parse_char(P_DEV_WMT pWmtDev, const struct parse_data *data, const PINT8 pos)
 {
 	PUINT8 dst;
-	long res;
+	long res = 0;
 
 	dst = (PINT8)(((PUINT8) pWmtDev) + (long)data->param1);
 
@@ -182,7 +182,7 @@ static PINT8 wmt_conf_write_char(P_DEV_WMT pWmtDev, const struct parse_data *dat
 static INT32 wmt_conf_parse_short(P_DEV_WMT pWmtDev, const struct parse_data *data, const PINT8 pos)
 {
 	PUINT16 dst;
-	long res;
+	long res = 0;
 
 	dst = (PINT16)(((PUINT8) pWmtDev) + (long)data->param1);
 
@@ -225,7 +225,7 @@ static PINT8 wmt_conf_write_short(P_DEV_WMT pWmtDev, const struct parse_data *da
 static INT32 wmt_conf_parse_int(P_DEV_WMT pWmtDev, const struct parse_data *data, const PINT8 pos)
 {
 	PUINT32 dst;
-	long res;
+	long res = 0;
 
 	dst = (PINT32)(((PUINT8) pWmtDev) + (long)data->param1);
 
@@ -302,7 +302,7 @@ static INT32 wmt_conf_parse(P_DEV_WMT pWmtDev, const PINT8 pInBuf, UINT32 size)
 	INT32 i = 0;
 	PINT8 pa = NULL;
 
-	pBuf = osal_malloc(size);
+	pBuf = osal_malloc(size+1);
 	if (!pBuf)
 		return -1;
 
@@ -439,9 +439,6 @@ INT32 wmt_conf_read_file(VOID)
 	chip_type = wmt_detect_get_chip_type();
 	if (chip_type == WMT_CHIP_TYPE_SOC) {
 		osal_memset(&gDevWmt.cWmtcfgName[0], 0, osal_sizeof(gDevWmt.cWmtcfgName));
-
-		osal_strncat(&(gDevWmt.cWmtcfgName[0]), CUST_CFG_WMT_PREFIX,
-		 osal_sizeof(CUST_CFG_WMT_PREFIX));
 		osal_strncat(&(gDevWmt.cWmtcfgName[0]), CUST_CFG_WMT_SOC, osal_sizeof(CUST_CFG_WMT_SOC));
 	}
 
@@ -452,7 +449,7 @@ INT32 wmt_conf_read_file(VOID)
 	}
 	WMT_DBG_FUNC("WMT config file:%s\n", &(gDevWmt.cWmtcfgName[0]));
 	if (0 ==
-	    wmt_dev_patch_get(&gDevWmt.cWmtcfgName[0], (osal_firmware **) &gDevWmt.pWmtCfg, 0)) {
+	    wmt_dev_patch_get(&gDevWmt.cWmtcfgName[0], (osal_firmware **) &gDevWmt.pWmtCfg)) {
 		/*get full name patch success */
 		WMT_INFO_FUNC("get full file name(%s) buf(0x%p) size(%zu)\n",
 			      &gDevWmt.cWmtcfgName[0], gDevWmt.pWmtCfg->data,

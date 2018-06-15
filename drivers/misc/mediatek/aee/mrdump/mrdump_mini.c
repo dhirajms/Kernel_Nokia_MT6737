@@ -33,6 +33,7 @@
 #include <linux/of_reserved_mem.h>
 #include "../../../../kernel/sched/sched.h"
 #include "mrdump_mini.h"
+#include "mrdump_private.h"
 
 #define LOG_DEBUG(fmt, ...)			\
 	do {	\
@@ -42,19 +43,19 @@
 			pr_debug(fmt, ##__VA_ARGS__);	\
 	} while (0)
 
-#define LOG_ERROR(fmt, ...)			\
+#define LOG_NOTICE(fmt, ...)			\
 	do {	\
 		if (aee_in_nested_panic())			\
 			aee_nested_printf(fmt, ##__VA_ARGS__);	\
 		else						\
-			pr_err(fmt, ##__VA_ARGS__);	\
+			pr_notice(fmt, ##__VA_ARGS__);	\
 	} while (0)
 
 #define LOGV(fmt, msg...)
 #define LOGD LOG_DEBUG
 #define LOGI LOG_DEBUG
-#define LOGW LOG_ERROR
-#define LOGE LOG_ERROR
+#define LOGW LOG_NOTICE
+#define LOGE LOG_NOTICE
 
 static struct mrdump_mini_elf_header *mrdump_mini_ehdr;
 
@@ -259,22 +260,22 @@ int kernel_addr_valid(unsigned long addr)
 	pgd = pgd_offset_k(addr);
 	if (pgd_none(*pgd))
 		return 0;
-	pr_err("[%08lx] *pgd=%08llx", addr, (long long)pgd_val(*pgd));
+	pr_notice("[%08lx] *pgd=%08llx", addr, (long long)pgd_val(*pgd));
 
 	pud = pud_offset(pgd, addr);
 	if (pud_none(*pud))
 		return 0;
-	pr_err("*pud=%08llx", (long long)pud_val(*pud));
+	pr_notice("*pud=%08llx", (long long)pud_val(*pud));
 
 	pmd = pmd_offset(pud, addr);
 	if (pmd_none(*pmd))
 		return 0;
-	pr_err("*pmd=%08llx", (long long)pmd_val(*pmd));
+	pr_notice("*pmd=%08llx", (long long)pmd_val(*pmd));
 
 	pte = pte_offset_kernel(pmd, addr);
 	if (pte_none(*pte))
 		return 0;
-	pr_err("*pte=%08llx", (long long)pte_val(*pte));
+	pr_notice("*pte=%08llx", (long long)pte_val(*pte));
 
 	return pfn_valid(pte_pfn(*pte));
 }
@@ -298,7 +299,7 @@ void mrdump_mini_add_entry_module(unsigned long addr, unsigned long size)
 
 	mod = __module_address(addr);
 	if (NULL == mod) {
-		pr_err("mrdump: find module failed for address:%lx\n", addr);
+		pr_notice("mrdump: find module failed for address:%lx\n", addr);
 		return;
 	}
 	init_start = (unsigned long)mod->module_init;
@@ -307,19 +308,19 @@ void mrdump_mini_add_entry_module(unsigned long addr, unsigned long size)
 	core_end = ALIGN((core_start + mod->core_size), PAGE_SIZE);
 
 	if ((init_start % PAGE_SIZE) || (core_start % PAGE_SIZE)) {
-		pr_err("mrdump: unaligned init_start:%lx or core_start:%lx\n", init_start, core_start);
+		pr_notice("mrdump: unaligned init_start:%lx or core_start:%lx\n", init_start, core_start);
 		return;
 	}
 
 	hnew = ALIGN(addr + size / 2, PAGE_SIZE);
 	lnew = hnew - ALIGN(size, PAGE_SIZE);
 	if (!virt_addr_valid(addr)) {
-		pr_err("mrdump: never unexpected(module) case for address:%lx\n", addr);
+		pr_notice("mrdump: never unexpected(module) case for address:%lx\n", addr);
 		/* vma = find_vma(&init_mm, addr); */
-		/* pr_err("mirdump: add: %p, vma: %x", addr, vma); */
+		/* pr_notice("mirdump: add: %p, vma: %x", addr, vma); */
 		/* if (!vma) */
 		/*      return; */
-		/* pr_err("mirdump: (%p, %p), (%p, %p)", vma->vm_start, vma->vm_end, lnew, hnew);                */
+		/* pr_notice("mirdump: (%p, %p), (%p, %p)", vma->vm_start, vma->vm_end, lnew, hnew);                */
 		/* hnew = min(vma->vm_end, hnew); */
 		/* lnew = max(vma->vm_start, lnew); */
 		vm = find_vm_area((void *)addr);
@@ -344,12 +345,12 @@ void mrdump_mini_add_entry_module(unsigned long addr, unsigned long size)
 			/* lnew = core_start; */
 			/* hnew = core_end; */
 		} else {
-			pr_err("mrdump: unexpected case for address:%lx\n", addr);
+			pr_notice("mrdump: unexpected case for address:%lx\n", addr);
 			return;
 		}
 
 		if ((lnew % PAGE_SIZE) || (hnew % PAGE_SIZE)) {
-			pr_err("mrdump: unaligned low:%lx or high:%lx\n", lnew, hnew);
+			pr_notice("mrdump: unaligned low:%lx or high:%lx\n", lnew, hnew);
 			return;
 		}
 
@@ -360,7 +361,7 @@ void mrdump_mini_add_entry_module(unsigned long addr, unsigned long size)
 				lcheckaddr = lnew + checkloop * PAGE_SIZE;
 				pcheckaddr = __pfn_to_phys(vmalloc_to_pfn((void *)lcheckaddr));
 				if (pcheckaddr != (paddr + checkloop * PAGE_SIZE)) {
-					/* pr_err("mrdump: non-continuous PA for address:%lx, lnew:%lx(%lx),
+					/* pr_notice("mrdump: non-continuous PA for address:%lx, lnew:%lx(%lx),
 						lcheckaddr:%lx(%lx)\n", addr, lnew, paddr, lcheckaddr, pcheckaddr); */
 					flag = false;
 					break;
@@ -392,7 +393,7 @@ void mrdump_mini_add_entry_module(unsigned long addr, unsigned long size)
 				fill_elf_load_phdr(phdr, hnewtmp - lnew, lnew, paddr);
 			} else {
 				/* break while loop when section is full */
-				pr_err("mrdump: unexpected section full:%d\n", MRDUMP_MINI_NR_SECTION);
+				pr_notice("mrdump: unexpected section full:%d\n", MRDUMP_MINI_NR_SECTION);
 				break;
 			}
 
@@ -432,10 +433,10 @@ void mrdump_mini_add_entry(unsigned long addr, unsigned long size)
 	lnew = hnew - ALIGN(size, PAGE_SIZE);
 	if (!virt_addr_valid(addr)) {
 		/* vma = find_vma(&init_mm, addr); */
-		/* pr_err("mirdump: add: %p, vma: %x", addr, vma); */
+		/* pr_notice("mirdump: add: %p, vma: %x", addr, vma); */
 		/* if (!vma) */
 		/*      return; */
-		/* pr_err("mirdump: (%p, %p), (%p, %p)", vma->vm_start, vma->vm_end, lnew, hnew);                */
+		/* pr_notice("mirdump: (%p, %p), (%p, %p)", vma->vm_start, vma->vm_end, lnew, hnew);                */
 		/* hnew = min(vma->vm_end, hnew); */
 		/* lnew = max(vma->vm_start, lnew); */
 		vm = find_vm_area((void *)addr);
@@ -492,13 +493,13 @@ static void mrdump_mini_add_tsk_ti(int cpu, struct pt_regs *regs, int stack)
 		tsk = ti->task;
 		bottom = (unsigned long *)regs->reg_sp;
 	}
-	if (!(virt_addr_valid(tsk) && ti == (struct thread_info *)tsk->stack)
+	if (!(virt_addr_valid(tsk) && tsk != NULL && ti == (struct thread_info *)tsk->stack)
 	    && virt_addr_valid(regs->reg_fp)) {
 		ti = (struct thread_info *)(regs->reg_fp & ~(THREAD_SIZE - 1));
 		tsk = ti->task;
 		bottom = (unsigned long *)regs->reg_fp;
 	}
-	if (!virt_addr_valid(tsk) || ti != (struct thread_info *)tsk->stack) {
+	if (!virt_addr_valid(tsk) || (tsk != NULL && ti != (struct thread_info *)tsk->stack)) {
 		tsk = cpu_curr(cpu);
 		if (virt_addr_valid(tsk)) {
 			ti = (struct thread_info *)tsk->stack;
@@ -537,6 +538,8 @@ static int mrdump_mini_cpu_regs(int cpu, struct pt_regs *regs, int main)
 		mrdump_mini_init();
 	if (cpu >= NR_CPUS || mrdump_mini_ehdr == NULL)
 		return -1;
+	if (regs == NULL)
+		return -1;
 	id = main ? 0 : cpu + 1;
 	if (strncmp(mrdump_mini_ehdr->prstatus[id].name, "NA", 2))
 		return -1;
@@ -553,42 +556,6 @@ void mrdump_mini_per_cpu_regs(int cpu, struct pt_regs *regs)
 }
 EXPORT_SYMBOL(mrdump_mini_per_cpu_regs);
 
-static inline void ipanic_save_regs(struct pt_regs *regs)
-{
-#ifdef __aarch64__
-	__asm__ volatile ("stp	x0, x1, [sp,#-16]!\n\t"
-			  "1: mov	x1, %0\n\t"
-			  "add	x0, x1, #16\n\t"
-			  "stp	x2, x3, [x0],#16\n\t"
-			  "stp	x4, x5, [x0],#16\n\t"
-			  "stp	x6, x7, [x0],#16\n\t"
-			  "stp	x8, x9, [x0],#16\n\t"
-			  "stp	x10, x11, [x0],#16\n\t"
-			  "stp	x12, x13, [x0],#16\n\t"
-			  "stp	x14, x15, [x0],#16\n\t"
-			  "stp	x16, x17, [x0],#16\n\t"
-			  "stp	x18, x19, [x0],#16\n\t"
-			  "stp	x20, x21, [x0],#16\n\t"
-			  "stp	x22, x23, [x0],#16\n\t"
-			  "stp	x24, x25, [x0],#16\n\t"
-			  "stp	x26, x27, [x0],#16\n\t"
-			  "ldr	x1, [x29]\n\t"
-			  "stp	x28, x1, [x0],#16\n\t"
-			  "mov	x1, sp\n\t"
-			  "stp	x30, x1, [x0],#16\n\t"
-			  "mrs	x1, daif\n\t"
-			  "adr	x30, 1b\n\t"
-			  "stp	x30, x1, [x0],#16\n\t"
-			  "sub	x1, x0, #272\n\t"
-			  "ldr	x0, [sp]\n\t"
-			  "str	x0, [x1]\n\t"
-			  "ldr	x0, [sp, #8]\n\t"
-			  "str	x0, [x1, #8]\n\t" "ldp	x0, x1, [sp],#16\n\t" :  : "r" (regs) : "cc");
-#else
-	asm volatile ("stmia %1, {r0 - r15}\n\t" "mrs %0, cpsr\n":"=r" (regs->uregs[16]) : "r"(regs) : "memory");
-#endif
-}
-
 void mrdump_mini_build_task_info(struct pt_regs *regs)
 {
 #define MAX_STACK_TRACE_DEPTH 32
@@ -599,6 +566,7 @@ void mrdump_mini_build_task_info(struct pt_regs *regs)
 	struct stack_trace trace;
 	int i;
 	struct task_struct *tsk, *cur;
+	struct task_struct *previous;
 	struct aee_process_info *cur_proc;
 
 	if (!virt_addr_valid(current_thread_info())) {
@@ -622,7 +590,12 @@ void mrdump_mini_build_task_info(struct pt_regs *regs)
 		}
 		/* FIXME: Check overflow ? */
 		sz += snprintf(symbol + sz, 96 - sz, "[%s, %d]", tsk->comm, tsk->pid);
+		previous = tsk;
 		tsk = tsk->real_parent;
+		if (!virt_addr_valid(tsk)) {
+			LOGE("tsk(%p) invalid (previous: [%s, %d])\n", tsk, previous->comm, previous->pid);
+			break;
+		}
 	} while (tsk && (tsk->pid != 0) && (tsk->pid != 1));
 	if (strncmp(cur_proc->process_path, symbol, sz) == 0) {
 		LOGE("same process path\n");
@@ -680,6 +653,21 @@ int mrdump_task_info(unsigned char *buffer, size_t sz_buf)
 	return sizeof(struct aee_process_info);
 }
 
+int mrdump_modules_info(unsigned char *buffer, size_t sz_buf)
+{
+#ifdef CONFIG_MODULES
+	int sz;
+
+	sz = save_modules(modules_info_buf, MODULES_INFO_BUF_SIZE);
+	if (sz_buf < sz || buffer == NULL)
+		return -1;
+	memcpy(buffer, modules_info_buf, sz);
+	return sz;
+#else
+	return -1;
+#endif
+}
+
 static void mrdump_mini_add_loads(void);
 void mrdump_mini_ke_cpu_regs(struct pt_regs *regs)
 {
@@ -688,9 +676,10 @@ void mrdump_mini_ke_cpu_regs(struct pt_regs *regs)
 
 	if (!regs) {
 		regs = &context;
-		ipanic_save_regs(regs);
+		mrdump_mini_save_regs(regs);
 	}
 	cpu = get_HW_cpuid();
+	mrdump_modules_info(NULL, -1);
 	mrdump_mini_cpu_regs(cpu, regs, 1);
 	mrdump_mini_add_loads();
 	mrdump_mini_build_task_info(regs);
@@ -713,6 +702,9 @@ static void mrdump_mini_build_elf_misc(void)
 	get_kernel_log_buffer(&misc.vaddr, &misc.size, &misc.start);
 	mrdump_mini_add_misc(misc.vaddr, misc.size, misc.start, "_KERNEL_LOG_");
 	memset_io(&misc, 0, sizeof(struct mrdump_mini_elf_misc));
+	get_hang_detect_buffer(&misc.vaddr, &misc.size, &misc.start);
+	mrdump_mini_add_misc(misc.vaddr, misc.size, misc.start, "_HANG_DETECT_");
+	memset_io(&misc, 0, sizeof(struct mrdump_mini_elf_misc));
 	get_disp_err_buffer(&misc.vaddr, &misc.size, &misc.start);
 	mrdump_mini_add_misc(misc.vaddr, misc.size, misc.start, "_DISP_ERR_");
 	memset_io(&misc, 0, sizeof(struct mrdump_mini_elf_misc));
@@ -724,6 +716,10 @@ static void mrdump_mini_build_elf_misc(void)
 	memset_io(&misc, 0, sizeof(struct mrdump_mini_elf_misc));
 	get_disp_dbg_buffer(&misc.vaddr, &misc.size, &misc.start);
 	mrdump_mini_add_misc(misc.vaddr, misc.size, misc.start, "_DISP_DBG_");
+#ifdef CONFIG_MODULES
+	mrdump_mini_add_misc_pa((unsigned long)modules_info_buf, (unsigned long)__pa(modules_info_buf),
+				MODULES_INFO_BUF_SIZE, 0, "SYS_MODULES_INFO");
+#endif
 	for (i = 0; i < 4; i++) {
 		memset_io(&misc, 0, sizeof(struct mrdump_mini_elf_misc));
 		get_android_log_buffer(&misc.vaddr, &misc.size, &misc.start, i + 1);
@@ -780,6 +776,12 @@ static void mrdump_mini_add_loads(void)
 			mrdump_mini_add_entry((unsigned long)ti, MRDUMP_MINI_SECTION_SIZE);
 		}
 	}
+
+	mrdump_mini_add_entry((unsigned long)&mrdump_cblock, sizeof(mrdump_cblock) + 2 * PAGE_SIZE);
+	mrdump_mini_add_entry((unsigned long)mrdump_cblock.machdesc.kallsyms.start_addr +
+			      (mrdump_cblock.machdesc.kallsyms.size / 2 - PAGE_SIZE),
+			      mrdump_cblock.machdesc.kallsyms.size + 2 * PAGE_SIZE);
+
 #if 0
 	if (logbuf_lock.owner_cpu < NR_CPUS) {
 		tsk = cpu_curr(logbuf_lock.owner_cpu);

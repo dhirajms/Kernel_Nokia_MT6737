@@ -246,6 +246,7 @@ WLAN_STATUS bowCmdGetMacStatus(IN P_ADAPTER_T prAdapter, IN P_AMPC_COMMAND prCmd
 	/* fill event body */
 	prMacStatus = (P_BOW_MAC_STATUS) (prEvent->aucPayload);
 	kalMemZero(prMacStatus, sizeof(BOW_MAC_STATUS));
+	kalMemZero(aucChannelList, sizeof(aucChannelList));
 
 	/* 3 <2> Call CNM to decide if BOW available. */
 	if (cnmBowIsPermitted(prAdapter))
@@ -463,7 +464,7 @@ WLAN_STATUS bowCmdSetupConnection(IN P_ADAPTER_T prAdapter, IN P_AMPC_COMMAND pr
 	prBowFsmInfo->prTargetBssDesc = NULL;
 
 	COPY_MAC_ADDR(rBowTable.aucPeerAddress, prBowSetupConnection->aucPeerAddress);
-	/* owTable.eState = BOW_DEVICE_STATE_ACQUIRING_CHANNEL; */
+	rBowTable.eState = BOW_DEVICE_STATE_ACQUIRING_CHANNEL;
 	rBowTable.fgIsValid = TRUE;
 	rBowTable.ucAcquireID = prBowFsmInfo->ucSeqNumOfChReq;
 	/* rBowTable.ucRole = prBowSetupConnection->ucRole; */
@@ -1192,6 +1193,7 @@ VOID wlanbowCmdEventLinkDisconnected(IN P_ADAPTER_T prAdapter, IN P_CMD_INFO_T p
 	bowGetBowTableEntryByPeerAddress(prAdapter, prBowLinkDisconnected->aucPeerAddress, &ucBowTableIdx);
 	rBowTable.fgIsValid = FALSE;
 	rBowTable.eState = BOW_DEVICE_STATE_DISCONNECTED;
+	kalMemZero(rBowTable.aucPeerAddress, sizeof(rBowTable.aucPeerAddress));
 	bowSetBowTableContent(prAdapter, ucBowTableIdx, &rBowTable);
 
 	/*Indicate BoW event to PAL */
@@ -2107,10 +2109,10 @@ VOID bowFsmRunEventJoinComplete(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHd
 
 	DBGLOG(BOW, EVENT, "Start bowfsmRunEventJoinComplete.\n");
 	DBGLOG(BOW, EVENT, "bowfsmRunEventJoinComplete ptr check\n");
-	DBGLOG(BOW, EVENT, "prMsgHdr %x\n", prMsgHdr);
-	DBGLOG(BOW, EVENT, "prAdapter %x\n", prAdapter);
-	DBGLOG(BOW, EVENT, "prBowFsmInfo %x\n", prBowFsmInfo);
-	DBGLOG(BOW, EVENT, "prStaRec %x\n", prStaRec);
+	DBGLOG(BOW, EVENT, "prMsgHdr %p\n", prMsgHdr);
+	DBGLOG(BOW, EVENT, "prAdapter %p\n", prAdapter);
+	DBGLOG(BOW, EVENT, "prBowFsmInfo %p\n", prBowFsmInfo);
+	DBGLOG(BOW, EVENT, "prStaRec %p\n", prStaRec);
 
 	ASSERT(prStaRec);
 	ASSERT(prBowFsmInfo);
@@ -2786,6 +2788,22 @@ VOID bowRunEventChGrant(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr)
 	return;
 #endif /* Marked for MT6630 */
 }				/* end of aisFsmRunEventChGrant() */
+
+/*----------------------------------------------------------------------------*/
+/*!
+* \brief    This function is called when request channel privilege fail.
+*
+* \param[in] prAdapter  Pointer of ADAPTER_T
+* \param[in] prMsgHdr  Pointer of P_MSG_HDR_T
+*
+* \return none
+*/
+/*----------------------------------------------------------------------------*/
+VOID bowRunEventChGrantFail(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr)
+{
+	/*To-do: bow request channel privilege fail handle*/
+	cnmMemFree(prAdapter, prMsgHdr);
+}
 
 #if 1				/* Marked for MT6630 */
 

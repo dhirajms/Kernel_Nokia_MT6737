@@ -842,11 +842,11 @@ balanced:
 
 			rt_time_pre = rt_rq->rt_time;
 			rt_rq->rt_throttled = 0;
-			printk_deferred("sched: disable_runtime: RT throttling inactivated, cpu=%d\n",
+			printk_deferred("[name:rt&]sched: disable_runtime: RT throttling inactivated, cpu=%d\n",
 				rq->cpu);
-			printk_deferred("sched: cpu=%d, rt_time[%llu -> %llu], rt_throttled = %d\n",
+			printk_deferred("[name:rt&]sched: cpu=%d, rt_time[%llu -> %llu], rt_throttled = %d\n",
 				rq->cpu, rt_time_pre, rt_rq->rt_time, rt_rq->rt_throttled);
-			printk_deferred("sched: rt_runtime=[%llu]\n",
+			printk_deferred("[name:rt&]sched: rt_runtime=[%llu]\n",
 				rt_rq->rt_runtime);
 		}
 		rt_rq->rt_throttled = 0;
@@ -965,7 +965,7 @@ static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun)
 		if (rt_rq->rt_time) {
 			u64 runtime;
 			/* sched:get runtime*/
-			u64 runtime_pre, rt_time_pre;
+			u64 runtime_pre = 0, rt_time_pre = 0;
 
 			raw_spin_lock(&rt_rq->rt_runtime_lock);
 			per_cpu(old_rt_time, i) = rt_rq->rt_time;
@@ -979,7 +979,7 @@ static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun)
 			per_cpu(init_rt_time, i) = rt_rq->rt_time;
 			/* sched:print throttle*/
 			if (rt_rq->rt_throttled) {
-				printk_deferred("sched: cpu=%d, [%llu -> %llu]",
+				printk_deferred("[name:rt&]sched: cpu=%d, [%llu -> %llu]",
 						i, rt_time_pre, rt_rq->rt_time);
 				printk_deferred(" -= min(%llu, %d*[%llu -> %llu])\n",
 						rt_time_pre, overrun, runtime_pre, runtime);
@@ -1073,9 +1073,9 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 #ifdef CONFIG_RT_GROUP_SCHED
 		int cpu = rq_cpu(rt_rq->rq);
 		/* sched:print throttle*/
-		printk_deferred("sched: initial rt_time %llu, start at %llu\n",
+		printk_deferred("[name:rt&]sched: initial rt_time %llu, start at %llu\n",
 				per_cpu(init_rt_time, cpu), per_cpu(rt_period_time, cpu));
-		printk_deferred("sched: cpu=%d rt_time %llu <-> runtime",
+		printk_deferred("[name:rt&]sched: cpu=%d rt_time %llu <-> runtime",
 				cpu, rt_rq->rt_time);
 		printk_deferred(" [%llu -> %llu], exec_task[%d:%s], prio=%d, exec_delta_time[%llu]",
 				runtime_pre, runtime,
@@ -1085,7 +1085,7 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 				per_cpu(exec_delta_time, cpu));
 		printk_deferred(", clock_task[%llu], exec_start[%llu]\n",
 				per_cpu(clock_task, cpu), per_cpu(exec_start, cpu));
-		printk_deferred("update[%llu,%llu], pick[%llu, %llu], set_curr[%llu, %llu]\n",
+		printk_deferred("[name:rt&]update[%llu,%llu], pick[%llu, %llu], set_curr[%llu, %llu]\n",
 				per_cpu(update_exec_start, cpu), per_cpu(sched_update_exec_start, cpu),
 				per_cpu(pick_exec_start, cpu), per_cpu(sched_pick_exec_start, cpu),
 				per_cpu(set_curr_exec_start, cpu), per_cpu(sched_set_curr_exec_start, cpu));
@@ -1547,6 +1547,8 @@ select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
 {
 	struct task_struct *curr;
 	struct rq *rq;
+	int this_cpu = smp_processor_id();
+	int sync = flags & WF_SYNC;
 
 	if (p->nr_cpus_allowed == 1)
 		goto out;
@@ -1554,6 +1556,15 @@ select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
 	/* For anything but wake ups, just return the task_cpu */
 	if (sd_flag != SD_BALANCE_WAKE && sd_flag != SD_BALANCE_FORK)
 		goto out;
+
+	/* honors sync flag */
+	if (sync) {
+		cpumask_t search_cpus;
+
+		cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_online_mask);
+		if (cpumask_test_cpu(this_cpu, &search_cpus))
+			return this_cpu;
+	}
 
 	rq = cpu_rq(cpu);
 
@@ -1837,12 +1848,13 @@ static int find_lowest_rq(struct task_struct *task)
 	int interop_cpu;
 #endif
 
-	mt_sched_printf(sched_rt_info,
-			"1 find_lowest_rq lowest_mask=0x%lx, task->cpus_allowed=0x%lx",
-			lowest_mask->bits[0], task->cpus_allowed.bits[0]);
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))
 		return -1;
+
+	mt_sched_printf(sched_rt_info,
+			"1 find_lowest_rq lowest_mask=0x%lx, task->cpus_allowed=0x%lx",
+			lowest_mask->bits[0], task->cpus_allowed.bits[0]);
 
 	if (task->nr_cpus_allowed == 1)
 		return -1; /* No other targets possible */
@@ -2255,7 +2267,7 @@ void unthrottle_offline_rt_rqs(struct rq *rq)
 	for_each_rt_rq(rt_rq, iter, rq) {
 		if (rt_rq_throttled(rt_rq)) {
 			rt_rq->rt_throttled = 0;
-			printk_deferred("sched: migrate_tasks: RT throttling inactivated\n");
+			printk_deferred("[name:rt&]sched: migrate_tasks: RT throttling inactivated\n");
 		}
 		sched_rt_rq_enqueue(rt_rq);
 	}

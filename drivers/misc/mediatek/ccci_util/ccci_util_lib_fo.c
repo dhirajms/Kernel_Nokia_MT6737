@@ -936,6 +936,31 @@ static void parse_mpu_setting(void)
 	}
 }
 
+static void dump_retrieve_info(void)
+{
+	int retrieve_num, i;
+	u64 array[2], md1_mem_addr;
+	char buf[32];
+
+	md1_mem_addr =  md_resv_mem_addr[MD_SYS1];
+
+	if (find_ccci_tag_inf("retrieve_num", (char *)&retrieve_num, (int)sizeof(int)) < 0) {
+		CCCI_UTIL_ERR_MSG("get retrieve_num failed.\n");
+		return;
+	}
+
+	CCCI_UTIL_INF_MSG("retrieve number is %d.\n", retrieve_num);
+
+	for (i = 0; i < retrieve_num; i++) {
+		snprintf(buf, 32, "retrieve%d", i);
+		if (find_ccci_tag_inf(buf, (char *)&array, sizeof(array))) {
+			CCCI_UTIL_INF_MSG("AP view(0x%llx ~ 0x%llx), MD view(0x%llx ~ 0x%llx)\n",
+					array[0], array[0] + array[1],
+					array[0] - md1_mem_addr, array[0] + array[1] - md1_mem_addr);
+		}
+	}
+}
+
 static int __init early_init_dt_get_chosen(unsigned long node, const char *uname, int depth, void *data)
 {
 	if (depth != 1 || (strcmp(uname, "chosen") != 0 && strcmp(uname, "chosen@0") != 0))
@@ -944,7 +969,7 @@ static int __init early_init_dt_get_chosen(unsigned long node, const char *uname
 	return 1;
 }
 
-static int collect_lk_boot_arguments(void)
+static int __init collect_lk_boot_arguments(void)
 {
 	/* Device tree method */
 	int ret;
@@ -978,6 +1003,7 @@ _common_process:
 	parse_option_setting_from_lk();
 	parse_mpu_setting();
 	md_mem_info_parsing();
+	dump_retrieve_info();
 	md_chk_hdr_info_parse();
 	share_memory_info_parsing();
 	verify_md_enable_setting();
@@ -1199,7 +1225,7 @@ mpu_cfg_t *get_mpu_region_cfg_info(int region_id)
 /**************************************************************/
 /* The following functions are back up for old platform       */
 /**************************************************************/
-int ccci_parse_meta_md_setting(void)
+int __init ccci_parse_meta_md_setting(void)
 {
 	/* Device tree method */
 	int ret;
@@ -1636,7 +1662,7 @@ RESERVEDMEM_OF_DECLARE(ccci_reserve_smem_md1md3_init, CCCI_MD1MD3_SMEM_RESERVED_
 /**************************************************************/
 /* CCCI Feature option parsiong      entry                    */
 /**************************************************************/
-int ccci_util_fo_init(void)
+int __init ccci_util_fo_init(void)
 {
 	int idx;
 	struct device_node *node = NULL;

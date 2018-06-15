@@ -79,7 +79,9 @@ static const struct iw_priv_args rIwPrivTable[] = {
 	{IOCTL_GET_INT, 0, IW_PRIV_TYPE_INT | 50, ""},
 	{IOCTL_GET_INT, 0, IW_PRIV_TYPE_CHAR | 16, ""},
 
-	{IOCTL_SET_STRING, IW_PRIV_TYPE_CHAR | 256, 0, ""},
+	{IOCTL_SET_STRING, IW_PRIV_TYPE_CHAR | 512, 0, ""},
+
+	{IOCTL_GET_STRING, IW_PRIV_TYPE_CHAR | 128, IW_PRIV_TYPE_CHAR | 512, ""},
 
 	/* added for set_oid and get_oid */
 	{IOCTL_SET_STRUCT, 256, 0, ""},
@@ -139,7 +141,9 @@ static const struct iw_priv_args rIwPrivTable[] = {
 	{PRIV_CMD_GET_BUILD_DATE_CODE, 0, IW_PRIV_TYPE_CHAR | 16, "get_date_code"},
 	{PRIV_CMD_GET_DEBUG_CODE, 0, IW_PRIV_TYPE_CHAR | 16, "get_dbg_code"},
 	/* handle any command with many input parameters */
-	{PRIV_CMD_OTHER, IW_PRIV_TYPE_CHAR | 256, 0, "set_str_cmd"},
+	{PRIV_CMD_OTHER, IW_PRIV_TYPE_CHAR | 512, 0, "set_str_cmd"},
+
+	{PRIV_CMD_DUMP_DRIVER, IW_PRIV_TYPE_CHAR | 128, IW_PRIV_TYPE_CHAR | 512, "dump_driver"},
 
 	{PRIV_CMD_WFD_DEBUG_CODE, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 2, 0, "set_wfd_dbg_code"},
 };
@@ -159,6 +163,7 @@ static const iw_handler rIwPrivHandler[] = {
 	[IOCTL_SET_INTS - SIOCIWFIRSTPRIV] = priv_set_ints,
 	[IOCTL_GET_INTS - SIOCIWFIRSTPRIV] = priv_get_ints,
 	[IOCTL_SET_STRING - SIOCIWFIRSTPRIV] = priv_set_string,
+	[IOCTL_GET_STRING - SIOCIWFIRSTPRIV] = priv_get_string,
 };
 
 const struct iw_handler_def wext_handler_def = {
@@ -767,22 +772,22 @@ wext_get_name(IN struct net_device *prNetDev, IN struct iw_request_info *prIwrIn
 
 		switch (eNetWorkType) {
 		case PARAM_NETWORK_TYPE_DS:
-			strcpy(pcName, "IEEE 802.11b");
+			strncpy(pcName, "IEEE 802.11b", IFNAMSIZ);
 			break;
 		case PARAM_NETWORK_TYPE_OFDM24:
-			strcpy(pcName, "IEEE 802.11bgn");
+			strncpy(pcName, "IEEE 802.11bgn", IFNAMSIZ);
 			break;
 		case PARAM_NETWORK_TYPE_AUTOMODE:
 		case PARAM_NETWORK_TYPE_OFDM5:
-			strcpy(pcName, "IEEE 802.11abgn");
+			strncpy(pcName, "IEEE 802.11abgn", IFNAMSIZ);
 			break;
 		case PARAM_NETWORK_TYPE_FH:
 		default:
-			strcpy(pcName, "IEEE 802.11");
+			strncpy(pcName, "IEEE 802.11", IFNAMSIZ);
 			break;
 		}
 	} else {
-		strcpy(pcName, "Disconnected");
+		strncpy(pcName, "Disconnected", IFNAMSIZ);
 	}
 
 	return 0;
@@ -2278,8 +2283,6 @@ wext_set_txpow(IN struct net_device *prNetDev,
 		wlanSetAcpiState(prGlueInfo->prAdapter, ePowerState);
 	}
 
-	prGlueInfo->ePowerState = ePowerState;
-
 	return ret;
 }				/* wext_set_txpow */
 
@@ -2816,6 +2819,11 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 	ASSERT(prEnc);
 	if (FALSE == GLUE_CHK_PR3(prNetDev, prEnc, pcExtra))
 		return -EINVAL;
+
+	if (prIWEncExt == NULL) {
+		DBGLOG(REQ, ERROR, "prIWEncExt is NULL!\n");
+		return -EINVAL;
+	}
 	prGlueInfo = *((P_GLUE_INFO_T *) netdev_priv(prNetDev));
 
 	memset(keyStructBuf, 0, sizeof(keyStructBuf));
@@ -3018,6 +3026,12 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 				memcpy(((PUINT_8) prKey->aucKeyMaterial) + 16, prIWEncExt->key + 24, 8);
 				memcpy((prKey->aucKeyMaterial) + 24, prIWEncExt->key + 16, 8);
 			} else {
+				/* aucKeyMaterial is defined as a 32-elements array */
+				if (prIWEncExt->key_len > 32) {
+					DBGLOG(REQ, ERROR, "prIWEncExt->key_len: %d is too long!\n",
+						prIWEncExt->key_len);
+					return -EFAULT;
+				}
 				memcpy(prKey->aucKeyMaterial, prIWEncExt->key, prIWEncExt->key_len);
 			}
 
@@ -3505,18 +3519,16 @@ int wext_support_ioctl(IN struct net_device *prDev, IN struct ifreq *prIfReq, IN
 
 			if (copy_from_user(prExtraBuf, iwr->u.encoding.pointer, u4ExtraSize))
 				ret = -EFAULT;
-		} else if (u4ExtraSize != 0) {
-			ret = -EINVAL;
-			break;
-		}
 
-		if (ret == 0)
-			ret = wext_set_encode(prDev, NULL, &iwr->u.encoding, prExtraBuf);
+			if (ret == 0)
+				ret = wext_set_encode(prDev, NULL, &iwr->u.encoding, prExtraBuf);
 
-		if (prExtraBuf) {
 			kalMemFree(prExtraBuf, VIR_MEM_TYPE, u4ExtraSize);
 			prExtraBuf = NULL;
-		}
+
+		} else if (u4ExtraSize != 0)
+			ret = -EINVAL;
+
 		break;
 
 	case SIOCGIWENCODE:	/* 0x8B2B, get encoding token & mode */
@@ -3572,6 +3584,7 @@ int wext_support_ioctl(IN struct net_device *prDev, IN struct ifreq *prIfReq, IN
 #endif
 #if CFG_SUPPORT_WPS2
 				PUINT_8 prDesiredIE = NULL;
+
 				if (wextSrchDesiredWPSIE(prExtraBuf,
 							 u4ExtraSize,
 							 0xDD, (PUINT_8 *) &prDesiredIE)) {
@@ -3855,7 +3868,8 @@ wext_indicate_wext_event(IN P_GLUE_INFO_T prGlueInfo,
 			u4Cmd = IWEVCUSTOM;
 			pucExtraInfo = aucExtraInfoBuf;
 			pucExtraInfo += sprintf(pucExtraInfo, "MLME-MICHAELMICFAILURE.indication ");
-			pucExtraInfo += sprintf(pucExtraInfo,
+			pucExtraInfo += snprintf(pucExtraInfo,
+						10,
 						"%s",
 						(pAuthReq->u4Flags == PARAM_AUTH_REQUEST_GROUP_ERROR) ?
 						"groupcast " : "unicast ");

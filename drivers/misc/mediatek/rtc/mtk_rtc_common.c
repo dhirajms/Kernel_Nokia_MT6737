@@ -171,6 +171,8 @@
 static struct rtc_device *rtc;
 static DEFINE_SPINLOCK(rtc_lock);
 
+static void rtc_save_pwron_time(bool enable, struct rtc_time *tm, bool logo);
+
 static int rtc_show_time;
 static int rtc_show_alarm = 1;
 
@@ -223,37 +225,6 @@ int set_rtc_spare_fg_value(int val)
 
 	return 0;
 }
-
-/*Begin*****Add for RTC Vbat */
-int get_rtc_spare_vbat_value(void)
-{
-        //RTC_AL_DOM bit8~14
-        u16 temp;
-        unsigned long flags;
-        
-        spin_lock_irqsave(&rtc_lock, flags);
-        temp = hal_rtc_get_spare_register(RTC_VBAT);
-        spin_unlock_irqrestore(&rtc_lock, flags);
-        
-        return temp;
-}
-
-int set_rtc_spare_vbat_value(int val)
-{
-        //RTC_AL_DOM bit8~14
-        
-        unsigned long flags;
-        
-        if (val > 100)
-            return 0;
-        
-        spin_lock_irqsave(&rtc_lock, flags);
-        hal_rtc_set_spare_register(RTC_VBAT, val);
-        spin_unlock_irqrestore(&rtc_lock, flags);
-        
-        return 0;
-}
-/*End*****Add for RTC Vbat */
 
 bool crystal_exist_status(void)
 {
@@ -377,10 +348,21 @@ void rtc_disable_writeif(void)
 void rtc_mark_recovery(void)
 {
 	unsigned long flags;
+	struct rtc_time defaulttm;
 
 	rtc_xinfo("rtc_mark_recovery\n");
 	spin_lock_irqsave(&rtc_lock, flags);
 	hal_rtc_set_spare_register(RTC_FAC_RESET, 0x1);
+	/* Clear alarm setting when doing factory reset. */
+	defaulttm.tm_year = RTC_DEFAULT_YEA - RTC_MIN_YEAR;
+	defaulttm.tm_mon = RTC_DEFAULT_MTH;
+	defaulttm.tm_mday = RTC_DEFAULT_DOM;
+	defaulttm.tm_wday = 1;
+	defaulttm.tm_hour = 0;
+	defaulttm.tm_min = 0;
+	defaulttm.tm_sec = 0;
+	rtc_save_pwron_time(false, &defaulttm, false);
+	hal_rtc_clear_alarm(&defaulttm);
 	spin_unlock_irqrestore(&rtc_lock, flags);
 }
 
@@ -402,6 +384,33 @@ void rtc_mark_fast(void)
 	spin_lock_irqsave(&rtc_lock, flags);
 	hal_rtc_set_spare_register(RTC_FAST_BOOT, 0x1);
 	spin_unlock_irqrestore(&rtc_lock, flags);
+}
+
+
+int get_rtc_spare_vbat_value(void)
+{
+        u16 temp;
+        unsigned long flags;
+
+        spin_lock_irqsave(&rtc_lock, flags);
+        temp = hal_rtc_get_spare_register(RTC_VBAT);
+        spin_unlock_irqrestore(&rtc_lock, flags);
+
+        return temp;
+}
+
+int set_rtc_spare_vbat_value(int val)
+{
+        unsigned long flags;
+
+        if (val > 100)
+            return 0;
+
+        spin_lock_irqsave(&rtc_lock, flags);
+        hal_rtc_set_spare_register(RTC_VBAT, val);
+        spin_unlock_irqrestore(&rtc_lock, flags);
+        
+        return 0;
 }
 
 u16 rtc_rdwr_uart_bits(u16 *val)
@@ -504,14 +513,24 @@ static void rtc_handler(void)
 #if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
 			if (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT
 			    || get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
-				time += 1;
-				rtc_time_to_tm(time, &tm);
-				tm.tm_year -= RTC_MIN_YEAR_OFFSET;
-				tm.tm_mon += 1;
-				/* tm.tm_sec += 1; */
-				hal_rtc_set_alarm(&tm);
+				do {
+					now_time += 1;
+					rtc_time_to_tm(now_time, &tm);
+					tm.tm_year -= RTC_MIN_YEAR_OFFSET;
+					tm.tm_mon += 1;
+					hal_rtc_set_pwron_alarm_time(&tm);
+					hal_rtc_set_alarm(&tm);
+					hal_rtc_is_pwron_alarm(&nowtm, &tm);
+					nowtm.tm_year += RTC_MIN_YEAR;
+					tm.tm_year += RTC_MIN_YEAR;
+					now_time = mktime(nowtm.tm_year, nowtm.tm_mon, nowtm.tm_mday,
+						nowtm.tm_hour, nowtm.tm_min, nowtm.tm_sec);
+					time = mktime(tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_hour,
+						tm.tm_min, tm.tm_sec);
+				} while (time <= now_time);
 				spin_unlock(&rtc_lock);
 				machine_restart("kpoc");
+				return;
 			} else {
 				hal_rtc_save_pwron_alarm();
 				pwron_alm = true;
@@ -521,12 +540,10 @@ static void rtc_handler(void)
 			pwron_alm = true;
 #endif
 		} else if (now_time < time) {	/* set power-on alarm */
-			if (tm.tm_sec == 0) {
-				tm.tm_sec = 59;
-				tm.tm_min -= 1;
-			} else {
-				tm.tm_sec -= 1;
-			}
+			time -= 1;
+			rtc_time_to_tm(time, &tm);
+			tm.tm_year -= RTC_MIN_YEAR_OFFSET;
+			tm.tm_mon += 1;
 			hal_rtc_set_alarm(&tm);
 		}
 	}

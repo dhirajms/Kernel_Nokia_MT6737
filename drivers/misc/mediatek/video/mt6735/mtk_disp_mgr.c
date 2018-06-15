@@ -77,6 +77,7 @@
 #include "disp_recorder.h"
 
 #include "mtk_disp_mgr.h"
+#include "compat_mtk_disp_mgr.h"
 
 #include "disp_session.h"
 #include "mtk_ovl.h"
@@ -96,12 +97,6 @@
 #include "extd_hdmi.h"
 #include "external_display.h"
 #endif
-
-typedef enum {
-	PREPARE_INPUT_FENCE,
-	PREPARE_OUTPUT_FENCE,
-	PREPARE_PRESENT_FENCE
-} ePREPARE_FENCE_TYPE;
 
 
 static dev_t mtk_disp_mgr_devno;
@@ -169,6 +164,23 @@ static unsigned int session_config[MAX_SESSION_COUNT];
 static unsigned int session_cnt[MAX_SESSION_COUNT];
 static DEFINE_MUTEX(disp_session_lock);
 DEFINE_MUTEX(disp_trigger_lock);
+
+static bool is_session_exist(unsigned int session_id)
+{
+	bool session_exist = 0;
+	int i;
+
+	if (session_id == 0)
+		return 0;
+
+	for (i = 0; i < MAX_SESSION_COUNT; i++) {
+		if (session_config[i] == session_id) {
+			session_exist = 1;
+			break;
+		}
+	}
+	return session_exist;
+}
 
 int disp_get_session_number(void)
 {
@@ -521,8 +533,15 @@ int _ioctl_trigger_session(unsigned long arg)
 		return -EFAULT;
 	}
 
-	mutex_lock(&disp_trigger_lock);
 	session_id = config.session_id;
+
+	if (is_session_exist(session_id) == 0) {
+		DISPERR("session id: %x not exists\n", session_id);
+		return -EFAULT;
+	}
+
+	mutex_lock(&disp_trigger_lock);
+
 	ticket = primary_display_get_ticket();
 	session_info = disp_get_session_sync_info_for_debug(session_id);
 
@@ -623,6 +642,11 @@ int _ioctl_prepare_present_fence(unsigned long arg)
 		return -EFAULT;
 	}
 
+	if (is_session_exist(preset_fence_struct.session_id) == 0) {
+		DISPERR("session id: %x not exists\n", preset_fence_struct.session_id);
+		return -EFAULT;
+	}
+
 	if (DISP_SESSION_TYPE(preset_fence_struct.session_id) != DISP_SESSION_PRIMARY) {
 		DISPERR("non-primary ask for present fence! session=0x%x\n",
 			preset_fence_struct.session_id);
@@ -674,6 +698,11 @@ int _ioctl_prepare_buffer(unsigned long arg, ePREPARE_FENCE_TYPE type)
 
 	if (copy_from_user(&info, (void __user *)arg, sizeof(info))) {
 		pr_debug("[FB Driver]: copy_from_user failed! line:%d\n", __LINE__);
+		return -EFAULT;
+	}
+
+	if (is_session_exist(info.session_id) == 0) {
+		DISPERR("session id: %x not exists\n", info.session_id);
 		return -EFAULT;
 	}
 
@@ -1137,18 +1166,21 @@ static int _sync_convert_fb_layer_to_disp_input(unsigned int session_id, disp_in
 static int set_memory_buffer(disp_session_input_config *input)
 {
 	int i = 0;
-	int layer_id = 0;
+	unsigned int layer_id = 0;
 	unsigned int dst_size = 0;
 	unsigned long dst_mva = 0;
 	unsigned int session_id = input->session_id;
 	disp_session_sync_info *session_info = disp_get_session_sync_info_for_debug(session_id);
-
 	ovl2mem_in_config input_params[HW_OVERLAY_COUNT];
+
+	if (input->config_layer_num > MAX_OVL_CONFIG - 1)
+		return -EINVAL;
 
 	memset((void *)&input_params, 0, sizeof(input_params));
 
 	for (i = 0; i < input->config_layer_num; i++) {
 		dst_mva = 0;
+
 		layer_id = input->config[i].layer_id;
 		if (input->config[i].layer_enable) {
 			if (input->config[i].buffer_source == DISP_BUFFER_ALPHA) {
@@ -1194,8 +1226,14 @@ static int set_memory_buffer(disp_session_input_config *input)
 				     input->config[i].layer_enable, input->config[i].next_buff_idx);
 		}
 
-		_sync_convert_fb_layer_to_ovl_struct(input->session_id, &(input->config[i]),
-						     &ovl2mem_in_cached_config[layer_id], dst_mva);
+		if (layer_id < ARRAY_SIZE(ovl2mem_in_cached_config))
+			_sync_convert_fb_layer_to_ovl_struct(input->session_id, &(input->config[i]),
+							     &ovl2mem_in_cached_config[layer_id], dst_mva);
+		else {
+			DISPERR("layer_id:%d, out of the bounds\n", layer_id);
+			continue;
+		}
+
 		/* /disp_sync_put_cached_layer_info(session_id, layer_id, &input->config[i], get_ovl2mem_ticket()); */
 		mtkfb_update_buf_ticket(session_id, layer_id, input->config[i].next_buff_idx, get_ovl2mem_ticket());
 		_sync_convert_fb_layer_to_disp_input(input->session_id, &(input->config[i]),
@@ -1231,12 +1269,15 @@ static int set_external_buffer(disp_session_input_config *input)
 {
 	int i = 0;
 	int ret = 0;
-	int layer_id = 0;
+	unsigned int layer_id = 0;
 	unsigned int dst_size = 0;
 	unsigned long int dst_mva = 0;
 	unsigned int session_id = 0;
 	unsigned long int mva_offset = 0;
 	disp_session_sync_info *session_info = NULL;
+
+	if (input->config_layer_num > MAX_OVL_CONFIG - 1)
+		return -EINVAL;
 
 	session_id = input->session_id;
 	session_info = disp_get_session_sync_info_for_debug(session_id);
@@ -1361,7 +1402,7 @@ static inline void remove_assert_layer(disp_session_input_config *input)
 static int set_primary_buffer(disp_session_input_config *input)
 {
 	int i = 0;
-	int layer_id = 0;
+	unsigned int layer_id = 0;
 	unsigned int dst_size = 0;
 	unsigned long dst_mva = 0;
 	unsigned int session_id = 0;
@@ -1385,7 +1426,7 @@ static int set_primary_buffer(disp_session_input_config *input)
 		dst_mva = 0;
 		layer_id = input->config[i].layer_id;
 		if (layer_id >= OVL_LAYER_NUM) {
-			DISPERR("set_primary_buffer, invalid layer_id = %d!\n", layer_id);
+			DISPERR("set_primary_buffer, invalid layer_id = %u!\n", layer_id);
 			continue;
 		}
 
@@ -1502,6 +1543,13 @@ int _ioctl_set_input_buffer(unsigned long arg)
 
 	session_input->setter = SESSION_USER_HWC;
 	session_id = session_input->session_id;
+
+	if (is_session_exist(session_id) == 0) {
+		DISPERR("session id: %x not exists\n", session_id);
+		kfree(session_input);
+		return -EFAULT;
+	}
+
 	session_info = disp_get_session_sync_info_for_debug(session_id);
 
 	if (session_info)
@@ -1578,6 +1626,13 @@ int _ioctl_set_output_buffer(unsigned long arg)
 	}
 
 	session_id = session_output.session_id;
+
+	/* check if session exists*/
+	if (is_session_exist(session_id) == 0) {
+		DISPERR("session id: %x not exists\n", session_id);
+		return -EFAULT;
+	}
+
 	session_info = disp_get_session_sync_info_for_debug(session_id);
 
 	if (session_info)
@@ -1726,6 +1781,11 @@ int _ioctl_get_info(unsigned long arg)
 
 	session_id = info.session_id;
 
+	if (is_session_exist(session_id) == 0) {
+		DISPERR("session id: %x not exists\n", session_id);
+		return -EFAULT;
+	}
+
 	if (DISP_SESSION_TYPE(session_id) == DISP_SESSION_PRIMARY) {
 		primary_display_get_info(&info);
 	} else if (DISP_SESSION_TYPE(session_id) == DISP_SESSION_EXTERNAL) {
@@ -1797,6 +1857,12 @@ int _ioctl_get_display_caps(unsigned long arg)
 	caps_info.disp_feature |= DISP_FEATURE_TIME_SHARING;
 #endif
 
+	caps_info.disp_feature |= DISP_FEATURE_NO_PARGB;
+
+#ifdef CONFIG_MTK_LCM_PHYSICAL_ROTATION_HW
+	caps_info.is_output_rotated = 1;
+#endif
+
 	DISPMSG("%s mode:%d, pass:%d, max_layer_num:%d\n",
 		__func__, caps_info.output_mode, caps_info.output_pass, caps_info.max_layer_num);
 
@@ -1817,6 +1883,11 @@ int _ioctl_wait_vsync(unsigned long arg)
 
 	if (copy_from_user(&vsync_config, argp, sizeof(vsync_config))) {
 		DISPMSG("[FB]: copy_from_user failed! line:%d\n", __LINE__);
+		return -EFAULT;
+	}
+
+	if (is_session_exist(vsync_config.session_id) == 0) {
+		DISPERR("session id: %x not exists\n", vsync_config.session_id);
 		return -EFAULT;
 	}
 
@@ -1978,6 +2049,12 @@ int _ioctl_set_session_mode(unsigned long arg)
 		DISPMSG("[FB]: copy_from_user failed! line:%d\n", __LINE__);
 		return -EFAULT;
 	}
+
+	if (is_session_exist(config_info.session_id) == 0) {
+		DISPERR("session id: %x not exists\n", config_info.session_id);
+		return -EFAULT;
+	}
+
 	return set_session_mode(&config_info, 0);
 
 }
@@ -2013,6 +2090,10 @@ const char *_session_ioctl_spy(unsigned int cmd)
 		return "DISP_IOCTL_SET_GAMMALUT";
 	case DISP_IOCTL_SET_CCORR:
 		return "DISP_IOCTL_SET_CCORR";
+	case DISP_IOCTL_CCORR_EVENTCTL:
+		return "DISP_IOCTL_CCORR_EVENTCTL";
+	case DISP_IOCTL_CCORR_GET_IRQ:
+		return "DISP_IOCTL_CCORR_GET_IRQ";
 	case DISP_IOCTL_SET_PQPARAM:
 		return "DISP_IOCTL_SET_PQPARAM";
 	case DISP_IOCTL_GET_PQPARAM:
@@ -2021,6 +2102,8 @@ const char *_session_ioctl_spy(unsigned int cmd)
 		return "DISP_IOCTL_GET_PQINDEX";
 	case DISP_IOCTL_SET_PQINDEX:
 		return "DISP_IOCTL_SET_PQINDEX";
+	case DISP_IOCTL_SET_COLOR_REG:
+		return "DISP_IOCTL_SET_COLOR_REG";
 	case DISP_IOCTL_SET_TDSHPINDEX:
 		return "DISP_IOCTL_SET_TDSHPINDEX";
 	case DISP_IOCTL_GET_TDSHPINDEX:
@@ -2113,10 +2196,13 @@ long mtk_disp_mgr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case DISP_IOCTL_AAL_SET_PARAM:
 	case DISP_IOCTL_SET_GAMMALUT:
 	case DISP_IOCTL_SET_CCORR:
+	case DISP_IOCTL_CCORR_EVENTCTL:
+	case DISP_IOCTL_CCORR_GET_IRQ:
 	case DISP_IOCTL_SET_PQPARAM:
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
 	case DISP_IOCTL_GET_PQINDEX:
+	case DISP_IOCTL_SET_COLOR_REG:
 	case DISP_IOCTL_SET_TDSHPINDEX:
 	case DISP_IOCTL_GET_TDSHPINDEX:
 	case DISP_IOCTL_SET_PQ_CAM_PARAM:
@@ -2153,15 +2239,82 @@ static long mtk_disp_mgr_compat_ioctl(struct file *file, unsigned int cmd, unsig
 	long ret = -ENOIOCTLCMD;
 
 	switch (cmd) {
+	case COMPAT_DISP_IOCTL_CREATE_SESSION:
+		return _compat_ioctl_create_session(file, arg);
+	case COMPAT_DISP_IOCTL_DESTROY_SESSION:
+		return _compat_ioctl_destroy_session(file, arg);
+	case COMPAT_DISP_IOCTL_TRIGGER_SESSION:
+		return _compat_ioctl_trigger_session(file, arg);
+	case COMPAT_DISP_IOCTL_GET_PRESENT_FENCE:
+		return _compat_ioctl_prepare_present_fence(file, arg);
+	case COMPAT_DISP_IOCTL_PREPARE_INPUT_BUFFER:
+		return _compat_ioctl_prepare_buffer(file, arg, PREPARE_INPUT_FENCE);
+	case COMPAT_DISP_IOCTL_SET_INPUT_BUFFER:
+		return _compat_ioctl_set_input_buffer(file, arg);
+	case COMPAT_DISP_IOCTL_WAIT_FOR_VSYNC:
+		return _compat_ioctl_wait_vsync(file, arg);
+	case COMPAT_DISP_IOCTL_GET_SESSION_INFO:
+		return _compat_ioctl_get_info(file, arg);
+	case COMPAT_DISP_IOCTL_GET_DISPLAY_CAPS:
+		return _compat_ioctl_get_display_caps(file, arg);
+	case COMPAT_DISP_IOCTL_SET_VSYNC_FPS:
+		return _compat_ioctl_set_vsync(file, arg);
+	case COMPAT_DISP_IOCTL_SET_SESSION_MODE:
+		return _compat_ioctl_set_session_mode(file, arg);
+	case COMPAT_DISP_IOCTL_PREPARE_OUTPUT_BUFFER:
+		return _compat_ioctl_prepare_buffer(file, arg, PREPARE_OUTPUT_FENCE);
+	case COMPAT_DISP_IOCTL_SET_OUTPUT_BUFFER:
+		return _compat_ioctl_set_output_buffer(file, arg);
+	case COMPAT_DISP_IOCTL_GET_IS_DRIVER_SUSPEND:
+		return _compat_ioctl_get_is_driver_suspend(file, arg);
+	case COMPAT_DISP_IOCTL_INSERT_SESSION_BUFFERS:
+		return _compat_ioctl_insert_session_buffers(file, arg);
+	case COMPAT_DISP_IOCTL_SCREEN_FREEZE:
+		return _compat_ioctl_screen_freeze(file, arg);
 
-		/* add cases here for 32bit/64bit conversion */
-		/* ... */
+	case DISP_IOCTL_GET_LCMINDEX:
+		return primary_display_get_lcm_index();
+
+	case DISP_IOCTL_AAL_EVENTCTL:
+	case DISP_IOCTL_AAL_GET_HIST:
+	case DISP_IOCTL_AAL_INIT_REG:
+	case DISP_IOCTL_AAL_SET_PARAM:
+	case DISP_IOCTL_SET_GAMMALUT:
+	case DISP_IOCTL_SET_CCORR:
+	case DISP_IOCTL_SET_PQPARAM:
+	case DISP_IOCTL_GET_PQPARAM:
+	case DISP_IOCTL_SET_PQINDEX:
+	case DISP_IOCTL_GET_PQINDEX:
+	case DISP_IOCTL_SET_COLOR_REG:
+	case DISP_IOCTL_SET_TDSHPINDEX:
+	case DISP_IOCTL_GET_TDSHPINDEX:
+	case DISP_IOCTL_SET_PQ_CAM_PARAM:
+	case DISP_IOCTL_GET_PQ_CAM_PARAM:
+	case DISP_IOCTL_SET_PQ_GAL_PARAM:
+	case DISP_IOCTL_GET_PQ_GAL_PARAM:
+	case DISP_IOCTL_PQ_SET_BYPASS_COLOR:
+	case DISP_IOCTL_PQ_SET_WINDOW:
+	case DISP_IOCTL_OD_CTL:
+	case DISP_IOCTL_WRITE_REG:
+	case DISP_IOCTL_READ_REG:
+	case DISP_IOCTL_MUTEX_CONTROL:
+	case DISP_IOCTL_PQ_GET_TDSHP_FLAG:
+	case DISP_IOCTL_PQ_SET_TDSHP_FLAG:
+	case DISP_IOCTL_PQ_GET_DC_PARAM:
+	case DISP_IOCTL_PQ_SET_DC_PARAM:
+	case DISP_IOCTL_PQ_GET_DS_PARAM:
+	case DISP_IOCTL_PQ_GET_MDP_COLOR_CAP:
+	case DISP_IOCTL_PQ_GET_MDP_TDSHP_REG:
+	case DISP_IOCTL_WRITE_SW_REG:
+	case DISP_IOCTL_READ_SW_REG:
+	case DISP_IOCTL_CCORR_EVENTCTL:
+	case DISP_IOCTL_CCORR_GET_IRQ:
+		ret = primary_display_user_cmd(cmd, arg);
+		break;
 
 	default:
-		/* DISPERR("mtk_disp_mgr_compat_ioctl, file=0x%x, cmd=0x%x(%s), arg=0x%lx, "
-			   "cmd nr=0x%08x, cmd size=0x%08x\n", file, cmd, _session_ioctl_spy(cmd), arg,
-			   (unsigned int)_IOC_NR(cmd), (unsigned int)_IOC_SIZE(cmd)); */
-		return mtk_disp_mgr_ioctl(file, cmd, arg);
+		DISPERR("[%s]ioctl not supported, 0x%08x\n", __func__, cmd);
+		return -ENOIOCTLCMD;
 	}
 
 	return ret;

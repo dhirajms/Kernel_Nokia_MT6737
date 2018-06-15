@@ -181,7 +181,12 @@ void __spm_kick_im_to_fetch(const struct pcm_desc *pcmdesc)
 	u32 ptr, len, con0;
 
 	/* tell IM where is PCM code (use slave mode if code existed) */
-	ptr = base_va_to_pa(pcmdesc->base);
+#if !defined(CONFIG_ARCH_MT6570) && !defined(CONFIG_ARCH_MT6580)
+	if (pcmdesc->base_dma)
+		ptr = pcmdesc->base_dma;
+	else
+#endif
+		ptr = base_va_to_pa(pcmdesc->base);
 	len = pcmdesc->size - 1;
 	if (spm_read(SPM_PCM_IM_PTR) != ptr || spm_read(SPM_PCM_IM_LEN) != len || pcmdesc->sess > 2) {
 		spm_write(SPM_PCM_IM_PTR, ptr);
@@ -318,6 +323,9 @@ void __spm_kick_pcm_to_run(const struct pwr_ctrl *pwrctrl)
 	spm_write(SPM_PCM_PWR_IO_EN, (pwrctrl->r0_ctrl_en ? PCM_PWRIO_EN_R0 : 0) |
 		  (pwrctrl->r7_ctrl_en ? PCM_PWRIO_EN_R7 : 0));
 
+	while ((spm_read(SPM_PCM_FSM_STA) & (0x7 << 7)) != (0x4 << 7))
+		;
+
 	/* kick PCM to run (only toggle PCM_KICK) */
 	con0 = spm_read(SPM_PCM_CON0) & ~(CON0_IM_KICK | CON0_PCM_KICK);
 	spm_write(SPM_PCM_CON0, con0 | CON0_CFG_KEY | CON0_PCM_KICK);
@@ -393,6 +401,7 @@ wake_reason_t __spm_output_wake_reason(const struct wake_status *wakesta,
 {
 	int i;
 	char buf[LOG_BUF_SIZE] = { 0 };
+	char *local_ptr;
 	wake_reason_t wr = WR_UNKNOWN;
 
 	if (wakesta->assert_pc != 0) {
@@ -403,15 +412,21 @@ wake_reason_t __spm_output_wake_reason(const struct wake_status *wakesta,
 
 	if (wakesta->r12 & WAKE_SRC_SPM_MERGE) {
 		if (wakesta->wake_misc & WAKE_MISC_PCM_TIMER) {
-			strcat(buf, " PCM_TIMER");
+			local_ptr = " PCM_TIMER";
+			if ((strlen(buf) + strlen(local_ptr)) < LOG_BUF_SIZE)
+				strncat(buf, local_ptr, strlen(local_ptr));
 			wr = WR_PCM_TIMER;
 		}
 		if (wakesta->wake_misc & WAKE_MISC_TWAM) {
-			strcat(buf, " TWAM");
+			local_ptr = " TWAM";
+			if ((strlen(buf) + strlen(local_ptr)) < LOG_BUF_SIZE)
+				strncat(buf, local_ptr, strlen(local_ptr));
 			wr = WR_WAKE_SRC;
 		}
 		if (wakesta->wake_misc & WAKE_MISC_CPU_WAKE) {
-			strcat(buf, " CPU");
+			local_ptr = " CPU";
+			if ((strlen(buf) + strlen(local_ptr)) < LOG_BUF_SIZE)
+				strncat(buf, local_ptr, strlen(local_ptr));
 			wr = WR_WAKE_SRC;
 		}
 	}
@@ -539,7 +554,7 @@ void __spm_disable_i2c4_clk(void)
 
 static u32 spm_dram_dummy_read_flags;
 #ifdef CONFIG_OF
-static int dt_scan_memory(unsigned long node, const char *uname, int depth, void *data)
+static int __init dt_scan_memory(unsigned long node, const char *uname, int depth, void *data)
 {
 	const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
 	const __be32 *reg;
@@ -592,7 +607,7 @@ void spm_set_dram_bank_info_pcm_flag(u32 *pcm_flags)
 }
 
 
-bool spm_set_pcm_init_flag(void)
+bool __init spm_set_pcm_init_flag(void)
 {
 #ifdef CONFIG_OF
 	int node;

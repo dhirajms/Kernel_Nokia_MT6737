@@ -520,9 +520,9 @@ saaFsmRunEventTxDone(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo, IN E
 
 	/* Trigger statistics log if Auth/Assoc Tx failed */
 	if (rTxDoneStatus != TX_RESULT_SUCCESS) {
+		DBGLOG(SAA, INFO, "EVENT-TX DONE: Status[%d] SeqNo[%d] Current Time = %u\n",
+		       rTxDoneStatus, prMsduInfo->ucTxSeqNum, kalGetTimeTick());
 		wlanTriggerStatsLog(prAdapter, prAdapter->rWifiVar.u4StatsLogDuration);
-		DBGLOG(SAA, INFO, "EVENT-TX DONE: Current Time = %d status: %d, SeqNo: %d\n",
-			kalGetTimeTick(), rTxDoneStatus, prMsduInfo->ucTxSeqNum);
 	}
 
 	eNextState = prStaRec->eAuthAssocState;
@@ -724,7 +724,7 @@ static BOOLEAN saaCheckOverLoadRN(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_T pr
 
 	prBssDesc = scanSearchBssDescByBssid(prAdapter, prStaRec->aucMacAddr);
 	if (prBssDesc) {
-		aisAddBlacklist(prAdapter, prBssDesc);
+		aisAddBlacklist(prAdapter, prBssDesc, AIS_BLACK_LIST_FROM_DRIVER);
 		if (prBssDesc->prBlack)
 			prBssDesc->prBlack->u2AuthStatus = prStaRec->u2StatusCode;
 	} else
@@ -759,8 +759,10 @@ VOID saaFsmRunEventRxAuth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 	}
 
 	/* We should have the corresponding Sta Record. */
-	if (!prStaRec)
+	 if (!prStaRec) {
+		DBGLOG(SAA, WARN, "Recv Auth w/o corresponding staRec, wlanIdx[%d]\n", prSwRfb->ucWlanIdx);
 		return;
+	}
 
 	if (!IS_AP_STA(prStaRec))
 		return;
@@ -794,7 +796,7 @@ VOID saaFsmRunEventRxAuth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 				}
 			} else {
 				DBGLOG(SAA, INFO,
-				       "Auth was rejected by [" MACSTR "], StatusCode: %d\n",
+				       "Auth Req was rejected by [" MACSTR "], StatusCode: %d\n",
 				       MAC2STR(prStaRec->aucMacAddr), u2StatusCode);
 
 				eNextState = AA_STATE_IDLE;
@@ -832,7 +834,7 @@ VOID saaFsmRunEventRxAuth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 				eNextState = SAA_STATE_SEND_ASSOC1;
 			} else {
 				DBGLOG(SAA, INFO,
-				       "Auth was rejected by [" MACSTR "], StatusCode: %d\n",
+				       "Auth Req was rejected by [" MACSTR "], StatusCode: %d\n",
 				       MAC2STR(prStaRec->aucMacAddr), u2StatusCode);
 
 				eNextState = AA_STATE_IDLE;
@@ -878,8 +880,10 @@ WLAN_STATUS saaFsmRunEventRxAssoc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRf
 	}
 
 	/* We should have the corresponding Sta Record. */
-	if (!prStaRec)
+	if (!prStaRec) {
+		DBGLOG(SAA, WARN, "Recv (Re)Assoc Resp w/o corresponding staRec, wlanIdx[%d]\n", prSwRfb->ucWlanIdx);
 		return rStatus;
+	}
 
 	if (!IS_AP_STA(prStaRec))
 		return rStatus;
@@ -889,7 +893,7 @@ WLAN_STATUS saaFsmRunEventRxAssoc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRf
 	switch (prStaRec->eAuthAssocState) {
 	case SAA_STATE_SEND_ASSOC1:
 	case SAA_STATE_WAIT_ASSOC2:
-		/* TRUE if the incoming frame is what we are waiting for */
+		/* Check if the incoming frame is what we are waiting for */
 		if (assocCheckRxReAssocRspFrameStatus(prAdapter, prSwRfb, &u2StatusCode) == WLAN_STATUS_SUCCESS) {
 
 			cnmTimerStopTimer(prAdapter, &prStaRec->rTxReqDoneOrRxRespTimer);
@@ -984,7 +988,8 @@ static VOID saaAutoReConnect(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_T prStaRe
 
 			if (prBssDesc) {
 				if (prStaRec->u2ReasonCode == REASON_CODE_DISASSOC_AP_OVERLOAD) {
-					struct AIS_BLACKLIST_ITEM *prBlackList = aisAddBlacklist(prAdapter, prBssDesc);
+					struct AIS_BLACKLIST_ITEM *prBlackList = aisAddBlacklist(prAdapter, prBssDesc,
+											AIS_BLACK_LIST_FROM_DRIVER);
 
 					if (prBlackList)
 						prBlackList->u2DeauthReason = prStaRec->u2ReasonCode;
@@ -995,10 +1000,10 @@ static VOID saaAutoReConnect(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_T prStaRe
 
 			aisFsmStateAbort(prAdapter, DISCONNECT_REASON_CODE_RADIO_LOST, TRUE);
 		} else if (!CHECK_FOR_TIMEOUT(rCurrentTime, prAisBssInfo->rConnTime,
-				  SEC_TO_SYSTIME(AIS_AUTORN_MIN_INTERVAL - 10))) {
+				  SEC_TO_SYSTIME(AIS_AUTORN_MIN_INTERVAL + 10))) {
 
 			DBGLOG(SAA, INFO, "<drv> AP deauth ok under reassoc 0x%x %x %x\n",
-				rCurrentTime, prAisBssInfo->rConnTime, SEC_TO_SYSTIME(AIS_AUTORN_MIN_INTERVAL - 10));
+				rCurrentTime, prAisBssInfo->rConnTime, SEC_TO_SYSTIME(AIS_AUTORN_MIN_INTERVAL + 10));
 
 			prAisBssInfo->fgDisConnReassoc = FALSE;
 			saaSendDisconnectMsgHandler(prAdapter, prStaRec, prAisBssInfo, eFrmType);
@@ -1007,6 +1012,7 @@ static VOID saaAutoReConnect(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_T prStaRe
 	}
 }
 #endif
+
 /*----------------------------------------------------------------------------*/
 /*!
 * @brief This function will check the incoming Deauth Frame.
@@ -1026,12 +1032,11 @@ WLAN_STATUS saaFsmRunEventRxDeauth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwR
 	prDeauthFrame = (P_WLAN_DEAUTH_FRAME_T) prSwRfb->pvHeader;
 
 	DBGLOG(SAA, INFO,
-	"Rx Deauth frame ,DA[" MACSTR "] SA[" MACSTR "] BSSID[" MACSTR "] ReasonCode[0x%x] StaRecIdx[0x%x]\n",
-	MAC2STR(prDeauthFrame->aucDestAddr),
-	MAC2STR(prDeauthFrame->aucSrcAddr),
-	MAC2STR(prDeauthFrame->aucBSSID),
-	prDeauthFrame->u2ReasonCode,
-	prSwRfb->ucStaRecIdx);
+	       "Recv Deauth from SA[" MACSTR "] DA[" MACSTR "] BSSID[" MACSTR "] ReasonCode[%d]\n",
+	       MAC2STR(prDeauthFrame->aucSrcAddr),
+	       MAC2STR(prDeauthFrame->aucDestAddr),
+	       MAC2STR(prDeauthFrame->aucBSSID),
+	       prDeauthFrame->u2ReasonCode);
 
 	do {
 		if (!prStaRec) {
@@ -1040,8 +1045,10 @@ WLAN_STATUS saaFsmRunEventRxDeauth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwR
 		}
 
 		/* We should have the corresponding Sta Record. */
-		if (!prStaRec)
+		if (!prStaRec) {
+			DBGLOG(SAA, LOUD, "Recv Deauth w/o corresponding staRec, wlanIdx[%d]\n", prSwRfb->ucWlanIdx);
 			break;
+		}
 
 		if (IS_STA_IN_AIS(prStaRec)) {
 			P_BSS_INFO_T prAisBssInfo;
@@ -1064,11 +1071,11 @@ WLAN_STATUS saaFsmRunEventRxDeauth(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwR
 					prAisSpecBssInfo = &(prAdapter->rWifiVar.rAisSpecificBssInfo);
 
 					DBGLOG(RSN, INFO,
-					       "QM RX MGT: Deauth frame, P=%d Sec=%d CM=%d BC=%d fc=%02hx\n",
+					       "QM RX MGT: Deauth frame, P=%d Sec=%d CM=%d BC=%d fc=%04x\n",
 						prAisSpecBssInfo->fgMgmtProtection,
-						HAL_RX_STATUS_GET_SEC_MODE(prSwRfb->prRxStatus),
-						HAL_RX_STATUS_IS_CIPHER_MISMATCH(prSwRfb->prRxStatus),
-						IS_BMCAST_MAC_ADDR(prDeauthFrame->aucDestAddr),
+						(UINT_8)HAL_RX_STATUS_GET_SEC_MODE(prSwRfb->prRxStatus),
+						(UINT_8)HAL_RX_STATUS_IS_CIPHER_MISMATCH(prSwRfb->prRxStatus),
+						(UINT_8)IS_BMCAST_MAC_ADDR(prDeauthFrame->aucDestAddr),
 						prDeauthFrame->u2FrameCtrl);
 					if (prAisSpecBssInfo->fgMgmtProtection
 					    && HAL_RX_STATUS_IS_CIPHER_MISMATCH(prSwRfb->prRxStatus)
@@ -1216,10 +1223,11 @@ WLAN_STATUS saaFsmRunEventRxDisassoc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prS
 	prDisassocFrame = (P_WLAN_DISASSOC_FRAME_T) prSwRfb->pvHeader;
 
 	DBGLOG(SAA, INFO,
-	       "Rx Disassoc frame from BSSID[" MACSTR "] DA[" MACSTR "] ReasonCode[0x%x]\n",
-		MAC2STR(prDisassocFrame->aucBSSID),
-		MAC2STR(prDisassocFrame->aucDestAddr),
-		prDisassocFrame->u2ReasonCode);
+	       "Recv Disassoc from SA[" MACSTR "] DA[" MACSTR "] BSSID[" MACSTR "] ReasonCode[%d]\n",
+	       MAC2STR(prDisassocFrame->aucSrcAddr),
+	       MAC2STR(prDisassocFrame->aucDestAddr),
+	       MAC2STR(prDisassocFrame->aucBSSID),
+	       prDisassocFrame->u2ReasonCode);
 
 	do {
 		if (!prStaRec) {
@@ -1228,8 +1236,10 @@ WLAN_STATUS saaFsmRunEventRxDisassoc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prS
 		}
 
 		/* We should have the corresponding Sta Record. */
-		if (!prStaRec)
+		if (!prStaRec) {
+			DBGLOG(SAA, LOUD, "Recv Disassoc w/o corresponding staRec, wlanIdx[%d]\n", prSwRfb->ucWlanIdx);
 			break;
+		}
 
 		if (IS_STA_IN_AIS(prStaRec)) {
 			P_BSS_INFO_T prAisBssInfo;
@@ -1253,11 +1263,11 @@ WLAN_STATUS saaFsmRunEventRxDisassoc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prS
 					prAisSpecBssInfo = &(prAdapter->rWifiVar.rAisSpecificBssInfo);
 
 					DBGLOG(RSN, INFO,
-					       "QM RX MGT: Disassoc frame, P=%d Sec=%d CM=%d BC=%d fc=%02hx\n",
+					       "QM RX MGT: Disassoc frame, P=%d Sec=%d CM=%d BC=%d fc=%04x\n",
 						prAisSpecBssInfo->fgMgmtProtection,
-						HAL_RX_STATUS_GET_SEC_MODE(prSwRfb->prRxStatus),
-						HAL_RX_STATUS_IS_CIPHER_MISMATCH(prSwRfb->prRxStatus),
-						IS_BMCAST_MAC_ADDR(prDisassocFrame->aucDestAddr),
+						(UINT_8)HAL_RX_STATUS_GET_SEC_MODE(prSwRfb->prRxStatus),
+						(UINT_8)HAL_RX_STATUS_IS_CIPHER_MISMATCH(prSwRfb->prRxStatus),
+						(UINT_8)IS_BMCAST_MAC_ADDR(prDisassocFrame->aucDestAddr),
 						prDisassocFrame->u2FrameCtrl);
 					if (IS_STA_IN_AIS(prStaRec)
 					    && prAisSpecBssInfo->fgMgmtProtection

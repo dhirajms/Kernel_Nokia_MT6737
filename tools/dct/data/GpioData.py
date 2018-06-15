@@ -1,6 +1,17 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
 
+# Copyright (C) 2016 MediaTek Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+
 class GpioData:
     _count = 0
     _modNum = 8
@@ -25,6 +36,7 @@ class GpioData:
         self.__smtNum = -1
         self.__smtEn = False
         self.__iesEn = True
+        self.__drvCur = ""
 
 
     def get_defMode(self):
@@ -98,6 +110,12 @@ class GpioData:
 
     def set_iesEn(self, flag):
         self.__iesEn = flag
+
+    def set_drvCur(self, val):
+        self.__drvCur = val
+
+    def get_drvCur(self):
+        return self.__drvCur
 
     def set_smtNum(self, num):
         self.__smtNum = num

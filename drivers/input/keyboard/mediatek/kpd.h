@@ -39,7 +39,6 @@
 #include <hal_kpd.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
-#include <mt-plat/upmu_common.h>
 #include <mt-plat/mt_boot_common.h>
 
 #define KEY_CALL	KEY_SEND
@@ -120,19 +119,21 @@ extern struct keypad_dts_data kpd_dts_data;
 }
 
 #define KPD_HAS_SLIDE_QWERTY	1
+
 #if KPD_HAS_SLIDE_QWERTY
 static inline bool powerOn_slidePin_interface(void)
 {
 	//return hwPowerOn(MT65XX_POWER_LDO_VCAM_IO, VOL_2800, "Qwerty slide");
 	return 0;
 }
+
 static inline bool powerOff_slidePin_interface(void)
 {
 	//return hwPowerDown(MT65XX_POWER_LDO_VCAM_IO, "Qwerty slide");
 	return 0;
 }
-extern irqreturn_t kpd_slide_eint_handler(void);
 #endif
+
 #ifdef CONFIG_KPD_PWRKEY_USE_PMIC
 void kpd_pwrkey_pmic_handler(unsigned long pressed);
 #else

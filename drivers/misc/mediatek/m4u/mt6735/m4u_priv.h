@@ -97,6 +97,10 @@ enum {
 	LARB2_SMI_CLK,
 	VENC_VENC_CLK,
 	VENC_LARB_CLK,
+	MTCMOS_LARB0,
+	MTCMOS_LARB1,
+	MTCMOS_LARB2,
+	MTCMOS_LARB3,
 	SMI_CLK_NUM,
 };
 
@@ -198,7 +202,7 @@ int m4u_dump_main_tlb(int m4u_id, int m4u_slave_id);
 int m4u_dump_pfh_tlb(int m4u_id);
 int m4u_domain_init(struct m4u_device *m4u_dev, void *priv_reserve);
 
-int config_mau(M4U_MAU_STRUCT mau);
+/*int config_mau(M4U_MAU_STRUCT mau);*/
 int m4u_enable_tf(int port, bool fgenable);
 
 extern int gM4U_4G_DRAM_Mode;

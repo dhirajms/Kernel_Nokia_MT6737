@@ -216,6 +216,9 @@ void dumpQueue(P_ADAPTER_T prAdapter)
 	DBGLOG(SW4, INFO, " rIndicatedRfbList %u\n", prAdapter->rRxCtrl.rIndicatedRfbList.u4NumElem);
 	DBGLOG(SW4, INFO, " ucNumIndPacket %u\n", prAdapter->rRxCtrl.ucNumIndPacket);
 	DBGLOG(SW4, INFO, " ucNumRetainedPacket %u\n", prAdapter->rRxCtrl.ucNumRetainedPacket);
+#if CFG_SUPPORT_MULTITHREAD
+	DBGLOG(SW4, INFO, " ucNumRxDataPacket %9u\n", prAdapter->rRxCtrl.rRxDataRfbList.u4NumElem);
+#endif
 
 }
 
@@ -404,11 +407,8 @@ VOID swCtrlCmdCategory0(P_ADAPTER_T prAdapter, UINT_8 ucCate, UINT_8 ucAction, U
 						g_u4mDNSRXFilter &= ~(1 << ucOpt1);
 				}
 
-				if (fgUpdate == TRUE) {
+				if (fgUpdate == TRUE)
 					rStatus = wlanoidSetPacketFilter(prAdapter, u4rxfilter, FALSE, NULL, 0);
-				}
-/* DBGLOG(SW4, INFO,("SWCTRL_RX_MDNS_FILTER: g_u4mDNSRXFilter %x ucOpt0 %x ucOpt1 %x fgUpdate %x u4rxfilter %x, */
-/* rStatus %x\n", g_u4mDNSRXFilter, ucOpt0, ucOpt1, fgUpdate, u4rxfilter, rStatus)); */
 			}
 			break;
 		default:

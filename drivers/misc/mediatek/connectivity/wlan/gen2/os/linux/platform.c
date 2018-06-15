@@ -40,7 +40,11 @@
 *                              C O N S T A N T S
 ********************************************************************************
 */
+#if CFG_TC10_FEATURE
+#define WIFI_NVRAM_FILE_NAME   "/vendor/firmware/WIFI"
+#else
 #define WIFI_NVRAM_FILE_NAME   "/data/nvram/APCFG/APRDEB/WIFI"
+#endif
 #define WIFI_NVRAM_CUSTOM_NAME "/data/nvram/APCFG/APRDEB/WIFI_CUSTOM"
 
 /*******************************************************************************
@@ -308,6 +312,7 @@ static int nvram_read(char *filename, char *buf, ssize_t len, int offset)
 
 	if (IS_ERR(fd)) {
 		DBGLOG(INIT, INFO, "[MT6620][nvram_read] : failed to open!!\n");
+		set_fs(old_fs);
 		return -1;
 	}
 
@@ -372,6 +377,7 @@ static int nvram_write(char *filename, char *buf, ssize_t len, int offset)
 
 	if (IS_ERR(fd)) {
 		DBGLOG(INIT, INFO, "[MT6620][nvram_write] : failed to open!!\n");
+		set_fs(old_fs);
 		return -1;
 	}
 

@@ -47,7 +47,6 @@
 #include "tz_cross/ta_pm.h"
 #include "tz_ndbg.h"
 
-#include "tz_playready.h"
 
 #include "tz_secure_clock.h"
 #define MTEE_MOD_TAG "MTEE_MOD"
@@ -227,7 +226,7 @@ static long _map_user_pages(struct MTIOMMU_PIN_RANGE_T *pinRange,
 	}
 	if (!(vma->vm_flags & (VM_IO | VM_PFNMAP))) {
 		pinRange->isPage = 1;
-		res = get_user_pages(current, current->mm, uaddr, nr_pages,
+		res = get_user_pages_durable(current, current->mm, uaddr, nr_pages,
 					write, 0,/* don't force */
 					pages, NULL);
 	} else {
@@ -577,35 +576,102 @@ static void tz_client_free_client_info(struct file *file)
 /**************************************************************************
 *  DEV DRIVER IOCTL
 **************************************************************************/
-static long tz_client_open_session(struct file *file, unsigned long arg)
+static KREE_SESSION_HANDLE tz_client_open_session_impl(int with_tag,
+				unsigned long arg,
+				struct kree_session_tag_cmd_param *pparam)
 {
-	struct kree_session_cmd_param param;
+	size_t param_size;
+	TZ_RESULT ret;
 	unsigned long cret;
 	char uuid[40];
 	long len;
-	TZ_RESULT ret;
 	KREE_SESSION_HANDLE handle;
+	char tag[48] = { 0 };
 
-	cret = copy_from_user(&param, (void *)arg, sizeof(param));
+	if (with_tag == 0)
+		param_size = sizeof(struct kree_session_cmd_param);
+	else
+		param_size = sizeof(struct kree_session_tag_cmd_param);
+
+	cret = copy_from_user(pparam, (void *)arg, param_size);
 	if (cret)
 		return -EFAULT;
 
 	/* Check if can we access UUID string. 10 for min uuid len. */
-	if (!access_ok(VERIFY_READ, param.data, 10))
+	if (!access_ok(VERIFY_READ, pparam->data, 10))
 		return -EFAULT;
 
+	if (with_tag != 0 && pparam->tag != 0) {
+		/* Check if can we access tag string. */
+		if (!access_ok(VERIFY_READ, pparam->tag, pparam->tag_size))
+			return -EFAULT;
+
+		len = strncpy_from_user(tag,
+					(void *)(unsigned long)pparam->tag,
+					sizeof(tag));
+		if (len <= 0)
+			return -EFAULT;
+
+		tag[sizeof(tag) - 1] = 0;
+	}
+
 	len = strncpy_from_user(uuid,
-				(void *)(unsigned long)param.data,
+				(void *)(unsigned long)pparam->data,
 				sizeof(uuid));
 	if (len <= 0)
 		return -EFAULT;
 
 	uuid[sizeof(uuid) - 1] = 0;
-	ret = KREE_CreateSession(uuid, &handle);
-	param.ret = ret;
+	if (with_tag != 0 && pparam->tag != 0)
+		ret = KREE_CreateSessionWithTag(uuid, &handle, tag);
+	else
+		ret = KREE_CreateSession(uuid, &handle);
+	pparam->ret = ret;
 
-	/* Register session to fd */
-	if (ret == TZ_RESULT_SUCCESS) {
+	if (ret != TZ_RESULT_SUCCESS)
+		return KREE_SESSION_HANDLE_FAIL;
+
+	return handle;
+}
+
+static long tz_client_open_session(struct file *file, unsigned long arg)
+{
+	unsigned long cret;
+	KREE_SESSION_HANDLE handle;
+	struct kree_session_tag_cmd_param param;
+
+	handle = tz_client_open_session_impl(0, arg, &param);
+
+	if (handle != KREE_SESSION_HANDLE_FAIL &&
+		handle != KREE_SESSION_HANDLE_NULL) {
+		param.handle = tz_client_register_session(file, handle);
+		if (param.handle < 0)
+			goto error_register;
+	}
+
+	cret = copy_to_user((void *)arg, &param, sizeof(struct kree_session_cmd_param));
+	if (cret)
+		goto error_copy;
+
+	return 0;
+
+ error_copy:
+	tz_client_unregister_session(file, param.handle);
+ error_register:
+	KREE_CloseSession(handle);
+	return -EFAULT;
+}
+
+static long tz_client_open_session_with_tag(struct file *file, unsigned long arg)
+{
+	unsigned long cret;
+	KREE_SESSION_HANDLE handle;
+	struct kree_session_tag_cmd_param param;
+
+	handle = tz_client_open_session_impl(1, arg, &param);
+
+	if (handle != KREE_SESSION_HANDLE_FAIL &&
+		handle != KREE_SESSION_HANDLE_NULL) {
 		param.handle = tz_client_register_session(file, handle);
 		if (param.handle < 0)
 			goto error_register;
@@ -1086,6 +1152,9 @@ static long do_tz_client_ioctl(struct file *file, unsigned int cmd,
 	case MTEE_CMD_OPEN_SESSION:
 		return tz_client_open_session(file, arg);
 
+	case MTEE_CMD_OPEN_SESSION_WITH_TAG:
+		return tz_client_open_session_with_tag(file, arg);
+
 	case MTEE_CMD_CLOSE_SESSION:
 		return tz_client_close_session(file, arg);
 
@@ -1124,35 +1193,6 @@ static long tz_client_ioctl_compat(struct file *file, unsigned int cmd,
 #endif
 
 
-/* pm op funcstions */
-#ifdef TZ_PLAYREADY_SECURETIME_SUPPORT
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static int securetime_savefile(void)
-{
-	int ret = 0;
-
-	KREE_SESSION_HANDLE securetime_session = 0;
-
-	ret = KREE_CreateSession(TZ_TA_PLAYREADY_UUID, &securetime_session);
-	if (ret != TZ_RESULT_SUCCESS)
-		pr_warn("[securetime]CreateSession error %d\n", ret);
-
-	TEE_update_pr_time_infile(securetime_session);
-
-	ret = KREE_CloseSession(securetime_session);
-	if (ret != TZ_RESULT_SUCCESS)
-		pr_warn("CloseSession error %d\n", ret);
-
-
-	return ret;
-}
-#endif /* EARLYSUSPEND */
-
-static void st_shutdown(struct platform_device *pdev)
-{
-	pr_warn("[securetime]st_shutdown: kickoff\n");
-}
-#endif
 
 #ifdef CONFIG_PM_SLEEP
 static int tz_suspend(struct device *pdev)
@@ -1232,7 +1272,7 @@ TZ_RESULT KREE_ServGetChunkmemPool(u32 op,
 			chunkmem->chunkmem_pa, secure_size);
 
 	/* flush cache to avoid writing secure memory after allocation. */
-	flush_cache_all();
+	smp_inner_dcache_flush_all();
 
 	return TZ_RESULT_SUCCESS;
 }
@@ -1405,12 +1445,6 @@ static int mtee_probe(struct platform_device *pdev)
 #ifdef TZ_SECURETIME_SUPPORT
 	struct task_struct *thread_securetime_gb;
 #endif
-#ifdef TZ_PLAYREADY_SECURETIME_SUPPORT
-	struct task_struct *thread_securetime;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	register_early_suspend(&securetime_early_suspend);
-#endif
-#endif
 
 #if defined(CONFIG_MTEE_CMA_SECURE_MEMORY) && \
 	!defined(NO_CMA_RELEASE_THROUGH_SHRINKER_FOR_EARLY_STAGE)
@@ -1484,10 +1518,6 @@ static int mtee_probe(struct platform_device *pdev)
 	}
 	pTzDevice = device_create(pTzClass, NULL, tz_client_dev, NULL,
 					TZ_DEV_NAME);
-#ifdef TZ_PLAYREADY_SECURETIME_SUPPORT
-	thread_securetime = kthread_run(update_securetime_thread, NULL,
-						"update_securetime");
-#endif
 
 #ifdef TZ_SECURETIME_SUPPORT
 	thread_securetime_gb = kthread_run(update_securetime_thread_gb, NULL,
@@ -1521,9 +1551,6 @@ static struct platform_driver tz_driver = {
 		.of_match_table = mtee_of_match,
 #endif
 	},
-#ifdef TZ_PLAYREADY_SECURETIME_SUPPORT
-	.shutdown   = st_shutdown,
-#endif
 };
 
 /* CMA */
@@ -1605,38 +1632,7 @@ static int __init register_tz_driver(void)
 
 	return ret;
 }
-#ifdef TZ_PLAYREADY_SECURETIME_SUPPORT
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-
-static void st_early_suspend(struct early_suspend *h)
-{
-	pr_debug("st_early_suspend: start\n");
-	securetime_savefile();
-}
-
-static void st_late_resume(struct early_suspend *h)
-{
-	int ret = 0;
-	KREE_SESSION_HANDLE securetime_session = 0;
-
-	ret = KREE_CreateSession(TZ_TA_PLAYREADY_UUID, &securetime_session);
-	if (ret != TZ_RESULT_SUCCESS)
-		pr_warn("[securetime]CreateSession error %d\n", ret);
-
-	TEE_update_pr_time_intee(securetime_session);
-	ret = KREE_CloseSession(securetime_session);
-	if (ret != TZ_RESULT_SUCCESS)
-		pr_warn("[securetime]CloseSession error %d\n", ret);
-}
-
-static struct early_suspend securetime_early_suspend = {
-	.level  = 258,
-	.suspend = st_early_suspend,
-	.resume  = st_late_resume,
-};
-#endif
-#endif
 
 /******************************************************************************
  * tz_client_init

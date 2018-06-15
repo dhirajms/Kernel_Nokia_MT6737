@@ -32,7 +32,7 @@
 
 #define AEE_IPANIC_MAGIC 0xaee0dead
 #define AEE_IPANIC_PHDR_VERSION   0x10
-#define IPANIC_NR_SECTIONS		32
+#define IPANIC_NR_SECTIONS		64
 #if (AEE_IPANIC_PHDR_VERSION >= 0x10)
 #define IPANIC_USERSPACE_READ		1
 #endif
@@ -46,19 +46,19 @@
 			pr_debug(fmt, ##__VA_ARGS__);	\
 	} while (0)
 
-#define LOG_ERROR(fmt, ...)			\
+#define LOG_NOTICE(fmt, ...)			\
 	do {	\
 		if (aee_in_nested_panic())			\
 			aee_nested_printf(fmt, ##__VA_ARGS__);	\
 		else						\
-			pr_err(fmt, ##__VA_ARGS__);	\
+			pr_notice(fmt, ##__VA_ARGS__);	\
 	} while (0)
 
 #define LOGV(fmt, msg...)
 #define LOGD LOG_DEBUG
 #define LOGI LOG_DEBUG
-#define LOGW LOG_ERROR
-#define LOGE LOG_ERROR
+#define LOGW LOG_NOTICE
+#define LOGE LOG_NOTICE
 
 struct ipanic_data_header {
 	u32 type;		/* data type(0-31) */
@@ -141,6 +141,8 @@ enum IPANIC_DT {
 	IPANIC_DT_LAST_LOG,
 	IPANIC_DT_ATF_LOG,
 	IPANIC_DT_DISP_LOG,
+	IPANIC_DT_MODULES_INFO = 17,
+	IPANIC_DT_HANG_DETECT,
 	IPANIC_DT_RAM_DUMP = 28,
 	IPANIC_DT_SHUTDOWN_LOG = 30,
 	IPANIC_DT_RESERVED31 = 31,
@@ -168,45 +170,6 @@ struct ipanic_atf_log_rec {
 #define ipanic_dt_encrypt(x)		((IPANIC_DT_ENCRYPT >> x) & 1)
 #define ipanic_dt_active(x)		((IPANIC_DT_DUMP >> x) & 1)
 
-/* copy from kernel/drivers/staging/android/logger.h */
-/*
-  SMP porting, we double the android buffer
-* and kernel buffer size for dual core
-*/
-#ifdef CONFIG_SMP
-#ifndef __MAIN_BUF_SIZE
-#define __MAIN_BUF_SIZE (256 * 1024)
-#endif
-
-#ifndef __EVENTS_BUF_SIZE
-#define __EVENTS_BUF_SIZE (256 * 1024)
-#endif
-
-#ifndef __RADIO_BUF_SIZE
-#define __RADIO_BUF_SIZE (256 * 1024)
-#endif
-
-#ifndef __SYSTEM_BUF_SIZE
-#define __SYSTEM_BUF_SIZE (256 * 1024)
-#endif
-#else
-#ifndef __MAIN_BUF_SIZE
-#define __MAIN_BUF_SIZE (256 * 1024)
-#endif
-
-#ifndef __EVENTS_BUF_SIZE
-#define __EVENTS_BUF_SIZE (256 * 1024)
-#endif
-
-#ifndef __RADIO_BUF_SIZE
-#define __RADIO_BUF_SIZE (64 * 1024)
-#endif
-
-#ifndef __SYSTEM_BUF_SIZE
-#define __SYSTEM_BUF_SIZE (64 * 1024)
-#endif
-#endif
-
 #ifndef __LOG_BUF_LEN
 #define __LOG_BUF_LEN	(1 << CONFIG_LOG_BUF_SHIFT)
 #endif
@@ -229,6 +192,7 @@ void ipanic_log_temp_init(void);
 void ipanic_klog_region(struct kmsg_dumper *dumper);
 int ipanic_klog_buffer(void *data, unsigned char *buffer, size_t sz_buf);
 extern int ipanic_atflog_buffer(void *data, unsigned char *buffer, size_t sz_buf);
+extern void get_hang_detect_buffer(unsigned long *addr, unsigned long *size, unsigned long *start);
 extern int panic_dump_disp_log(void *data, unsigned char *buffer, size_t sz_buf);
 
 int ipanic_mem_write(void *buf, int off, int len, int encrypt);
@@ -251,6 +215,7 @@ extern void mrdump_mini_add_misc(unsigned long addr, unsigned long size, unsigne
 				 char *name);
 extern void mrdump_mini_ipanic_done(void);
 extern int mrdump_task_info(unsigned char *buffer, size_t sz_buf);
+extern int mrdump_modules_info(unsigned char *buffer, size_t sz_buf);
 extern void aee_rr_rec_exp_type(unsigned int type);
 extern unsigned int aee_rr_curr_exp_type(void);
 extern void aee_rr_rec_scp(void);

@@ -106,6 +106,10 @@ static unsigned tx_wakeup_threshold = 13;
 module_param(tx_wakeup_threshold, uint, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(tx_wakeup_threshold, "tx wakeup threshold value");
 
+#define U_ETHER_RX_PENDING_TSHOLD 100
+static unsigned int u_ether_rx_pending_thld = U_ETHER_RX_PENDING_TSHOLD;
+module_param(u_ether_rx_pending_thld, uint, S_IRUGO | S_IWUSR);
+
 /* for dual-speed hardware, use deeper queues at high/super speed */
 static inline int qlen(struct usb_gadget *gadget, unsigned qmult)
 {
@@ -368,9 +372,17 @@ quiesce:
 	}
 
 clean:
-	spin_lock(&dev->reqrx_lock);
-	list_add(&req->list, &dev->rx_reqs);
-	spin_unlock(&dev->reqrx_lock);
+	if (queue && dev->rx_frames.qlen <= u_ether_rx_pending_thld) {
+		if (rx_submit(dev, req, GFP_ATOMIC) < 0) {
+			spin_lock(&dev->reqrx_lock);
+			list_add(&req->list, &dev->rx_reqs);
+			spin_unlock(&dev->reqrx_lock);
+		}
+	} else {
+		spin_lock(&dev->reqrx_lock);
+		list_add(&req->list, &dev->rx_reqs);
+		spin_unlock(&dev->reqrx_lock);
+	}
 
 	if (queue) {
 		queue_work(uether_wq, &dev->rx_work);
@@ -906,21 +918,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	}
 
 	req->length = length;
-
-	/* throttle high/super speed IRQ rate back slightly */
-	if (gadget_is_dualspeed(dev->gadget) &&
-			 (dev->gadget->speed == USB_SPEED_HIGH ||
-			  dev->gadget->speed == USB_SPEED_SUPER)) {
-		dev->tx_qlen++;
-		if (dev->tx_qlen == (dev->qmult/2)) {
-			req->no_interrupt = 0;
-			dev->tx_qlen = 0;
-		} else {
-			req->no_interrupt = 1;
-		}
-	} else {
-		req->no_interrupt = 0;
-	}
 
 	retval = usb_ep_queue(in, req, GFP_ATOMIC);
 	switch (retval) {

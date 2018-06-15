@@ -24,14 +24,17 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/2.0
 ifeq ($(CONFIG_ARCH_MT6735),y)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/mt6735/
 obj-y += mt6735/
+ccflags-$(CONFIG_ARM64) += -mcmodel=large
 endif
 ifeq ($(CONFIG_ARCH_MT6735M),y)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/mt6735m/
 obj-y += mt6735m/
+ccflags-$(CONFIG_ARM64) += -mcmodel=large
 endif
 ifeq ($(CONFIG_ARCH_MT6753),y)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM)/mt6753/
 obj-y += mt6753/
+ccflags-$(CONFIG_ARM64) += -mcmodel=large
 endif
 
 obj-$(CONFIG_MTK_M4U) += m4u_hw.o

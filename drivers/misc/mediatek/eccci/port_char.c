@@ -100,7 +100,10 @@ READ_START:
 	/* 1. get incoming request */
 	if (skb_queue_empty(&port->rx_skb_list)) {
 		if (!(file->f_flags & O_NONBLOCK)) {
-			ret = wait_event_interruptible(port->rx_wq, !skb_queue_empty(&port->rx_skb_list));
+			spin_lock_irq(&port->rx_wq.lock);
+			ret = wait_event_interruptible_locked_irq(port->rx_wq,
+				!skb_queue_empty(&port->rx_skb_list));
+			spin_unlock_irq(&port->rx_wq.lock);
 			if (ret == -ERESTARTSYS) {
 				ret = -EINTR;
 				goto exit;
@@ -377,6 +380,10 @@ static int port_char_init(struct ccci_port *port)
 
 	CCCI_DEBUG_LOG(md_id, CHAR, "char port %s is initializing\n", port->name);
 	dev = kmalloc(sizeof(struct cdev), GFP_KERNEL);
+	if (unlikely(!dev)) {
+		CCCI_ERROR_LOG(port->md_id, CHAR, "alloc char dev fail!!\n");
+		return -1;
+	}
 	cdev_init(dev, &char_dev_fops);
 	dev->owner = THIS_MODULE;
 	port->rx_length_th = MAX_QUEUE_LENGTH;
@@ -402,6 +409,8 @@ static int port_char_init(struct ccci_port *port)
 		port->rx_ch == CCCI_C2K_AT7 ||
 		port->rx_ch == CCCI_C2K_AT8)
 		port->flags |= PORT_F_CH_TRAFFIC;
+	else if (port->rx_ch == CCCI_FS_RX)
+		port->flags |= (PORT_F_CH_TRAFFIC | PORT_F_DUMP_RAW_DATA);
 
 	return ret;
 }

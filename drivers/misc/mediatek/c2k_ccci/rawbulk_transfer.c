@@ -352,6 +352,7 @@ static void start_upstream(struct work_struct *work)
 
 	length = c->length;
 	buffer = c->buffer;
+	ret = -1;
 
 reget:
 	mutex_lock(&transfer->usb_up_mutex);
@@ -376,7 +377,7 @@ reget:
 		C2K_NOTE("%s: up request is buzy, try to get usb request\n", __func__);
 		goto reget;
 	}
-	if (!t->req || got == 0) {
+	if (!t->req) {
 		C2K_DBG("%s\n", __func__);
 		return;
 	}
@@ -485,24 +486,27 @@ int rawbulk_push_upstream_buffer(int transfer_id, const void *buffer, unsigned i
 		c = kmalloc(sizeof(struct cache_buf), GFP_KERNEL);
 		if (!c)
 			C2K_NOTE("fail to allocate upstream sdio buf n %d\n", transfer_id);
-
-		c->buffer = (char *)__get_free_page(GFP_KERNEL);
-		/* c->buffer = kmalloc(upsz, GFP_KERNEL); */
-		if (!c) {
-			kfree(c);
-			C2K_NOTE("fail to allocate upstream sdio buf n %d\n", transfer_id);
+		else {
+			c->buffer = (char *)__get_free_page(GFP_KERNEL);
+			/* c->buffer = kmalloc(upsz, GFP_KERNEL); */
+			if (!c->buffer) {
+				kfree(c);
+				c = NULL;
+				C2K_NOTE("fail to allocate upstream sdio buf n %d\n", transfer_id);
+			} else {
+				c->state = UPSTREAM_STAT_UPLOADING;
+				INIT_LIST_HEAD(&c->clist);
+				list_add_tail(&c->clist, &transfer->cache_buf_lists.transactions);
+				transfer->cache_buf_lists.ntrans++;
+				total_tran[transfer_id] = transfer->cache_buf_lists.ntrans;
+				C2K_NOTE("new cache, t<%d>, trans<%d>, alloc_fail<%d>, upstream<%d,%d>\n",
+					 transfer_id,
+					 transfer->cache_buf_lists.ntrans,
+					 alloc_fail[transfer_id],
+					 upstream_data[transfer_id], upstream_cnt[transfer_id]);
+				ret = 0;
+			}
 		}
-		c->state = UPSTREAM_STAT_UPLOADING;
-		INIT_LIST_HEAD(&c->clist);
-		list_add_tail(&c->clist, &transfer->cache_buf_lists.transactions);
-		transfer->cache_buf_lists.ntrans++;
-		total_tran[transfer_id] = transfer->cache_buf_lists.ntrans;
-		C2K_NOTE("new cache, t<%d>, trans<%d>, alloc_fail<%d>, upstream<%d,%d>\n",
-			 transfer_id,
-			 transfer->cache_buf_lists.ntrans,
-			 alloc_fail[transfer_id],
-			 upstream_data[transfer_id], upstream_cnt[transfer_id]);
-		ret = 0;
 	}
 
 	if (ret < 0) {
@@ -914,7 +918,7 @@ int rawbulk_start_transactions(int transfer_id, int nups, int ndowns, int upsz, 
 
 		c->buffer = (char *)__get_free_page(GFP_KERNEL);
 		/* c->buffer = kmalloc(upsz, GFP_KERNEL); */
-		if (!c) {
+		if (!c->buffer) {
 			rc = -ENOMEM;
 			kfree(c);
 			mutex_unlock(&transfer->modem_up_mutex);

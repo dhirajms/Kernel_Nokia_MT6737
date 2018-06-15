@@ -46,6 +46,7 @@
 #include <asm/irq.h>
 
 #include <mt-plat/mt_boot.h>
+#include <mt-plat/upmu_common.h>
 
 #include "mt_charging.h"
 #include "mt_battery_custom_data.h"
@@ -326,8 +327,7 @@ __attribute__ ((weak)) bool mt_is_power_sink(void) { return true; }
 bool upmu_is_chr_det(void)
 {
 #if defined(CONFIG_POWER_EXT)
-	/* return true; */
-	return bat_charger_get_detect_status();
+	return upmu_get_rgs_chrdet();
 #else
 	u32 tmp32;
 
@@ -447,13 +447,7 @@ static int usb_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
-#if defined(CONFIG_POWER_EXT)
-		/* #if 0 */
-		data->USB_ONLINE = 1;
 		val->intval = data->USB_ONLINE;
-#else
-		val->intval = data->USB_ONLINE;
-#endif
 		break;
 	default:
 		ret = -EINVAL;
@@ -1577,7 +1571,7 @@ static bool mt_battery_100Percent_tracking_check(void)
 
 		if (BMT_status.UI_SOC >= 99 && battery_meter_get_battery_current_sign()) {
 			BMT_status.UI_SOC = 99;
-			resetBatteryMeter = true;
+			resetBatteryMeter = false;
 
 			battery_log(BAT_LOG_FULL,
 				    "[Battery] mt_battery_100percent_tracking(), UI full first, keep (%d) \r\n",
@@ -1695,6 +1689,11 @@ static void mt_battery_Sync_UI_Percentage_to_Real(void)
 		}
 	}
 
+	if (BMT_status.bat_full != true && BMT_status.UI_SOC == 100 && battery_meter_get_battery_current_sign()) {
+		battery_log(BAT_LOG_CRTI, "[Sync_UI] keep UI_SOC at 99 due to battery not full yet.\r\n");
+		BMT_status.UI_SOC = 99;
+	}
+
 	if (BMT_status.UI_SOC <= 0) {
 		BMT_status.UI_SOC = 1;
 		battery_log(BAT_LOG_CRTI, "[Battery]UI_SOC get 0 first (%d)\r\n",
@@ -1765,6 +1764,8 @@ static void battery_update(struct battery_data *bat_data)
 	power_supply_changed(bat_psy);
 }
 
+#endif
+
 static void ac_update(struct ac_data *ac_data)
 {
 	static int ac_status = -1;
@@ -1815,8 +1816,6 @@ static void usb_update(struct usb_data *usb_data)
 		power_supply_changed(usb_psy);
 	}
 }
-
-#endif
 
 /* ///////////////////////////////////////////////////////////////////////////////////////// */
 /* // Battery Temprature Parameters and functions */
@@ -2501,9 +2500,11 @@ static void mt_battery_charger_detect_check(void)
 
 	} else {
 		if (BMT_status.charger_exist) {
+#ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
 			if (g_platform_boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT)
 				wake_lock(&battery_suspend_lock);
 			else
+#endif
 			wake_lock_timeout(&battery_suspend_lock, HZ / 2);
 		}
 		fg_first_detect = false;
@@ -2546,17 +2547,12 @@ static void mt_battery_charger_detect_check(void)
 
 static void mt_battery_update_status(void)
 {
-#if defined(CONFIG_POWER_EXT)
-	battery_log(BAT_LOG_CRTI, "[BATTERY] CONFIG_POWER_EXT, no update Android.\n");
-#else
-	{
-		if (battery_meter_initilized == true)
-			battery_update(&battery_main);
-
-		ac_update(&ac_main);
-		usb_update(&usb_main);
-	}
+#if !defined(CONFIG_POWER_EXT)
+	if (battery_meter_initilized == true)
+		battery_update(&battery_main);
 #endif
+	ac_update(&ac_main);
+	usb_update(&usb_main);
 }
 
 static void do_chrdet_int_task(void)
@@ -2572,15 +2568,16 @@ static void do_chrdet_int_task(void)
 #if defined(CONFIG_POWER_EXT)
 			bat_charger_type_detection();
 			mt_usb_connect();
-			battery_log(BAT_LOG_CRTI,
-				    "[do_chrdet_int_task] call mt_usb_connect() in EVB\n");
+			pr_notice("[do_chrdet_int_task] call mt_usb_connect() in EVB\n");
 #endif
 		} else {
 			pr_debug("[do_chrdet_int_task] charger NOT exist!\n");
 			if (BMT_status.charger_exist) {
+#ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
 				if (g_platform_boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT)
 					wake_lock(&battery_suspend_lock);
 				else
+#endif
 					wake_lock_timeout(&battery_suspend_lock, HZ / 2);
 			}
 			BMT_status.charger_exist = false;
@@ -2719,12 +2716,8 @@ int bat_thread_kthread(void *x)
 		if (chr_wake_up_bat == true) {	/* for charger plug in/ out */
 
 			if (g_bat.init_done)
-				battery_meter_reset(false);
+				battery_meter_reset_aging();
 			chr_wake_up_bat = false;
-
-			battery_log(BAT_LOG_CRTI,
-				    "[BATTERY] Charger plug in/out, Call battery_meter_reset. (%d)\n",
-				    BMT_status.UI_SOC);
 		}
 
 	}
@@ -2761,6 +2754,10 @@ static int bat_setup_charger_locked(void)
 {
 	int ret = -EAGAIN;
 
+#if defined(CONFIG_POWER_EXT)
+	g_bat.usb_connect_ready = true;
+#endif
+
 	if (g_bat.common_init_done && g_bat.charger && !g_bat.init_done) {
 
 		/* AP:
@@ -2791,13 +2788,15 @@ static int bat_setup_charger_locked(void)
 	}
 
 	/* if there is no external charger, we just enable detect irq */
-#if defined(CONFIG_POWER_EXT) && defined(NO_EXTERNAL_CHARGER)
-	ret = irq_set_irq_wake(g_bat.irq, true);
-	if (ret)
-		pr_err("%s: irq_set_irq_wake err = %d\n", __func__, ret);
+#if defined(CONFIG_POWER_EXT)
+	if (!g_bat.charger) {
+		ret = irq_set_irq_wake(g_bat.irq, true);
+		if (ret)
+			pr_err("%s: irq_set_irq_wake err = %d\n", __func__, ret);
 
-	enable_irq(g_bat.irq);
-	pr_warn("%s: no charger. just enable detect irq.\n", __func__);
+		enable_irq(g_bat.irq);
+		pr_warn("%s: no charger. just enable detect irq.\n", __func__);
+	}
 #endif
 
 	return ret;

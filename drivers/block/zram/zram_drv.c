@@ -192,8 +192,6 @@ static u32 insert_node_to_zram_tree(struct zram *zram, struct zram_meta *meta, u
 	struct rb_node *parent = NULL;
 	struct rb_node **new = NULL;
 	struct zram_table_entry *input_node;
-	struct rb_node *temp_node = NULL;
-	struct rb_node *check_parent = NULL;
 
 	input_node = &(meta->table[index]);
 	zsm_set_flag_index(meta, index, ZRAM_ZSM_NODE);
@@ -202,7 +200,9 @@ static u32 insert_node_to_zram_tree(struct zram *zram, struct zram_meta *meta, u
 	/* found node in zram_tree */
 	if (NULL != current_node) {
 		if (!zsm_test_flag(meta, current_node, ZRAM_RB_NODE)) {
-			pr_err("[ZRAM]ERROR !!found wrong rb node 0x%p\n", (void *)current_node);
+			pr_err("[ZRAM]ERROR !!found wrong rb node 0x%p flag %c\n"
+				, (void *)current_node
+				, current_node->flags);
 			BUG_ON(1);
 		}
 
@@ -240,14 +240,6 @@ static u32 insert_node_to_zram_tree(struct zram *zram, struct zram_meta *meta, u
 		zsm_set_flag_index(meta, index, ZRAM_RB_NODE);
 		rb_link_node(&(meta->table[index].node), parent, new);
 		rb_insert_color(&(meta->table[index].node), local_root_zram_tree);
-		check_parent = &(meta->table[index].node);
-		temp_node = rb_parent(check_parent);
-		if (temp_node != NULL) {
-			if ((temp_node->rb_right == NULL) && (temp_node->rb_left == NULL)) {
-				pr_err("[ZRAM]ERROR !!!RB_tree error !!!\n");
-				BUG_ON(1);
-			}
-		}
 	}
 	return 0;
 }
@@ -868,13 +860,13 @@ static int zram_decompress_page(struct zram *zram, char *mem, u32 index)
 
 	if (!handle || zram_test_flag(meta, index, ZRAM_ZERO)) {
 		bit_spin_unlock(ZRAM_ACCESS, &meta->table[index].value);
-		clear_page(mem);
+		memset(mem, 0, PAGE_SIZE);
 		return 0;
 	}
 
 	cmem = zs_map_object(meta->mem_pool, handle, ZS_MM_RO);
 	if (size == PAGE_SIZE)
-		copy_page(mem, cmem);
+		memcpy(mem, cmem, PAGE_SIZE);
 #ifndef CONFIG_MT_ENG_BUILD
 	else
 		ret = zcomp_decompress(zram->comp, cmem, size, mem);
@@ -1145,7 +1137,7 @@ static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
 
 	if ((clen == PAGE_SIZE) && !is_partial_io(bvec)) {
 		src = kmap_atomic(page);
-		copy_page(cmem, src);
+		memcpy(cmem, src, PAGE_SIZE);
 		kunmap_atomic(src);
 	} else {
 #ifdef CONFIG_MT_ENG_BUILD

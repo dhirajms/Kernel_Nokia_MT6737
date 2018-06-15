@@ -16,7 +16,7 @@
 #
 
 ifneq ($(CONFIG_MTK_FLASHLIGHT_USE_MODULE), y)
-#obj-y				+= kd_flashlightlist.o
+# obj-y				+= kd_flashlightlist.o
 obj-y				+= strobe_main_sid2_part2.o
 obj-y				+= strobe_sub_sid2_part1.o
 obj-y				+= strobe_sub_sid2_part2.o

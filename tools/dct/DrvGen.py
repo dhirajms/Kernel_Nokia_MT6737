@@ -1,4 +1,16 @@
 #! /usr/bin/python
+# -*- coding: utf-8 -*-
+
+# Copyright (C) 2016 MediaTek Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See http://www.gnu.org/licenses/gpl-2.0.html for more details.
 
 import os, sys
 import getopt
@@ -6,14 +18,20 @@ import traceback
 import subprocess
 import xml.dom.minidom
 
+sys.dont_write_bytecode = True
+
 sys.path.append('.')
 sys.path.append('..')
 
 from obj.ChipObj import ChipObj
 from obj.ChipObj import Everest
 from obj.ChipObj import Olympus
-from obj.ChipObj import KiboPlus
+from obj.ChipObj import MT6757_P25
 from obj.ChipObj import Rushmore
+from obj.ChipObj import Whitney
+from obj.ChipObj import MT6759
+from obj.ChipObj import MT6763
+from obj.ChipObj import MT6750S
 
 from utility.util import LogLevel
 from utility.util import log
@@ -114,15 +132,26 @@ if __name__ == '__main__':
         sys.exit(0)
 
     chipId = ChipObj.get_chipId(dws_path)
+    log(LogLevel.info, 'chip id: %s' %(chipId))
     chipObj = None
     if cmp(chipId, 'MT6797') == 0:
         chipObj = Everest(dws_path, gen_path)
     elif cmp(chipId, 'MT6757') == 0:
         chipObj = Olympus(dws_path, gen_path)
+    elif cmp(chipId, 'MT6757-P25') == 0:
+        chipObj = MT6757_P25(dws_path, gen_path)
     elif cmp(chipId, 'KIBOPLUS') == 0:
-        chipObj = KiboPlus(dws_path, gen_path)
+        chipObj = MT6757_P25(dws_path, gen_path)
     elif cmp(chipId, 'MT6570') == 0:
         chipObj = Rushmore(dws_path, gen_path)
+    elif cmp(chipId, 'MT6799') == 0:
+        chipObj = Whitney(dws_path, gen_path)
+    elif cmp(chipId, 'MT6763') == 0:
+        chipObj = MT6763(dws_path, gen_path)
+    elif cmp(chipId, 'MT6759') == 0:
+        chipObj = MT6759(dws_path, gen_path)
+    elif cmp(chipId, 'MT6750S') == 0:
+        chipObj = MT6750S(dws_path, gen_path)
     else:
         chipObj = ChipObj(dws_path, gen_path)
 
@@ -135,12 +164,4 @@ if __name__ == '__main__':
         sys.exit(-1)
 
     sys.exit(0)
-
-
-
-
-
-
-
-
 

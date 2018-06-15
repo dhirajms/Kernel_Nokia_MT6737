@@ -21,7 +21,7 @@
 
 static void mrdump_hw_enable(bool enabled)
 {
-#ifndef CONFIG_MTK_LASTPC_V2
+#if !defined(CONFIG_ARCH_MT6570) && !defined(CONFIG_ARCH_MT6757)
 	int res;
 	struct wd_api *wd_api = NULL;
 
@@ -44,7 +44,7 @@ static void mrdump_reboot(void)
 		while (1)
 			cpu_relax();
 	} else {
-		wd_api->wd_sw_reset(0);
+		wd_api->wd_sw_reset(1);
 	}
 }
 
@@ -55,5 +55,6 @@ const struct mrdump_platform mrdump_v1_platform = {
 
 int __init mrdump_init(void)
 {
+	mrdump_cblock_init();
 	return mrdump_platform_init(&mrdump_v1_platform);
 }

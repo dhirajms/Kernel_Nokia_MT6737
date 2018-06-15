@@ -157,6 +157,10 @@ int qmu_init_gpd_pool(struct device *dev)
 	dma_addr_t dma_handle;
 	u32 gpd_sz;
 
+	#ifdef MUSB_QMU_LIMIT_SUPPORT
+	for (i = 1; i <= MAX_QMU_EP; i++)
+		Rx_gpd_max_count[i] = Tx_gpd_max_count[i] = isoc_ep_gpd_count;
+	#else
 	if (!mtk_qmu_max_gpd_num)
 		mtk_qmu_max_gpd_num = DFT_MAX_GPD_NUM;
 
@@ -169,7 +173,7 @@ int qmu_init_gpd_pool(struct device *dev)
 		else
 			Rx_gpd_max_count[i] = Tx_gpd_max_count[i] = mtk_qmu_max_gpd_num;
 	}
-
+	#endif
 	gpd_sz = (u32) (u64) sizeof(TGPD);
 	QMU_INFO("sizeof(TGPD):%d\n", gpd_sz);
 	if (gpd_sz != GPD_SZ)
@@ -401,9 +405,11 @@ void mtk_qmu_enable(struct musb *musb, u8 ep_num, u8 isRx)
 		csr |= MUSB_RXCSR_DMAENAB;
 
 		/* check ISOC */
-		musb_ep = &musb->endpoints[ep_num].ep_out;
-		if (musb_ep->type == USB_ENDPOINT_XFER_ISOC)
-			csr |= MUSB_RXCSR_P_ISO;
+		if (!musb->is_host) {
+			musb_ep = &musb->endpoints[ep_num].ep_out;
+			if (musb_ep->type == USB_ENDPOINT_XFER_ISOC)
+				csr |= MUSB_RXCSR_P_ISO;
+		}
 		musb_writew(epio, MUSB_RXCSR, csr);
 
 		/* turn off intrRx */
@@ -467,9 +473,11 @@ void mtk_qmu_enable(struct musb *musb, u8 ep_num, u8 isRx)
 		csr |= MUSB_TXCSR_DMAENAB;
 
 		/* check ISOC */
-		musb_ep = &musb->endpoints[ep_num].ep_in;
-		if (musb_ep->type == USB_ENDPOINT_XFER_ISOC)
-			csr |= MUSB_TXCSR_P_ISO;
+		if (!musb->is_host) {
+			musb_ep = &musb->endpoints[ep_num].ep_in;
+			if (musb_ep->type == USB_ENDPOINT_XFER_ISOC)
+				csr |= MUSB_TXCSR_P_ISO;
+		}
 		musb_writew(epio, MUSB_TXCSR, csr);
 
 		/* turn off intrTx */
@@ -880,10 +888,10 @@ void flush_ep_csr(struct musb *musb, u8 ep_num, u8 isRx)
 		musb_writew(epio, MUSB_RXCSR, csr | MUSB_RXCSR_CLRDATATOG);
 	} else {
 		csr = musb_readw(epio, MUSB_TXCSR);
-		if (csr & MUSB_TXCSR_TXPKTRDY) {
-			wCsr = csr | MUSB_TXCSR_FLUSHFIFO | MUSB_TXCSR_TXPKTRDY;
-			musb_writew(epio, MUSB_TXCSR, wCsr);
-		}
+
+		/* force flush without checking MUSB_TXCSR_TXPKTRDY */
+		wCsr = csr | MUSB_TXCSR_FLUSHFIFO | MUSB_TXCSR_TXPKTRDY;
+		musb_writew(epio, MUSB_TXCSR, wCsr);
 
 		csr |= MUSB_TXCSR_FLUSHFIFO & ~MUSB_TXCSR_TXPKTRDY;
 		musb_writew(epio, MUSB_TXCSR, csr);
@@ -937,6 +945,7 @@ void h_qmu_done_rx(struct musb *musb, u8 ep_num)
 	urb = next_urb(qh);
 	if (unlikely(!urb)) {
 		DBG(0, "hw_ep:%d, !URB\n", ep_num);
+		musb_advance_schedule(musb, (struct urb *)QH_FREE_RESCUE_INTERRUPT, hw_ep, USB_DIR_IN);
 		return;
 	}
 	DBG(4, "\n");
@@ -1100,6 +1109,7 @@ void h_qmu_done_tx(struct musb *musb, u8 ep_num)
 	urb = next_urb(qh);
 	if (unlikely(!urb)) {
 		DBG(0, "hw_ep:%d, !URB\n", ep_num);
+		musb_advance_schedule(musb, (struct urb *)QH_FREE_RESCUE_INTERRUPT, hw_ep, USB_DIR_OUT);
 		return;
 	}
 
@@ -1190,7 +1200,7 @@ void mtk_qmu_host_rx_err(struct musb *musb, u8 epnum)
 	u16 rx_csr, val;
 	struct musb_hw_ep *hw_ep = musb->endpoints + epnum;
 	void __iomem *epio = hw_ep->regs;
-	struct musb_qh *qh = hw_ep->out_qh;
+	struct musb_qh *qh = hw_ep->in_qh;
 	bool done = false;
 	u32 status = 0;
 	void __iomem *mbase = musb->mregs;
@@ -1255,11 +1265,8 @@ void mtk_qmu_host_rx_err(struct musb *musb, u8 epnum)
 		done = true;
 	}
 
-	if (done) {
-		if (urb->status == -EINPROGRESS)
-			urb->status = status;
-		musb_advance_schedule(musb, urb, hw_ep, USB_DIR_IN);
-	}
+	if (done)
+		DBG(0, "FIXME!!!, to be implemented, related HW/SW abort procedure\n");
 
 finished:
 	{
@@ -1269,8 +1276,26 @@ finished:
 		sprintf(string, "USB20_HOST, RXQ<%d> ERR, CSR:%x", epnum, val);
 		QMU_ERR("%s\n", string);
 #ifdef CONFIG_MEDIATEK_SOLUTION
-		/* aee_kernel_warning(string, string); */
-		QMU_ERR("SKIP aee_kernel_warning\n");
+		{
+			u16 skip_val;
+
+			skip_val = val &
+				(MUSB_RXCSR_INCOMPRX
+				 |MUSB_RXCSR_DATAERROR
+				 |MUSB_RXCSR_PID_ERR);
+
+			/* filter specific value to prevent false alarm */
+			switch (val) {
+			case 0x2020:
+				val = 0;
+				QMU_ERR("force val to 0 for bypass AEE\n");
+				break;
+			default:
+				break;
+			}
+			if (val && !skip_val)
+				aee_kernel_warning(string, string);
+		}
 #endif
 	}
 }
@@ -1358,12 +1383,8 @@ void mtk_qmu_host_tx_err(struct musb *musb, u8 epnum)
 			status = urb->status;
 	}
 
-	if (done) {
-		/* set status */
-		urb->status = status;
-		urb->actual_length = qh->offset;
-		musb_advance_schedule(musb, urb, hw_ep, USB_DIR_OUT);
-	}
+	if (done)
+		DBG(0, "FIXME!!!, to be implemented, related HW/SW abort procedure\n");
 
 finished:
 	{
@@ -1373,8 +1394,7 @@ finished:
 		sprintf(string, "USB20_HOST, TXQ<%d> ERR, CSR:%x", epnum, val);
 		QMU_ERR("%s\n", string);
 #ifdef CONFIG_MEDIATEK_SOLUTION
-		/* aee_kernel_warning(string, string); */
-		QMU_ERR("SKIP aee_kernel_warning\n");
+		aee_kernel_warning(string, string);
 #endif
 	}
 

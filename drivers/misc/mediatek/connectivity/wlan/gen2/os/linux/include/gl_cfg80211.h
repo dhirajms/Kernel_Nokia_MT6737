@@ -225,6 +225,8 @@ int mtk_cfg80211_del_station(struct wiphy *wiphy, struct net_device *ndev, const
 
 int mtk_cfg80211_scan(struct wiphy *wiphy, struct cfg80211_scan_request *request);
 
+void mtk_cfg80211_abort_scan(struct wiphy *wiphy, struct wireless_dev *wdev);
+
 int mtk_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev, struct cfg80211_connect_params *sme);
 
 int mtk_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *ndev, u16 reason_code);
@@ -297,6 +299,9 @@ int mtk_p2p_cfg80211_testmode_sw_cmd(IN struct wiphy *wiphy, IN void *data, IN i
 int	mtk_cfg80211_suspend(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
 
 int mtk_cfg80211_resume(struct wiphy *wiphy);
+
+int mtk_cfg80211_update_ft_ies(struct wiphy *wiphy, struct net_device *dev,
+			       struct cfg80211_update_ft_ies_params *ftie);
 
 INT_32 mtk_cfg80211_process_str_cmd(P_GLUE_INFO_T prGlueInfo, PUINT_8 cmd, INT_32 len);
 

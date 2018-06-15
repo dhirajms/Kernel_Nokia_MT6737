@@ -573,6 +573,7 @@ struct _MSDU_INFO_T {
 	UINT_8 ucUserPriority;	/* QoS parameter, convert to TID */
 
 	/* For composing TX descriptor header */
+	UINT_8 ucDhcpArpFlag;	/* 1: DHCP|ARP Data */
 	UINT_8 ucTC;		/* Traffic Class: 0~4 (HIF TX0), 5 (HIF TX1) */
 	UINT_8 ucPacketType;	/* 0: Data, 1: Management Frame */
 	UINT_8 ucStaRecIndex;	/* STA_REC index */
@@ -638,6 +639,7 @@ struct _MSDU_INFO_T {
 	/* Compose TxDesc in tx_thread and place here */
 	UINT_8 aucTxDescBuffer[NIC_TX_DESC_AND_PADDING_LENGTH];
 #endif
+	PUINT_8	pucAllocFunc;
 };
 
 /*!A data structure which is identical with HW MAC TX DMA Descriptor */
@@ -1304,6 +1306,8 @@ VOID
 nicTxSetPktFixedRateOption(IN P_MSDU_INFO_T prMsduInfo,
 			   IN UINT_16 u2RateCode,
 			   IN UINT_8 ucBandwidth, IN BOOLEAN fgShortGI, IN BOOLEAN fgDynamicBwRts);
+
+VOID nicTxSetPktLowestFixedRate(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo);
 
 VOID nicTxSetPktMoreData(IN P_MSDU_INFO_T prCurrentMsduInfo, IN BOOLEAN fgSetMoreDataBit);
 

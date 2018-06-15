@@ -1,6 +1,17 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
 
+# Copyright (C) 2016 MediaTek Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+
 import os
 import re
 import string
@@ -33,6 +44,9 @@ class ClkObj(ModuleObj):
                 curNode = node.getElementsByTagName('current')
 
                 key = re.findall(r'\D+', node.nodeName)[0].upper() + self.__suffix + '%s' %(re.findall(r'\d+', node.nodeName)[0])
+
+                if key not in ModuleObj.get_data(self):
+	                continue;
 
                 data = ModuleObj.get_data(self)[key]
 
@@ -222,7 +236,9 @@ class ClkObj_Everest(ClkObj):
         gen_str += '''\n'''
 
         gen_str += '''&rf_clock_buffer_ctrl {\n'''
-        gen_str += '''\tmediatek,clkbuf-quantity = <%d>;\n''' %(ClkData._count)
+        gen_str += '''\tmediatek,clkbuf-quantity = <%d>;\n''' %(len(ModuleObj.get_data(self))-ClkData._count)
+        msg = 'rf clk buff count : %d' %(len(ModuleObj.get_data(self))-ClkData._count)
+        log(LogLevel.info, msg)
         gen_str += '''\tmediatek,clkbuf-config = <'''
 
         #sorted_list = sorted(ModuleObj.get_data(self).keys())
@@ -232,7 +248,7 @@ class ClkObj_Everest(ClkObj):
 
             if key.find(self.__rf) != -1:
                 gen_str += '''%d ''' %(ClkData._varList.index(value.get_varName()))
-        gen_str.rstrip()
+        gen_str = gen_str.rstrip()
         gen_str += '''>;\n'''
 
         gen_str += '''\tmediatek,clkbuf-driving-current = <'''

@@ -1167,8 +1167,10 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			ret = __irq_set_trigger(desc, irq,
 					new->flags & IRQF_TRIGGER_MASK);
 
-			if (ret)
+			if (ret) {
+				irq_release_resources(desc);
 				goto out_mask;
+			}
 		}
 
 		desc->istate &= ~(IRQS_AUTODETECT | IRQS_SPURIOUS_DISABLED | \
@@ -1614,6 +1616,19 @@ void disable_percpu_irq(unsigned int irq)
 	irq_put_desc_unlock(desc, flags);
 }
 EXPORT_SYMBOL_GPL(disable_percpu_irq);
+
+void _disable_percpu_irq(unsigned int irq, unsigned int cpu)
+{
+	unsigned long flags;
+	struct irq_desc *desc = irq_get_desc_lock(irq, &flags,
+					IRQ_GET_DESC_CHECK_PERCPU);
+	if (!desc)
+		return;
+
+	irq_percpu_disable(desc, cpu);
+	irq_put_desc_unlock(desc, flags);
+}
+EXPORT_SYMBOL_GPL(_disable_percpu_irq);
 
 /*
  * Internal function to unregister a percpu irqaction.

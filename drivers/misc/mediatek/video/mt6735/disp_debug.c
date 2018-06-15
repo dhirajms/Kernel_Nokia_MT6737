@@ -40,6 +40,7 @@
 #include "ddp_wdma_ex.h"
 #include "ddp_hal.h"
 #include "ddp_path.h"
+#include "ddp_color.h"
 #include "ddp_aal.h"
 #include "ddp_pwm.h"
 #include "ddp_info.h"
@@ -794,6 +795,19 @@ void ddp_process_dbg_opt(const char *opt)
 			pr_err("DISP/%s: errno %d\n", __func__, ret);
 		aal_dbg_en = (int)tmp;
 		sprintf(buf, "aal_dbg_en = 0x%x\n", aal_dbg_en);
+	}  else if (strncmp(opt, "color_dbg:", 10) == 0) {
+		char *p = (char *)opt + 10;
+		unsigned int debug_level;
+
+		ret = kstrtouint(p, 0, &debug_level);
+		if (ret) {
+			snprintf(buf, 50, "error to parse cmd %s\n", opt);
+			return;
+		}
+
+		disp_color_dbg_log_level(debug_level);
+
+		sprintf(buf, "color_dbg_en = 0x%x\n", debug_level);
 	} else if (0 == strncmp(opt, "aal_test:", 9)) {
 		aal_test(opt + 9, buf);
 	} else if (0 == strncmp(opt, "pwm_test:", 9)) {
@@ -897,11 +911,6 @@ void mtkfb_process_dbg_opt(const char *opt)
 			display_freeze_mode(1, 1);
 		else if (0 == strncmp(opt + 7, "off", 3))
 			display_freeze_mode(0, 1);
-	} else if (0 == strncmp(opt, "trigger", 7)) {
-		int i = 0;
-
-		for (i = 0; i < 1200; i++)
-			dpmgr_module_notify(DISP_MODULE_AAL, DISP_PATH_EVENT_TRIGGER);
 	} else if (0 == strncmp(opt, "diagnose", 8)) {
 		primary_display_diagnose();
 		return;
@@ -950,9 +959,6 @@ void mtkfb_process_dbg_opt(const char *opt)
 			pr_err("DISP/%s: errno %d\n", __func__, ret);
 
 		DSI_ChangeClk(DISP_MODULE_DSI0, (uint32_t)clk);
-	} else if (0 == strncmp(opt, "diagnose", 8)) {
-		primary_display_diagnose();
-		return;
 	} else if (0 == strncmp(opt, "switch:", 7)) {
 		char *p = (char *)opt + 7;
 		unsigned long int mode = 0;

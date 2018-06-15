@@ -46,6 +46,7 @@ typedef enum {
 extern unsigned int FB_LAYER;	/* default LCD layer */
 #define DISP_DEFAULT_UI_LAYER_ID (DDP_OVL_LAYER_MUN-1)
 #define DISP_CHANGED_UI_LAYER_ID (DDP_OVL_LAYER_MUN-2)
+#define DISP_GPIO_DTS
 
 extern unsigned int gEnableDSIStateCheck;
 extern unsigned int ext_session_id;
@@ -180,7 +181,7 @@ typedef struct {
 	void *va;
 	uint32_t fence_id;
 	uint32_t mva;
-	uint32_t size;
+	size_t size;
 	uint32_t output_fence_id;
 	uint32_t interface_fence_id;
 	unsigned long long timestamp;
@@ -310,6 +311,9 @@ uint32_t DISP_GetScreenWidth(void);
 uint32_t DISP_GetScreenHeight(void);
 uint32_t DISP_GetActiveHeight(void);
 uint32_t DISP_GetActiveWidth(void);
+uint32_t DISP_GetActiveHeightUm(void);
+uint32_t DISP_GetActiveWidthUm(void);
+uint32_t DISP_GetDensity(void);
 int disp_hal_allocate_framebuffer(phys_addr_t pa_start, phys_addr_t pa_end, unsigned long *va,
 				  unsigned long *mva);
 int primary_display_is_video_mode(void);
@@ -388,8 +392,8 @@ int init_ext_decouple_buffers(void);
 int deinit_ext_decouple_buffers(void);
 
 int primary_display_get_session_mode(void);
-int primary_display_get_init_status(void);
 int display_freeze_mode(int enable, int need_lock);
 #if defined(OVL_TIME_SHARING)
 int primary_display_disable_ovl2mem(void);
 #endif
+int primary_display_get_init_status(void);

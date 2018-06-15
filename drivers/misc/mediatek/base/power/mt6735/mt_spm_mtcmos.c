@@ -25,9 +25,6 @@
 
 #include "mt_spm_cpu.h"
 #include "hotplug.h"
-#ifdef CONFIG_MTK_FIQ_CACHE
-#include <mach/mt_secure_api.h>
-#endif
 
 /*
  * for CPU MTCMOS
@@ -93,9 +90,6 @@ int spm_mtcmos_ctrl_cpu(unsigned int cpu, int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu0(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -172,14 +166,9 @@ int spm_mtcmos_ctrl_cpu0(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA7_CPU0_PWR_CON,
 			  spm_read(SPM_CA7_CPU0_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 0, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA7_CPU0_PWR_CON,
 			  spm_read(SPM_CA7_CPU0_PWR_CON) | PWR_RST_B);
-#endif
+
 		spm_mtcmos_cpu_unlock(&flags);
 	}
 #endif
@@ -189,9 +178,6 @@ int spm_mtcmos_ctrl_cpu0(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu1(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -268,14 +254,8 @@ int spm_mtcmos_ctrl_cpu1(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA7_CPU1_PWR_CON,
 			  spm_read(SPM_CA7_CPU1_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 1, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA7_CPU1_PWR_CON,
 			  spm_read(SPM_CA7_CPU1_PWR_CON) | PWR_RST_B);
-#endif
 
 		spm_mtcmos_cpu_unlock(&flags);
 	}
@@ -286,9 +266,6 @@ int spm_mtcmos_ctrl_cpu1(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu2(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -365,14 +342,8 @@ int spm_mtcmos_ctrl_cpu2(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA7_CPU2_PWR_CON,
 			  spm_read(SPM_CA7_CPU2_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 2, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA7_CPU2_PWR_CON,
 			  spm_read(SPM_CA7_CPU2_PWR_CON) | PWR_RST_B);
-#endif
 
 		spm_mtcmos_cpu_unlock(&flags);
 	}
@@ -383,9 +354,6 @@ int spm_mtcmos_ctrl_cpu2(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu3(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -462,14 +430,9 @@ int spm_mtcmos_ctrl_cpu3(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA7_CPU3_PWR_CON,
 			  spm_read(SPM_CA7_CPU3_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 3, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA7_CPU3_PWR_CON,
 			  spm_read(SPM_CA7_CPU3_PWR_CON) | PWR_RST_B);
-#endif
+
 		spm_mtcmos_cpu_unlock(&flags);
 	}
 #endif
@@ -479,9 +442,6 @@ int spm_mtcmos_ctrl_cpu3(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu4(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -579,14 +539,9 @@ int spm_mtcmos_ctrl_cpu4(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA15_CPU0_PWR_CON,
 			  spm_read(SPM_CA15_CPU0_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 4, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA15_CPU0_PWR_CON,
 			  spm_read(SPM_CA15_CPU0_PWR_CON) | PWR_RST_B);
-#endif
+
 		spm_mtcmos_cpu_unlock(&flags);
 	}
 #endif
@@ -596,9 +551,6 @@ int spm_mtcmos_ctrl_cpu4(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu5(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -692,14 +644,8 @@ int spm_mtcmos_ctrl_cpu5(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA15_CPU1_PWR_CON,
 			  spm_read(SPM_CA15_CPU1_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 5, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA15_CPU1_PWR_CON,
 			  spm_read(SPM_CA15_CPU1_PWR_CON) | PWR_RST_B);
-#endif
 
 		spm_mtcmos_cpu_unlock(&flags);
 	}
@@ -710,9 +656,6 @@ int spm_mtcmos_ctrl_cpu5(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu6(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -806,14 +749,9 @@ int spm_mtcmos_ctrl_cpu6(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA15_CPU2_PWR_CON,
 			  spm_read(SPM_CA15_CPU2_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 6, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA15_CPU2_PWR_CON,
 			  spm_read(SPM_CA15_CPU2_PWR_CON) | PWR_RST_B);
-#endif
+
 		spm_mtcmos_cpu_unlock(&flags);
 	}
 #endif
@@ -823,9 +761,6 @@ int spm_mtcmos_ctrl_cpu6(int state, int chkWfiBeforePdn)
 int spm_mtcmos_ctrl_cpu7(int state, int chkWfiBeforePdn)
 {
 	unsigned long flags;
-#ifdef CONFIG_MTK_FIQ_CACHE
-	int err;
-#endif
 #ifndef CONFIG_MTK_FPGA
 	/* enable register control */
 	spm_write(SPM_POWERON_CONFIG_SET, (SPM_PROJECT_CODE << 16) | (1U << 0));
@@ -919,14 +854,9 @@ int spm_mtcmos_ctrl_cpu7(int state, int chkWfiBeforePdn)
 
 		spm_write(SPM_CA15_CPU3_PWR_CON,
 			  spm_read(SPM_CA15_CPU3_PWR_CON) & ~PWR_CLK_DIS);
-#ifdef CONFIG_MTK_FIQ_CACHE
-		do {
-			err = mt_secure_call(MTK_SIP_KERNEL_CPU_RST_B, 7, 0, 0);
-		} while (err);
-#else
 		spm_write(SPM_CA15_CPU3_PWR_CON,
 			  spm_read(SPM_CA15_CPU3_PWR_CON) | PWR_RST_B);
-#endif
+
 		spm_mtcmos_cpu_unlock(&flags);
 	}
 #endif

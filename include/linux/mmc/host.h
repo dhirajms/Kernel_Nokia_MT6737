@@ -16,6 +16,7 @@
 #include <linux/sched.h>
 #include <linux/device.h>
 #include <linux/fault-inject.h>
+#include <linux/blkdev.h>
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/card.h>
@@ -409,7 +410,8 @@ struct mmc_host {
 
 	unsigned long		state;
 	wait_queue_head_t	cmp_que;
-	struct mmc_request	*done_mrq;
+	wait_queue_head_t	cmdq_que;
+	struct mmc_request	*volatile done_mrq;
 	struct mmc_command	chk_cmd;
 	struct mmc_request	chk_mrq;
 	struct mmc_command	que_cmd;
@@ -459,6 +461,11 @@ struct mmc_host {
 	} embedded_sdio_data;
 #endif
 
+#ifdef CONFIG_BLOCK
+	int			latency_hist_enabled;
+	struct io_latency_state io_lat_s;
+#endif
+
 	unsigned long		private[0] ____cacheline_aligned;
 };
 
@@ -497,6 +504,9 @@ void mmc_request_done(struct mmc_host *, struct mmc_request *);
 void mmc_handle_queued_request(struct mmc_host *host);
 int mmc_blk_end_queued_req(struct mmc_host *host,
 	struct mmc_async_req *areq, int index, int status);
+/* add for reset emmc when error happen */
+extern int current_mmc_part_type;
+extern int emmc_resetting_when_cmdq;
 #endif
 
 static inline void mmc_signal_sdio_irq(struct mmc_host *host)

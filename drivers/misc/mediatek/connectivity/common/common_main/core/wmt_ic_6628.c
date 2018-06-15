@@ -1387,7 +1387,7 @@ static INT32 mt6628_set_sdio_driving(VOID)
 {
 	INT32 ret = 0;
 
-	ULONG addr;
+	ULONG addr = 0;
 	WMT_GEN_CONF *pWmtGenConf;
 	UINT32 drv_val = 0;
 
@@ -1516,8 +1516,12 @@ static INT32 mt6628_crystal_triming_set(VOID)
 			iCrystalTiming += cCrystalTimingOffset;
 		}
 		WMT_DBG_FUNC("iCrystalTiming (0x%x)\n", iCrystalTiming);
-		cCrystalTiming = iCrystalTiming > 0x7f ? 0x7f : iCrystalTiming;
-		cCrystalTiming = iCrystalTiming < 0 ? 0 : iCrystalTiming;
+		if (iCrystalTiming > 0x7f)
+			cCrystalTiming = 0x7f;
+		else if (iCrystalTiming < 0)
+			cCrystalTiming = 0;
+		else
+			cCrystalTiming = iCrystalTiming;
 		WMT_DBG_FUNC("cCrystalTiming (0x%x)\n", cCrystalTiming);
 		/* set_crystal_timing_script */
 		WMT_SET_CRYSTAL_TRIMING_CMD[5] = cCrystalTiming;
@@ -1647,6 +1651,11 @@ static INT32 mt6628_patch_dwn(UINT32 index)
 	/* remove patch header:
 	 * |<-patch body: X Bytes (X=patchSize)--->|
 	 */
+	if (patchSize < sizeof(WMT_PATCH)) {
+		WMT_ERR_FUNC("error patch size\n");
+		iRet = -1;
+		goto done;
+	}
 	patchSize -= sizeof(WMT_PATCH);
 	pbuf += sizeof(WMT_PATCH);
 	patchSizePerFrag = DEFAULT_PATCH_FRAG_SIZE;
@@ -1880,6 +1889,10 @@ static INT32 mt6628_patch_dwn(VOID)
 	/* remove patch header:
 	 * |<-patch body: X Bytes (X=patchSize)--->|
 	 */
+	if (patchSize < sizeof(WMT_PATCH)) {
+		WMT_ERR_FUNC("error patch size\n");
+		return -1;
+	}
 	patchSize -= sizeof(WMT_PATCH);
 	pbuf += sizeof(WMT_PATCH);
 	patchSizePerFrag = DEFAULT_PATCH_FRAG_SIZE;

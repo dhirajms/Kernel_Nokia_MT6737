@@ -33,13 +33,7 @@ typedef enum {
 	RTC_PWRON_LOGO,
 	RTC_32K_LESS,
 	RTC_LP_DET,
-	/*Begin:add for ScsiCmdAgent tool of FIH,johnny,2016/02/29*/
-	RTC_SPAR0_FIH_FTM,
-	RTC_SPAR0_FIH_META,
-	RTC_SPAR0_FIH_PRELOADER,
-    RTC_SPAR0_FIH_RAMTEST, /*sunjie +*/
-	/*End:add for ScsiCmdAgent tool of FIH,johnny,2016/02/29*/
-	RTC_VBAT,	/* jason add for rtc vbat*/
+	RTC_VBAT,
 	RTC_SPAR_NUM
 } rtc_spare_enum;
 

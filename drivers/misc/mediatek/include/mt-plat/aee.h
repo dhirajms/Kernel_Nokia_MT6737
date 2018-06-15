@@ -21,6 +21,7 @@
 #define AEE_MODULE_NAME_LENGTH 64
 #define AEE_PROCESS_NAME_LENGTH 256
 #define AEE_BACKTRACE_LENGTH 3072
+#define MODULES_INFO_BUF_SIZE 2048
 
 typedef enum {
 	AE_DEFECT_FATAL,
@@ -104,6 +105,9 @@ struct aee_user_thread_maps {
 };
 
 
+#ifdef CONFIG_MTK_RAM_CONSOLE
+extern void aee_rr_rec_hang_detect_timeout_count(unsigned int);
+#endif
 
 struct aee_oops {
 	struct list_head list;
@@ -267,6 +271,7 @@ void aee_kernel_RT_Monitor_api(int lParam);
 void mt_fiq_printf(const char *fmt, ...);
 void aee_register_api(struct aee_kernel_api *aee_api);
 int aee_in_nested_panic(void);
+void aee_save_excp_regs(struct pt_regs *regs);
 void aee_stop_nested_panic(struct pt_regs *regs);
 void aee_wdt_dump_info(void);
 void aee_wdt_printf(const char *fmt, ...);

@@ -126,11 +126,11 @@
  */
 #define DISPDBG(fmt, args...)                                          \
 	do {                                                           \
-		if (g_loglevel >= DEBUG_LEVEL)                          \
+		if (g_loglevel >= DEBUG_LEVEL)                         \
 			dprec_logger_pr(DPREC_LOGGER_DEBUG,            \
 					fmt, ##args);                  \
-		if ((g_mobilelog > 0) && (g_loglevel >= DEBUG_LEVEL))    \
-			pr_debug("[DISP]func|%s\n", __func__);         \
+		if ((g_mobilelog > 0) && (g_loglevel >= DEBUG_LEVEL))  \
+			pr_debug("[DISP]"fmt, ##args);                 \
 	} while (0)
 
 /*
@@ -233,7 +233,7 @@
 		snprintf(str, 199, "DISP:"fmt, ##args);                \
 		DISPERR(fmt, ##args);                                  \
 		aee_kernel_warning_api(__FILE__, __LINE__,             \
-			DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER | DB_OPT_DUMP_DISPLAY,  \
+			DB_OPT_DEFAULT | DB_OPT_MMPROFILE_BUFFER,      \
 			str, fmt, ##args);                             \
 		pr_err("[DISP]"fmt, ##args);                           \
 	} while (0)

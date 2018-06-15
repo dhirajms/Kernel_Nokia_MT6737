@@ -57,6 +57,9 @@ typedef enum _ENUM_IE_UPD_METHOD_T {
 	IE_UPD_METHOD_UPDATE_RANDOM,
 	IE_UPD_METHOD_UPDATE_ALL,
 	IE_UPD_METHOD_DELETE_ALL,
+#if CFG_SUPPORT_P2P_GO_OFFLOAD_PROBE_RSP
+	IE_UPD_METHOD_UPDATE_PROBE_RSP,
+#endif
 } ENUM_IE_UPD_METHOD_T, *P_ENUM_IE_UPD_METHOD_T;
 
 /*******************************************************************************
@@ -191,7 +194,7 @@ WLAN_STATUS nicSetUApsdParam(IN P_ADAPTER_T prAdapter,
 /* Calibration Control                                                        */
 /*----------------------------------------------------------------------------*/
 WLAN_STATUS nicUpdateTxPower(IN P_ADAPTER_T prAdapter, IN P_CMD_TX_PWR_T prTxPwrParam);
-#if CFG_SUPPORT_TX_BACKOFF
+#if CFG_SUPPORT_TX_POWER_BACK_OFF
 WLAN_STATUS nicUpdateTxPowerOffset(IN P_ADAPTER_T prAdapter,
 		IN P_CMD_MITIGATED_PWR_OFFSET_T prTxPwrOffsetParam);
 WLAN_STATUS nicTxPowerBackOff(IN P_ADAPTER_T prAdapter, IN UINT32 TxPowerBackOffParam);
@@ -226,7 +229,7 @@ WLAN_STATUS nicEnterCtiaMode(IN P_ADAPTER_T prAdapter, BOOLEAN fgEnterCtia, BOOL
 /*----------------------------------------------------------------------------*/
 /* Scan Result Processing                                                     */
 /*----------------------------------------------------------------------------*/
-VOID
+UINT_32
 nicAddScanResult(IN P_ADAPTER_T prAdapter,
 		 IN PARAM_MAC_ADDRESS rMacAddr,
 		 IN P_PARAM_SSID_T prSsid,
@@ -294,6 +297,10 @@ VOID nicUpdateLinkSpeed(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_INDEX_T e
 
 #if CFG_SUPPORT_RDD_TEST_MODE
 WLAN_STATUS nicUpdateRddTestMode(IN P_ADAPTER_T prAdapter, IN P_CMD_RDD_CH_T prRddChParam);
+#endif
+
+#if CFG_SUPPORT_SET_CAM_BY_PROC
+VOID nicForceSetCAM(BOOLEAN enabled);
 #endif
 
 #endif /* _NIC_H */

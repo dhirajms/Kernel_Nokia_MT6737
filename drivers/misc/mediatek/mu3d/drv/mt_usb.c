@@ -17,6 +17,9 @@
 #include <linux/usb/gadget.h>
 /*#include "mach/emi_mpu.h"*/
 
+#ifdef CONFIG_TCPC_CLASS
+#include "tcpm.h"
+#endif /* CONFIG_TCPC_CLASS */
 #include "mu3d_hal_osal.h"
 #include "musb_core.h"
 #if defined(CONFIG_MTK_UART_USB_SWITCH) || defined(CONFIG_MTK_SIB_USB_SWITCH)
@@ -226,7 +229,7 @@ static CHARGER_TYPE mu3d_hal_get_charger_type(void)
 {
 	CHARGER_TYPE chg_type;
 #ifdef BYPASS_PMIC_LINKAGE
-	DBG(0, "force on");
+	os_printk(K_INFO, "force on");
 	chg_type = STANDARD_HOST;
 #else
 	chg_type = mt_get_charger_type();
@@ -239,7 +242,7 @@ static bool mu3d_hal_is_vbus_exist(void)
 	bool vbus_exist;
 
 #ifdef BYPASS_PMIC_LINKAGE
-	DBG(0, "force on");
+	os_printk(K_INFO, "force on");
 	vbus_exist = true;
 #else
 #ifdef CONFIG_POWER_EXT
@@ -253,18 +256,64 @@ static bool mu3d_hal_is_vbus_exist(void)
 
 }
 
+static int mu3d_test_connect;
+static bool test_connected;
+static struct delayed_work mu3d_test_connect_work;
+#define TEST_CONNECT_BASE_MS 3000
+#define TEST_CONNECT_BIAS_MS 5000
+static void do_mu3d_test_connect_work(struct work_struct *work)
+{
+	static ktime_t ktime;
+	static unsigned long int ktime_us;
+	unsigned int delay_time_ms;
+
+	if (!mu3d_test_connect) {
+		test_connected = false;
+		os_printk(K_INFO, "%s, test done, trigger connect\n", __func__);
+		mt_usb_connect();
+		return;
+	}
+	mt_usb_connect();
+
+	ktime = ktime_get();
+	ktime_us = ktime_to_us(ktime);
+	delay_time_ms = TEST_CONNECT_BASE_MS + (ktime_us % TEST_CONNECT_BIAS_MS);
+	os_printk(K_INFO, "%s, work after %d ms\n", __func__, delay_time_ms);
+	schedule_delayed_work(&mu3d_test_connect_work, msecs_to_jiffies(delay_time_ms));
+
+	test_connected = !test_connected;
+}
+void mt_usb_connect_test(int start)
+{
+	static struct wake_lock device_test_wakelock;
+	static int wake_lock_inited;
+
+	if (!wake_lock_inited) {
+		os_printk(K_WARNIN, "%s wake_lock_init\n", __func__);
+		wake_lock_init(&device_test_wakelock, WAKE_LOCK_SUSPEND, "device.test.lock");
+		wake_lock_inited = 1;
+	}
+
+	if (start) {
+		wake_lock(&device_test_wakelock);
+		mu3d_test_connect = 1;
+		INIT_DELAYED_WORK(&mu3d_test_connect_work, do_mu3d_test_connect_work);
+		schedule_delayed_work(&mu3d_test_connect_work, 0);
+	} else {
+		mu3d_test_connect = 0;
+		wake_unlock(&device_test_wakelock);
+	}
+}
+
 bool usb_cable_connected(void)
 {
 	CHARGER_TYPE chg_type = CHARGER_UNKNOWN;
 	bool connected = false, vbus_exist = false;
 
-#ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
-	if (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT
-			|| get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
-		os_printk(K_INFO, "%s, in KPOC, force USB on\n", __func__);
-		return true;
+	if (mu3d_test_connect) {
+		os_printk(K_INFO, "%s, return test_connected<%d>\n", __func__, test_connected);
+		return test_connected;
 	}
-#endif
 
 	if (mu3d_force_on) {
 		/* FORCE USB ON */
@@ -404,12 +453,22 @@ ssize_t musb_cmode_store(struct device *dev, struct device_attribute *attr,
 {
 	unsigned int cmode;
 	struct musb *musb;
+#ifdef CONFIG_TCPC_CLASS
+	struct tcpc_device *tcpc;
+#endif /* CONFIG_TCPC_CLASS */
 
 	if (!dev) {
 		os_printk(K_ERR, "dev is null!!\n");
 		return count;
 	}
 
+#ifdef CONFIG_TCPC_CLASS
+	tcpc = tcpc_dev_get_by_name("type_c_port0");
+	if (!tcpc) {
+		pr_err("%s get tcpc device type_c_port0 fail\n", __func__);
+		return -ENODEV;
+	}
+#endif /* CONFIG_TCPC_CLASS */
 	musb = dev_to_musb(dev);
 
 	if (1 == sscanf(buf, "%ud", &cmode)) {
@@ -458,7 +517,11 @@ ssize_t musb_cmode_store(struct device *dev, struct device_attribute *attr,
 #ifdef CONFIG_USB_MTK_DUALMODE
 			if (cmode == CABLE_MODE_CHRG_ONLY) {
 #ifdef CONFIG_USB_C_SWITCH
+#ifdef CONFIG_TCPC_CLASS
+				tcpm_typec_change_role(tcpc, TYPEC_ROLE_SNK);
+#else
 				;
+#endif /* CONFIG_TCPC_CLASS */
 #else
 				/* mask ID pin interrupt even if A-cable is not plugged in */
 				switch_int_to_host_and_mask();
@@ -467,7 +530,11 @@ ssize_t musb_cmode_store(struct device *dev, struct device_attribute *attr,
 #endif
 			} else {
 #ifdef CONFIG_USB_C_SWITCH
+#ifdef CONFIG_TCPC_CLASS
+				tcpm_typec_change_role(tcpc, TYPEC_ROLE_DRP);
+#else
 				;
+#endif /* CONFIG_TCPC_CLASS */
 #else
 				switch_int_to_host();	/* resotre ID pin interrupt */
 #endif

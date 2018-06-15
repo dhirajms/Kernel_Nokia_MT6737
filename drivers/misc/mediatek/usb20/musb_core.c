@@ -116,6 +116,17 @@
 struct device_node *dts_np;
 #endif
 
+static void (*usb_hal_disconnect_check_fptr)(void);
+void usb_hal_disconnect_check(void)
+{
+	if (usb_hal_disconnect_check_fptr)
+		usb_hal_disconnect_check_fptr();
+}
+void register_usb_hal_disconnect_check(void (*function)(void))
+{
+	usb_hal_disconnect_check_fptr = function;
+}
+
 int musb_connect_legacy = 1;
 int musb_is_shutting = 0;
 int musb_fake_disc = 0;
@@ -936,6 +947,8 @@ static irqreturn_t musb_stage0_irq(struct musb *musb, u8 int_usb, u8 devctl)
 	if (int_usb & MUSB_INTR_SUSPEND) {
 		DBG(0, "SUSPEND (%s) devctl %02x\n", otg_state_string(musb->xceiv->state), devctl);
 		handled = IRQ_HANDLED;
+
+		usb_hal_disconnect_check();
 
 		switch (musb->xceiv->state) {
 		case OTG_STATE_A_PERIPHERAL:
@@ -2408,14 +2421,10 @@ static int musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl
 	if (status < 0)
 		goto fail3;
 
-	status = musb_init_debugfs(musb);
-	if (status < 0)
-		goto fail4;
-
 #ifdef CONFIG_SYSFS
 	status = sysfs_create_group(&musb->controller->kobj, &musb_attr_group);
 	if (status)
-		goto fail5;
+		goto fail4;
 #endif
 
 	pm_runtime_put(musb->controller);
@@ -2423,12 +2432,9 @@ static int musb_init_controller(struct device *dev, int nIrq, void __iomem *ctrl
 	return 0;
 
 #ifdef CONFIG_SYSFS
-fail5:
-	musb_exit_debugfs(musb);
-#endif
-
 fail4:
 	musb_gadget_cleanup(musb);
+#endif
 
 fail3:
 	pm_runtime_put_sync(musb->controller);
@@ -2520,7 +2526,6 @@ static int musb_remove(struct platform_device *pdev)
 	 */
 	DBG(0, "musb_removed to 1\n");
 	musb_removed = 1;
-	musb_exit_debugfs(musb);
 	musb_shutdown(pdev);
 
 	musb_free(musb);
@@ -2717,6 +2722,8 @@ static void __exit musb_cleanup(void)
 }
 module_exit(musb_cleanup);
 
+static int usb_test_wakelock_inited;
+static struct wake_lock usb_test_wakelock;
 static int option;
 static int set_option(const char *val, const struct kernel_param *kp)
 {
@@ -2737,10 +2744,17 @@ static int set_option(const char *val, const struct kernel_param *kp)
 
 	switch (local_option) {
 	case 0:
-		DBG(0, "case %d\n", local_option);
+		DBG(0, "wake_lock usb_test_wakelock\n");
+		if (!usb_test_wakelock_inited) {
+			DBG(0, "%s wake_lock_init\n", __func__);
+			wake_lock_init(&usb_test_wakelock, WAKE_LOCK_SUSPEND, "usb.test.lock");
+			usb_test_wakelock_inited = 1;
+		}
+		wake_lock(&usb_test_wakelock);
 		break;
 	case 1:
-		DBG(0, "case %d\n", local_option);
+		DBG(0, "wake_unlock usb_test_wakelock\n");
+		wake_unlock(&usb_test_wakelock);
 		break;
 	default:
 		break;

@@ -416,6 +416,50 @@ bool mt_usb_is_device(void)
 	return !mtk_musb->is_host;
 }
 
+static struct delayed_work disconnect_check_work;
+static bool musb_hal_is_vbus_exist(void);
+void do_disconnect_check_work(struct work_struct *data)
+{
+	bool vbus_exist = false;
+	unsigned long flags = 0;
+	struct musb *musb = mtk_musb;
+
+	msleep(200);
+
+	vbus_exist = musb_hal_is_vbus_exist();
+	DBG(1, "vbus_exist:<%d>\n", vbus_exist);
+	if (vbus_exist)
+		return;
+
+	spin_lock_irqsave(&mtk_musb->lock, flags);
+	DBG(1, "speed <%d>\n", musb->g.speed);
+	/* notify gadget driver, g.speed judge is very important */
+	if (!musb->is_host && musb->g.speed != USB_SPEED_UNKNOWN) {
+		DBG(0, "musb->gadget_driver:%p\n", musb->gadget_driver);
+		if (musb->gadget_driver && musb->gadget_driver->disconnect) {
+			DBG(0, "musb->gadget_driver->disconnect:%p\n", musb->gadget_driver->disconnect);
+			/* align musb_g_disconnect */
+			spin_unlock(&musb->lock);
+			musb->gadget_driver->disconnect(&musb->g);
+			spin_lock(&musb->lock);
+
+		}
+		musb->g.speed = USB_SPEED_UNKNOWN;
+	}
+	DBG(1, "speed <%d>\n", musb->g.speed);
+	spin_unlock_irqrestore(&mtk_musb->lock, flags);
+}
+void trigger_disconnect_check_work(void)
+{
+	static int inited;
+
+	if (!inited) {
+		INIT_DELAYED_WORK(&disconnect_check_work, do_disconnect_check_work);
+		inited = 1;
+	}
+	queue_delayed_work(mtk_musb->st_wq, &disconnect_check_work, 0);
+}
+
 #define CONN_WORK_DELAY 50
 static struct delayed_work connection_work;
 void do_connection_work(struct work_struct *data)
@@ -450,22 +494,19 @@ void do_connection_work(struct work_struct *data)
 	/* be aware this could not be used in non-sleep context */
 	usb_in = usb_cable_connected();
 
-	spin_lock_irqsave(&mtk_musb->lock, flags);
-
 	if (mtk_musb->is_host) {
 		DBG(0, "is host, return\n");
-		spin_unlock_irqrestore(&mtk_musb->lock, flags);
 		return;
 	}
 
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 	if (usb_phy_check_in_uart_mode()) {
 		DBG(0, "in uart mode, return\n");
-		spin_unlock_irqrestore(&mtk_musb->lock, flags);
 		return;
 	}
 #endif
 
+	spin_lock_irqsave(&mtk_musb->lock, flags);
 	if (!mtk_musb->power && (usb_in == true)) {
 		/* enable usb */
 		if (!wake_lock_active(&mtk_musb->usb_lock)) {
@@ -560,6 +601,55 @@ static bool musb_hal_is_vbus_exist(void)
 
 }
 
+static int usb20_test_connect;
+static bool test_connected;
+static struct delayed_work usb20_test_connect_work;
+#define TEST_CONNECT_BASE_MS 3000
+#define TEST_CONNECT_BIAS_MS 5000
+static void do_usb20_test_connect_work(struct work_struct *work)
+{
+	static ktime_t ktime;
+	static unsigned long int ktime_us;
+	unsigned int delay_time_ms;
+
+	if (!usb20_test_connect) {
+		test_connected = false;
+		DBG(0, "%s, test done, trigger connect\n", __func__);
+		mt_usb_connect();
+		return;
+	}
+	mt_usb_connect();
+
+	ktime = ktime_get();
+	ktime_us = ktime_to_us(ktime);
+	delay_time_ms = TEST_CONNECT_BASE_MS + (ktime_us % TEST_CONNECT_BIAS_MS);
+	DBG(0, "%s, work after %d ms\n", __func__, delay_time_ms);
+	schedule_delayed_work(&usb20_test_connect_work, msecs_to_jiffies(delay_time_ms));
+
+	test_connected = !test_connected;
+}
+void mt_usb_connect_test(int start)
+{
+	static struct wake_lock device_test_wakelock;
+	static int wake_lock_inited;
+
+	if (!wake_lock_inited) {
+		DBG(0, "%s wake_lock_init\n", __func__);
+		wake_lock_init(&device_test_wakelock, WAKE_LOCK_SUSPEND, "device.test.lock");
+		wake_lock_inited = 1;
+	}
+
+	if (start) {
+		wake_lock(&device_test_wakelock);
+		usb20_test_connect = 1;
+		INIT_DELAYED_WORK(&usb20_test_connect_work, do_usb20_test_connect_work);
+		schedule_delayed_work(&usb20_test_connect_work, 0);
+	} else {
+		usb20_test_connect = 0;
+		wake_unlock(&device_test_wakelock);
+	}
+}
+
 DEFINE_MUTEX(cable_connected_lock);
 /* be aware this could not be used in non-sleep context */
 bool usb_cable_connected(void)
@@ -567,6 +657,11 @@ bool usb_cable_connected(void)
 	CHARGER_TYPE chg_type = CHARGER_UNKNOWN;
 	bool connected = false, vbus_exist = false;
 	int delay_time;
+
+	if (usb20_test_connect) {
+		DBG(0, "%s, return test_connected<%d>\n", __func__, test_connected);
+		return test_connected;
+	}
 
 	mutex_lock(&cable_connected_lock);
 	/* FORCE USB ON case */
@@ -621,6 +716,14 @@ void musb_platform_reset(struct musb *musb)
 {
 	u16 swrst = 0;
 	void __iomem *mbase = musb->mregs;
+	u8 bit;
+
+	/* clear all DMA enable bit */
+	for (bit = 0; bit < MUSB_HSDMA_CHANNELS; bit++)
+		musb_writew(mbase, MUSB_HSDMA_CHANNEL_OFFSET(bit, MUSB_HSDMA_CONTROL), 0);
+
+	/* set DMA channel 0 burst mode to boost QMU speed */
+	musb_writel(musb->mregs, 0x204, musb_readl(musb->mregs, 0x204) | 0x600);
 
 	swrst = musb_readw(mbase, MUSB_SWRST);
 	swrst |= (MUSB_SWRST_DISUSBRESET | MUSB_SWRST_SWRST);
@@ -658,7 +761,7 @@ void musb_sync_with_bat(struct musb *musb, int usb_state)
 #ifdef CONFIG_MTK_SMART_BATTERY
 	BATTERY_SetUSBState(usb_state);
 
-//sometimes value of SOC is 50%.
+// sometimes value of SOC is 50%.
 	//wake_up_bat();
 	wake_up_bat3();
 //end.50%
@@ -925,7 +1028,7 @@ static ssize_t mt_usb_store_portmode(struct device *dev, struct device_attribute
 		DBG(0, "dev is null!!\n");
 		return count;
 	/* } else if (1 == sscanf(buf, "%d", &portmode)) { */
-	} else if (kstrtol(buf, 10, (long *)&portmode) == 0) {
+	} else if (kstrtouint(buf, 10, &portmode) == 0) {
 		DBG(0, "\nUSB Port mode: current => %d (port_mode), change to => %d (portmode)\n",
 		    port_mode, portmode);
 		if (portmode >= PORT_MODE_MAX)
@@ -1160,7 +1263,7 @@ static int add_usb_i2c_driver(void)
 }
 #endif				/* End of FPGA_PLATFORM */
 
-static int mt_usb_init(struct musb *musb)
+static int __init mt_usb_init(struct musb *musb)
 {
 #ifndef CONFIG_MTK_LEGACY
 	int ret;
@@ -1418,6 +1521,8 @@ static int mt_usb_dts_probe(struct platform_device *pdev)
 {
 	int retval = 0;
 
+	register_usb_hal_disconnect_check(trigger_disconnect_check_work);
+
 	/* enable uart log */
 	musb_uart_debug = 1;
 
@@ -1528,4 +1633,42 @@ static void __exit usb20_exit(void)
 	platform_driver_unregister(&mt_usb_driver);
 	platform_driver_unregister(&mt_usb_dts_driver);
 }
-module_exit(usb20_exit)
+module_exit(usb20_exit);
+
+static int option;
+static int set_option(const char *val, const struct kernel_param *kp)
+{
+	int local_option;
+	int rv;
+
+	/* update module parameter */
+	rv = param_set_int(val, kp);
+	if (rv)
+		return rv;
+
+	/* update local_option */
+	rv = kstrtoint(val, 10, &local_option);
+	if (rv != 0)
+		return rv;
+
+	DBG(0, "option:%d, local_option:%d\n", option, local_option);
+
+	switch (local_option) {
+	case 0:
+		DBG(0, "case %d\n", local_option);
+		mt_usb_connect_test(1);
+		break;
+	case 1:
+		DBG(0, "case %d\n", local_option);
+		mt_usb_connect_test(0);
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
+static struct kernel_param_ops option_param_ops = {
+	.set = set_option,
+	.get = param_get_int,
+};
+module_param_cb(option, &option_param_ops, &option, 0644);

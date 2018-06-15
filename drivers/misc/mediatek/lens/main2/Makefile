@@ -20,36 +20,13 @@ ARCH_MTK_PROJECT := $(subst ",,$(CONFIG_ARCH_MTK_PROJECT))
 
 MTK_CUSTOM_PATH  := $(srctree)/drivers/misc/mediatek
 
-ifneq ($(CONFIG_ARM64), y)
-# For arm32, mach folder
-MTK_PLATFORM_PATH_ROOT := $(srctree)/arch/arm/mach-$(MTK_PLATFORM)
-MTK_PROJECT_PATH_ROOT := $(srctree)/arch/arm/mach-$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
-  ifneq ($(filter y,$(CONFIG_ARCH_MT6752) $(CONFIG_ARCH_MT6732) $(CONFIG_ARCH_MT6595) $(CONFIG_ARCH_MT6795) $(CONFIG_ARCH_MT6735) $(CONFIG_ARCH_MT6735M) $(CONFIG_ARCH_MT6753) $(CONFIG_ARCH_MT6580)),)
-    # For armv8 32bit
-    MTK_PLATFORM_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)
-    MTK_PROJECT_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
-  endif
-else
-# For arm64, no mach-xxx folder
-MTK_PLATFORM_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)
-MTK_PROJECT_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
-endif
-
-
 
 subdir-ccflags-y += -I$(MTK_CUSTOM_PATH)/lens/main2/inc
-subdir-ccflags-$(CONFIG_MTK_LENS_LC898212XDAF_SUPPORT) += -I$(MTK_CUSTOM_PATH)/lens/main2/common/lc898212xdaf_f/inc
+subdir-ccflags-y += -I$(MTK_CUSTOM_PATH)/lens/main2/common/lc898212xdaf_f/inc
 
-ifeq ($(CONFIG_MTK_LENS_USE_MODULE), y)
+obj-$(CONFIG_MTK_LENS)    += main2af.o
 
-MAIN2_CFILES += main2_lens.c
-
-obj-m := main2af.o
-main2af-objs := $(MAIN2_CFILES:.c=.o)
-
-else
-
-obj-y      += main2_lens.o
-obj-$(CONFIG_MTK_LENS_LC898212XDAF_SUPPORT)  += common/lc898212xdaf_f/
-
-endif
+main2af-y  += main2_lens.o
+main2af-y  += common/lc898212xdaf_f/LC898212XDAF_F.o
+main2af-y  += common/lc898212xdaf_f/LC89821x_STMV.o
+main2af-y  += common/ak7371af/AK7371AF.o

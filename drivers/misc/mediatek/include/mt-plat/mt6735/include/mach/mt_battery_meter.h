@@ -34,6 +34,7 @@
 	|| defined(CONFIG_MTK_BQ24261_SUPPORT)
 #define SWCHR_POWER_PATH
 #define EXTERNAL_SWCHR_SUPPORT
+#define DISABLE_RFG_EXIST_CHECK
 #endif
 
 /* ADC resistor  */
@@ -111,13 +112,8 @@
 #define SHUTDOWN_SYSTEM_VOLTAGE		3400
 #define CHARGE_TRACKING_TIME		60
 #define DISCHARGE_TRACKING_TIME		10
-//[ALPS03167162] GM2.0 patch.
-#define SHUTDOWN_GAUGE0_VOLTAGE		3400
 
 #define RECHARGE_TOLERANCE		10
-//[ALPS03167162] GM2.0 patch.
-#define BAT_FULL_CHK_THR		85
-
 /* SW Fuel Gauge */
 #define MAX_HWOCV			5
 #define MAX_VBAT			90
@@ -155,7 +151,6 @@
 #define FG_BAT_INT
 #define IS_BATTERY_REMOVE_BY_PMIC
 
-
 #elif defined(CONFIG_ARCH_MT6735M)
 /* ============================================================
 // define
@@ -175,6 +170,7 @@
 	|| defined(CONFIG_MTK_BQ24261_SUPPORT)
 #define SWCHR_POWER_PATH
 #define EXTERNAL_SWCHR_SUPPORT
+#define DISABLE_RFG_EXIST_CHECK
 #endif
 
 /* ADC resistor  */
@@ -192,7 +188,7 @@
 #define FG_METER_RESISTANCE 0
 
 /* Qmax for battery  */
-//these should change,when ZCV battery come.
+// these should change,when ZCV of NE1's battery come.
 #define Q_MAX_POS_50 2568
 #define Q_MAX_POS_25 2554
 #define Q_MAX_POS_0	1780
@@ -214,7 +210,7 @@
 #else
 #define CUST_TRACKING_POINT  1
 #endif
-//modify project Rsense = 56mR.
+//modify for project Rsense = 56mR.
 #define CUST_R_SENSE 56
 #define CUST_HW_CC 0
 #define AGING_TUNING_VALUE 103
@@ -223,7 +219,6 @@
 #define OCV_BOARD_COMPESATE	0 /*mV */
 #define R_FG_BOARD_BASE 1000
 #define R_FG_BOARD_SLOPE 1000 /*slope*/
-//need hardware tune.waiting...
 #define CAR_TUNE_VALUE 101 /*1.00*/
 
 
@@ -236,7 +231,7 @@
 /* fg 2.0 */
 #define DIFFERENCE_HWOCV_RTC		65	/*30 ->65*/
 #define DIFFERENCE_HWOCV_SWOCV		10
-#define DIFFERENCE_SWOCV_RTC		50	/*10 -> 50*/
+#define DIFFERENCE_SWOCV_RTC		10
 #define MAX_SWOCV			1	/*5 -> 1*/
 
 #define DIFFERENCE_VOLTAGE_UPDATE	20
@@ -261,7 +256,7 @@
 
 #define RECHARGE_TOLERANCE		10
 //[ALPS03167162] GM2.0 patch.
-#define BAT_FULL_CHK_THR		85
+#define BAT_FULL_CHK_THR		60
 
 /* SW Fuel Gauge */
 #define MAX_HWOCV			5
@@ -284,11 +279,11 @@
 #endif
 
 /* Dynamic change wake up period of battery thread when suspend*/
-#define VBAT_NORMAL_WAKEUP		3600		//3.6V
-#define VBAT_LOW_POWER_WAKEUP		3500		//3.5v
-#define NORMAL_WAKEUP_PERIOD		5400 		//90 * 60 = 90 min
-#define LOW_POWER_WAKEUP_PERIOD		300		//5 * 60 = 5 min
-#define CLOSE_POWEROFF_WAKEUP_PERIOD	30	//30 s
+#define VBAT_NORMAL_WAKEUP		3600
+#define VBAT_LOW_POWER_WAKEUP		3500
+#define NORMAL_WAKEUP_PERIOD		5400
+#define LOW_POWER_WAKEUP_PERIOD		300
+#define CLOSE_POWEROFF_WAKEUP_PERIOD	30
 
 #define INIT_SOC_BY_SW_SOC
 /*
@@ -308,9 +303,9 @@
 #define NTC_MIN_TEMP        (-30)   //-30
 #define NO_NTC_TEMP         (-128)
 
-//add maby need second battery.
+//add for maby need second battery.
 #define MTK_MULTI_BAT_PROFILE_SUPPORT
-//BAT_ID
+// BAT_ID
 #define BATTERY_ID_CHECK
 #define MTK_GET_BATTERY_ID_BY_AUXADC
 //#define TOTAL_BATTERY_NUMBER	1
@@ -334,6 +329,7 @@
 	|| defined(CONFIG_MTK_BQ24261_SUPPORT)
 #define SWCHR_POWER_PATH
 #define EXTERNAL_SWCHR_SUPPORT
+#define DISABLE_RFG_EXIST_CHECK
 #endif
 
 /* ADC resistor  */
@@ -411,13 +407,8 @@
 #define SHUTDOWN_SYSTEM_VOLTAGE		3400
 #define CHARGE_TRACKING_TIME		60
 #define DISCHARGE_TRACKING_TIME		10
-//[ALPS03167162] GM2.0 patch.
-#define SHUTDOWN_GAUGE0_VOLTAGE		3400
 
 #define RECHARGE_TOLERANCE		10
-//[ALPS03167162] GM2.0 patch.
-#define BAT_FULL_CHK_THR		85
-
 /* SW Fuel Gauge */
 #define MAX_HWOCV			5
 #define MAX_VBAT			90

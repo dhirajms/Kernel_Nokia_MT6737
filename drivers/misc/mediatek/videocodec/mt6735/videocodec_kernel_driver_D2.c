@@ -52,7 +52,6 @@
 #include <asm/io.h>
 #include <asm/sizes.h>
 #include "val_types_private.h"
-#include "hal_types_private.h"
 #include "val_api_private.h"
 #include "val_log.h"
 #include "drv_api.h"
@@ -1372,13 +1371,13 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 			}
 			if (rTempTID.u4VCodecThreadNum > VCODEC_THREAD_MAX_NUM) {
 				MODULE_MFV_LOGE
-					("[ERROR] rTempTID.u4VCodecThreadNum(%d) > VCODEC_THREAD_MAX_NUM(%d)\n",
-					rTempTID.u4VCodecThreadNum, VCODEC_THREAD_MAX_NUM);
+				    ("[ERROR] rTempTID.u4VCodecThreadNum(%d) > VCODEC_THREAD_MAX_NUM(%d)\n",
+				    rTempTID.u4VCodecThreadNum, VCODEC_THREAD_MAX_NUM);
 				return -EFAULT;
 			}
 			if (rTempTID.u4VCodecThreadNum < 0) {
 				MODULE_MFV_LOGE("[ERROR] rTempTID.u4VCodecThreadNum(%d) < 0\n",
-					rTempTID.u4VCodecThreadNum);
+				    rTempTID.u4VCodecThreadNum);
 				return -EFAULT;
 			}
 
@@ -1407,6 +1406,11 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 				MODULE_MFV_LOGE
 				    ("[ERROR] VCODEC_ALLOC_NON_CACHE_BUFFER, copy_from_user failed: %lu\n",
 				     ret);
+				return -EFAULT;
+			}
+
+			if (rTempMem.u4MemSize == 0) {
+				MODULE_MFV_LOGE("[ERROR] Not allow to allocate zero MemSize\n");
 				return -EFAULT;
 			}
 
@@ -1948,7 +1952,7 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 			if (ret) {
 				MODULE_MFV_LOGE
 				    ("[ERROR] VCODEC_INITHWLOCK, copy_from_user failed: %lu\n",
-				     ret);
+				    ret);
 				return -EFAULT;
 			}
 
@@ -1976,9 +1980,7 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 			} else
 #endif
 			{
-				context->Oal_HW_mem_reg =
-				    (VAL_UINT32_T *) (((VAL_VCODEC_OAL_HW_REGISTER_T *)
-						       user_data_addr)->pHWStatus);
+				context->Oal_HW_mem_reg = (VAL_UINT32_T *)hwoal_reg.pHWStatus;
 			}
 
 			if (hwoal_reg.u4NumOfRegister != 0) {
@@ -2011,12 +2013,19 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 			if (hwoal_reg.pHWStatus != NULL &&
 				hwoal_reg.u4NumOfRegister >= 0 &&
 				hwoal_reg.u4NumOfRegister <= OALMEM_STATUS_NUM) {
+#if IS_ENABLED(CONFIG_COMPAT)
 				memcpy(&oal_mem_status[0], hwoal_reg.pHWStatus,
-						hwoal_reg.u4NumOfRegister *
-						sizeof(VAL_VCODEC_OAL_MEM_STAUTS_T));
+					hwoal_reg.u4NumOfRegister *
+					sizeof(VAL_VCODEC_OAL_MEM_STAUTS_T));
+#else
+				ret = copy_from_user
+					(&oal_mem_status[0], hwoal_reg.pHWStatus,
+					hwoal_reg.u4NumOfRegister *
+					sizeof(VAL_VCODEC_OAL_MEM_STAUTS_T));
+#endif
 				context->u4NumOfRegister = hwoal_reg.u4NumOfRegister;
 				MODULE_MFV_LOGW("[VCODEC_INITHWLOCK] ToTal %d u4NumOfRegister\n",
-					 hwoal_reg.u4NumOfRegister);
+						hwoal_reg.u4NumOfRegister);
 			} else {
 				MODULE_MFV_LOGE
 				    ("[ERROR] Check pHWStatus or u4NumOfRegister(%u)\n",
@@ -2101,7 +2110,7 @@ static long vcodec_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
 	case VCODEC_GET_CPU_LOADING_INFO:
 		{
 			VAL_UINT8_T *user_data_addr;
-			VAL_VCODEC_CPU_LOADING_INFO_T _temp = {0};
+			VAL_VCODEC_CPU_LOADING_INFO_T _temp;
 
 			MODULE_MFV_LOGD("VCODEC_GET_CPU_LOADING_INFO +\n");
 			user_data_addr = (VAL_UINT8_T *) arg;
@@ -2723,7 +2732,7 @@ static long vcodec_unlocked_compat_ioctl(struct file *file, unsigned int cmd, un
 
 			pHWStatus32 = (COMPAT_VAL_VCODEC_OAL_MEM_STAUTS_T *)data->pHWStatus;
 			u4NumOfRegister = (VAL_UINT32_T)data->u4NumOfRegister;
-			pHWStatus = (VAL_VCODEC_OAL_MEM_STAUTS_T *)(data + sizeof(VAL_VCODEC_OAL_HW_REGISTER_T));
+			pHWStatus = (VAL_VCODEC_OAL_MEM_STAUTS_T *)(data + 1);
 
 
 			for (i = 0; i < u4NumOfRegister; i++) {

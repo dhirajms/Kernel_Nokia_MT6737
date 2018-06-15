@@ -3,6 +3,7 @@ config ARM
 	default y
 	select ARCH_BINFMT_ELF_RANDOMIZE_PIE
 	select ARCH_HAS_ATOMIC64_DEC_IF_POSITIVE
+	select ARCH_HAS_KCOV
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_HAVE_CUSTOM_GPIO_H
 	select ARCH_MIGHT_HAVE_PC_PARPORT
@@ -30,6 +31,7 @@ config ARM
 	select HAVE_ARCH_AUDITSYSCALL if (AEABI && !OABI_COMPAT)
 	select HAVE_ARCH_JUMP_LABEL if !XIP_KERNEL
 	select HAVE_ARCH_KGDB
+	select HAVE_ARCH_HARDENED_USERCOPY
 	select HAVE_ARCH_MMAP_RND_BITS if MMU
 	select HAVE_ARCH_SECCOMP_FILTER if (AEABI && !OABI_COMPAT)
 	select HAVE_ARCH_TRACEHOOK
@@ -818,6 +820,7 @@ config ARCH_MT6735
 	select IRQ_DOMAIN_DEBUG
 	select GENERIC_SCHED_CLOCK
 	select VFP_OPT
+	select ARCH_REQUIRE_GPIOLIB
 	select MTK_SYSTRACKER
 	select MTK_SYS_CIRQ
 	select MTK_EIC
@@ -852,6 +855,7 @@ config ARCH_MT6735M
 	select IRQ_DOMAIN_DEBUG
 	select GENERIC_SCHED_CLOCK
 	select VFP_OPT
+	select ARCH_REQUIRE_GPIOLIB
 	select MTK_SYSTRACKER
 	select MTK_SYS_CIRQ
 	select MTK_EIC
@@ -890,6 +894,7 @@ config ARCH_MT6753
 	select IRQ_DOMAIN_DEBUG
 	select GENERIC_SCHED_CLOCK
 	select VFP_OPT
+	select ARCH_REQUIRE_GPIOLIB
 	select MTK_SYSTRACKER
 	select MTK_SYS_CIRQ
 	select MTK_EIC
@@ -971,6 +976,7 @@ config ARCH_MT6570
 	select IRQ_DOMAIN_DEBUG
 	select GENERIC_SCHED_CLOCK
 	select VFP_OPT
+	select ARCH_REQUIRE_GPIOLIB
 	select KERNEL_MODE_NEON
 	select CRYPTO_AES_ARM_BS
 	select CRYPTO_SHA2_ARM_CE
@@ -984,6 +990,9 @@ config ARCH_MT6570
 	select MTK_IRQ_NEW_DESIGN
 	select MTK_IRQ_NEW_DESIGN_DEBUG
 	select MTK_NO_ATF
+	select MTK_POWER_GS
+	select MTK_SYS_CIRQ
+	select MTK_DRAMC
 	help
 	  This enable support for MediaTek MT6570.
 
@@ -1643,6 +1652,13 @@ config ARM_ERRATA_824069
 	  to the same address, then this erratum might cause
 	  a clean cache line to be incorrectly marked as dirty.
 
+config ARM_ERRATA_855872
+	bool "Cortex-A53: 855872: A Store-Exclusive instruction might pass when it should fail"
+	help
+	  This option adds a DMB to before each LDAXR and LDXR to avoid conditions
+	  of erratum 855872 on Cortex-A53 parts up to r0p4.
+	  Because of this erratum, the processor which acquires lock might pass when it should
+	  fail.
 endmenu
 
 source "arch/arm/common/Kconfig"
@@ -2076,6 +2092,21 @@ config HIGHPTE
 	bool "Allocate 2nd-level pagetables from highmem"
 	depends on HIGHMEM
 
+config CPU_SW_DOMAIN_PAN
+	bool "Enable use of CPU domains to implement privileged no-access"
+	depends on MMU && !ARM_LPAE
+	default y
+	help
+	  Increase kernel security by ensuring that normal kernel accesses
+	  are unable to access userspace addresses.  This can help prevent
+	  use-after-free bugs becoming an exploitable privilege escalation
+	  by ensuring that magic values (such as LIST_POISON) will always
+	  fault when dereferenced.
+
+	  CPUs with low-vector mappings use a best-efforts implementation.
+	  Their lower 1MB needs to remain accessible for the vectors, but
+	  the remainder of userspace will become appropriately inaccessible.
+
 config HW_PERF_EVENTS
 	bool "Enable hardware performance counter support for perf events"
 	depends on PERF_EVENTS
@@ -2233,6 +2264,22 @@ config BUILD_ARM_APPENDED_DTB_IMAGE_NAMES
 	help
 	  Space separated list of names of dtbs to append when
 	  building a concatenated zImage-dtb.
+
+config BUILD_ARM_DTB_OVERLAY_IMAGE
+	bool "Build a device tree overlay image"
+	depends on OF
+	help
+	  Enabling this option will casue overlay device tree
+	  to be built by default.
+	  Overlay DT contains device-specific configurations.
+	  Please be aware that bootloader supports DT merging.
+
+config BUILD_ARM_DTB_OVERLAY_IMAGE_NAMES
+	string "Default dtb overlay names"
+	depends on BUILD_ARM_DTB_OVERLAY_IMAGE
+	help
+	  Space separated list of names of dtbs to append when
+	  building a concatenated overlay image
 
 # Compressed boot loader in ROM.  Yes, we really want to ask about
 # TEXT and BSS so we preserve their values in the config files.

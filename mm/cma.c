@@ -202,7 +202,8 @@ int __init cma_init_reserved_mem(phys_addr_t base, phys_addr_t size,
 		return -EINVAL;
 
 	/* ensure minimal alignment requied by mm core */
-	alignment = PAGE_SIZE << max(MAX_ORDER - 1, pageblock_order);
+	alignment = PAGE_SIZE <<
+			max_t(unsigned long, MAX_ORDER - 1, pageblock_order);
 
 	/* alignment should be aligned with order_per_bit */
 	if (!IS_ALIGNED(alignment >> PAGE_SHIFT, 1 << order_per_bit))
@@ -284,8 +285,8 @@ int __init cma_declare_contiguous(phys_addr_t base,
 	 * migratetype page by page allocator's buddy algorithm. In the case,
 	 * you couldn't get a contiguous memory, which is not what we want.
 	 */
-	alignment = max(alignment,
-		(phys_addr_t)PAGE_SIZE << max(MAX_ORDER - 1, pageblock_order));
+	alignment = max(alignment,  (phys_addr_t)PAGE_SIZE <<
+			  max_t(unsigned long, MAX_ORDER - 1, pageblock_order));
 	base = ALIGN(base, alignment);
 	size = ALIGN(size, alignment);
 	limit &= ~(alignment - 1);
@@ -389,7 +390,7 @@ int cma_alloc_range_ok(struct cma *cma, int count, int align)
  * This function allocates part of contiguous memory on specific
  * contiguous memory area.
  */
-struct page *cma_alloc(struct cma *cma, int count, unsigned int align)
+struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 {
 	unsigned long mask, pfn, start = 0;
 	unsigned long bitmap_maxno, bitmap_no, bitmap_count;
@@ -399,7 +400,7 @@ struct page *cma_alloc(struct cma *cma, int count, unsigned int align)
 	if (!cma || !cma->count)
 		return NULL;
 
-	pr_debug("%s(cma %p, count %d, align %d)\n", __func__, (void *)cma,
+	pr_debug("%s(cma %p, count %zu, align %d)\n", __func__, (void *)cma,
 		 count, align);
 
 	if (!count)
@@ -542,7 +543,15 @@ struct page *cma_alloc_large(struct cma *cma, int count, unsigned int align)
 	struct zone *zone;
 	unsigned long wmark_low = 0;
 	struct zone *zones = NODE_DATA(numa_node_id())->node_zones;
-	int retries = 0;
+	int retries = 0, org_swappiness;
+
+	/*
+	 * We are going to make lots of free spaces. Pages swap out during
+	 * the process might be freed soon. Temporary set swappiness to 0 to
+	 * reduce this waste and accelerate freeing.
+	 */
+	org_swappiness = vm_swappiness;
+	vm_swappiness = 0;
 
 	for_each_zone(zone)
 		if (zone != &zones[ZONE_MOVABLE])
@@ -566,10 +575,11 @@ struct page *cma_alloc_large(struct cma *cma, int count, unsigned int align)
 	for (retries = 0; retries < 3; retries++) {
 		page = cma_alloc(cma, count, align);
 		if (page)
-			return page;
+			break;
 	}
 
-	return 0;
+	vm_swappiness = org_swappiness;
+	return page;
 }
 
 static int cma_usage_show(struct seq_file *m, void *v)

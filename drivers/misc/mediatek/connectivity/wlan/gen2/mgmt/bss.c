@@ -165,6 +165,8 @@ bssCreateStaRecFromBssDesc(IN P_ADAPTER_T prAdapter,
 	prStaRec->u2BSSBasicRateSet = prBssDesc->u2BSSBasicRateSet;
 
 	prStaRec->ucPhyTypeSet = prBssDesc->ucPhyTypeSet;
+
+	prStaRec->ucRCPI = prBssDesc->ucRCPI;
 	if (IS_STA_IN_AIS(prStaRec)) {
 		if (!((prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_ENABLED) ||
 		      (prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_KEY_ABSENT) ||
@@ -886,6 +888,13 @@ WLAN_STATUS bssUpdateBeaconContent(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYP
 			txBcnIETable[i].pfnAppendIE(prAdapter, prBcnMsduInfo);
 	}
 
+#if CFG_SUPPORT_P2P_ECSA
+	if (eNetTypeIndex == NETWORK_TYPE_P2P_INDEX && prBssInfo->fgChanSwitching) {
+		/* append CSA/ECSA IE */
+		rlmGenerateCSAIE(prAdapter, prBcnMsduInfo);
+		rlmGenerateECSAIE(prAdapter, prBcnMsduInfo);
+	}
+#endif
 	prBcnFrame = (P_WLAN_BEACON_FRAME_T) prBcnMsduInfo->prPacket;
 
 	return nicUpdateBeaconIETemplate(prAdapter,
@@ -1908,10 +1917,13 @@ VOID bssInitForAP(IN P_ADAPTER_T prAdapter, IN P_BSS_INFO_T prBssInfo, IN BOOLEA
 		prBssInfo->fgIsShortPreambleAllowed = FALSE;
 		prBssInfo->fgUseShortPreamble = FALSE;
 	}
+	DBGLOG(BSS, TRACE, "BasicPhyType :%d, prBssInfo->u2CapInfo=0x%x !\n"
+		, prBssInfo->ucNonHTBasicPhyType
+		, prBssInfo->u2CapInfo);
 
 	/* 4 <3.2> Setup Capability - Short Slot Time */
 	prBssInfo->fgUseShortSlotTime = TRUE;
-
+#if CFG_SET_BCN_CAPINFO_BY_DRIVER
 	prBssInfo->u2CapInfo = CAP_INFO_ESS;
 
 	if (prBssInfo->fgIsProtection)
@@ -1922,7 +1934,7 @@ VOID bssInitForAP(IN P_ADAPTER_T prAdapter, IN P_BSS_INFO_T prBssInfo, IN BOOLEA
 
 	if (prBssInfo->fgUseShortSlotTime)
 		prBssInfo->u2CapInfo |= CAP_INFO_SHORT_SLOT_TIME;
-
+#endif
 	/* 4 <4> Use lowest basic rate for default TX rate of MMPDU */
 	rateGetLowestRateIndexFromRateSet(prBssInfo->u2BSSBasicRateSet, &ucLowestBasicRateIndex);
 	prBssInfo->ucHwDefaultFixedRateCode = aucRateIndex2RateCode[PREAMBLE_DEFAULT_LONG_NONE][ucLowestBasicRateIndex];

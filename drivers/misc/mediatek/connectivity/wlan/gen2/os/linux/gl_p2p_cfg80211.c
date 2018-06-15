@@ -555,6 +555,9 @@ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev, struc
 
 		prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
 
+		/* switch netif on */
+		netif_carrier_on(dev);
+
 		mtk_p2p_cfg80211_set_channel(wiphy, &settings->chandef);
 
 		prP2pBcnUpdateMsg = (P_MSG_P2P_BEACON_UPDATE_T) cnmMemAlloc(prGlueInfo->prAdapter,
@@ -617,7 +620,7 @@ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev, struc
 
 		COPY_SSID(prP2pStartAPMsg->aucSsid, prP2pStartAPMsg->u2SsidLen, settings->ssid, settings->ssid_len);
 
-		prP2pStartAPMsg->eHiddenSsidType = settings->hidden_ssid;
+		prP2pStartAPMsg->ucHiddenSsidType = settings->hidden_ssid;
 
 		prP2pStartAPMsg->fgIsPrivacy = settings->privacy;
 
@@ -689,7 +692,15 @@ int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev, 
 
 			prP2pBcnUpdateMsg->pucBcnBody = NULL;
 		}
-
+#if CFG_SUPPORT_P2P_GO_OFFLOAD_PROBE_RSP
+		if (beacon->proberesp_ies) {
+			prP2pBcnUpdateMsg->pucProbeRsp = kalMemAlloc(beacon->proberesp_ies_len, VIR_MEM_TYPE);
+			if (!prP2pBcnUpdateMsg->pucProbeRsp)
+				return -ENOMEM;
+			prP2pBcnUpdateMsg->u4ProbeRsp_len = beacon->proberesp_ies_len;
+			kalMemCopy(prP2pBcnUpdateMsg->pucProbeRsp, beacon->proberesp_ies, beacon->proberesp_ies_len);
+		}
+#endif
 		mboxSendMsg(prGlueInfo->prAdapter, MBOX_ID_0, (P_MSG_HDR_T) prP2pBcnUpdateMsg, MSG_SEND_METHOD_BUF);
 
 		i4Rslt = 0;
@@ -798,7 +809,7 @@ int mtk_p2p_cfg80211_remain_on_channel(struct wiphy *wiphy,
 			break;
 		}
 
-		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_remain_on_channel\n");
+		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_remain_on_channel\n, cookie: 0x%llx\n", *cookie);
 
 		prChnlReqMsg->rMsgHdr.eMsgId = MID_MNY_P2P_CHNL_REQ;
 		prChnlReqMsg->u8Cookie = *cookie;
@@ -866,7 +877,7 @@ int mtk_p2p_cfg80211_cancel_remain_on_channel(struct wiphy *wiphy,
 			break;
 		}
 
-		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_cancel_remain_on_channel\n");
+		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_cancel_remain_on_channel\n, cookie: 0x%llx\n", cookie);
 
 		prMsgChnlAbort->rMsgHdr.eMsgId = MID_MNY_P2P_CHNL_ABORT;
 		prMsgChnlAbort->u8Cookie = cookie;
@@ -949,7 +960,7 @@ int mtk_p2p_cfg80211_mgmt_tx(struct wiphy *wiphy,
 			break;
 		}
 
-		prMsgTxReq->u8Cookie = *cookie;
+		prMgmtFrame->u8Cookie = *cookie;
 		prMsgTxReq->rMsgHdr.eMsgId = MID_MNY_P2P_MGMT_TX;
 
 		pucFrameBuf = (PUINT_8) ((ULONG) prMgmtFrame->prPacket + MAC_TX_RESERVED_FIELD);
@@ -1004,7 +1015,8 @@ int mtk_p2p_cfg80211_change_bss(struct wiphy *wiphy, struct net_device *dev, str
 
 	prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
 
-	DBGLOG(P2P, INFO, "--> %s()\n", __func__);
+	DBGLOG(P2P, INFO, "--> %s() CTS:%d,ShortPramble:%d\n"
+		, __func__, params->use_cts_prot, params->use_short_preamble);
 
 	switch (params->use_cts_prot) {
 	case -1:
@@ -1067,8 +1079,6 @@ int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, co
 		if (mac == NULL)
 			mac = aucBcMac;
 
-		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_del_station.\n");
-
 		prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
 
 		/* prDisconnectMsg = (P_MSG_P2P_CONNECTION_ABORT_T)kalMemAlloc(sizeof(MSG_P2P_CONNECTION_ABORT_T),
@@ -1085,8 +1095,14 @@ int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, co
 
 		prDisconnectMsg->rMsgHdr.eMsgId = MID_MNY_P2P_CONNECTION_ABORT;
 		COPY_MAC_ADDR(prDisconnectMsg->aucTargetID, mac);
+#if CFG_TC10_FEATURE
+		prDisconnectMsg->u2ReasonCode = REASON_CODE_DEAUTH_LEAVING_BSS;
+#else
 		prDisconnectMsg->u2ReasonCode = REASON_CODE_UNSPECIFIED;
+#endif
 		prDisconnectMsg->fgSendDeauth = TRUE;
+
+		DBGLOG(P2P, INFO, "mtk_p2p_cfg80211_del_station ReasonCode = %d\n", prDisconnectMsg->u2ReasonCode);
 
 		mboxSendMsg(prGlueInfo->prAdapter, MBOX_ID_0, (P_MSG_HDR_T) prDisconnectMsg, MSG_SEND_METHOD_BUF);
 
@@ -1448,6 +1464,13 @@ int mtk_p2p_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev
 		i4Status = mtk_p2p_cfg80211_testmode_get_best_channel(wiphy, data, len);
 		break;
 #endif
+	case TESTMODE_CMD_ID_STR_CMD:
+		i4Status = mtk_cfg80211_process_str_cmd(prGlueInfo, (PUINT_8)(prParams + 1),
+				len - sizeof(*prParams));
+		break;
+	case TESTMODE_CMD_ID_HS_CONFIG:
+		i4Status = mtk_p2p_cfg80211_testmode_hotspot_config_cmd(wiphy, data, len);
+		break;
 	default:
 		i4Status = -EINVAL;
 		break;
@@ -1456,6 +1479,41 @@ int mtk_p2p_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev
 	DBGLOG(P2P, TRACE, "prParams->index=%d, status=%d\n", prParams->index, i4Status);
 
 	return i4Status;
+}
+
+int mtk_p2p_cfg80211_testmode_hotspot_config_cmd(IN struct wiphy *wiphy, IN void *data, IN int len)
+{
+	P_GLUE_INFO_T prGlueInfo = NULL;
+	struct NL80211_DRIVER_HOTSPOT_CONFIG_PARAMS *prParams = (struct NL80211_DRIVER_HOTSPOT_CONFIG_PARAMS *) NULL;
+	UINT_32 index;
+	UINT_32 value;
+
+	ASSERT(wiphy);
+
+	prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
+
+	if (data && len) {
+		prParams = (struct NL80211_DRIVER_HOTSPOT_CONFIG_PARAMS *) data;
+	} else {
+		DBGLOG(P2P, ERROR, "data is NULL or len is 0\n");
+		return -EINVAL;
+	}
+
+	index = prParams->idx;
+	value = prParams->value;
+
+	DBGLOG(P2P, INFO, "NL80211_ATTR_TESTDATA, idx=%d value=%d\n",
+			    (UINT_32) prParams->idx, (UINT_32) prParams->value);
+
+	switch (index) {
+	case 1:		/* Max Clients */
+		kalP2PSetMaxClients(prGlueInfo, value);
+		break;
+	default:
+		break;
+	}
+
+	return 0;
 }
 
 int mtk_p2p_cfg80211_testmode_p2p_sigma_pre_cmd(IN struct wiphy *wiphy, IN void *data, IN int len)
@@ -1562,6 +1620,15 @@ int mtk_p2p_cfg80211_testmode_p2p_sigma_cmd(IN struct wiphy *wiphy, IN void *dat
 	INT_32 value;
 	int status = 0;
 	UINT_32 u4Leng;
+	struct NL80211_DRIVER_P2P_NOA_PARAMS {
+		NL80211_DRIVER_TEST_PARAMS hdr;
+		UINT_32 idx;
+		UINT_32 value; /* should not be used in this case */
+		UINT_32 count;
+		UINT_32 interval;
+		UINT_32 duration;
+	};
+	struct NL80211_DRIVER_P2P_NOA_PARAMS *prNoaParams = NULL;
 
 	ASSERT(wiphy);
 
@@ -1591,9 +1658,17 @@ int mtk_p2p_cfg80211_testmode_p2p_sigma_cmd(IN struct wiphy *wiphy, IN void *dat
 	case 1:		/* P2p mode */
 		break;
 	case 4:		/* Noa duration */
-		prP2pSpecificBssInfo->rNoaParam.u4NoaDurationMs = value;
+		prNoaParams = data;
+		prP2pSpecificBssInfo->rNoaParam.u4NoaCount = prNoaParams->count;
+		prP2pSpecificBssInfo->rNoaParam.u4NoaIntervalMs = prNoaParams->interval;
+		prP2pSpecificBssInfo->rNoaParam.u4NoaDurationMs = prNoaParams->duration;
+		DBGLOG(P2P, INFO, "SET NOA: %d %d %d\n",
+		       prNoaParams->count, prNoaParams->interval, prNoaParams->duration);
+
 		/* only to apply setting when setting NOA count */
-		/* status = mtk_p2p_wext_set_noa_param(prDev, info, wrqu, (char *)&prP2pSpecificBssInfo->rNoaParam); */
+		kalIoctl(prGlueInfo, wlanoidSetNoaParam, &prP2pSpecificBssInfo->rNoaParam,
+			 sizeof(PARAM_CUSTOM_NOA_PARAM_STRUCT_T),
+			 FALSE, FALSE, TRUE, TRUE, &u4Leng);
 		break;
 	case 5:		/* Noa interval */
 		prP2pSpecificBssInfo->rNoaParam.u4NoaIntervalMs = value;
@@ -1629,7 +1704,11 @@ int mtk_p2p_cfg80211_testmode_p2p_sigma_cmd(IN struct wiphy *wiphy, IN void *dat
 		break;
 	case 107:		/* P2P set opps, CTWindowl */
 		prP2pSpecificBssInfo->rOppPsParam.u4CTwindowMs = value;
-		/* status = mtk_p2p_wext_set_oppps_param(prDev,info,wrqu,(char *)&prP2pSpecificBssInfo->rOppPsParam); */
+
+		DBGLOG(P2P, INFO, "SET OPPS: %d\n", value);
+		kalIoctl(prGlueInfo, wlanoidSetOppPsParam, &prP2pSpecificBssInfo->rOppPsParam,
+			 sizeof(PARAM_CUSTOM_OPPPS_PARAM_STRUCT_T),
+			 FALSE, FALSE, TRUE, TRUE, &u4Leng);
 		break;
 	case 108:		/* p2p_set_power_save */
 		kalIoctl(prGlueInfo,
@@ -1810,7 +1889,7 @@ int mtk_p2p_cfg80211_testmode_get_best_channel(IN struct wiphy *wiphy, IN void *
 	RF_CHANNEL_INFO_T aucChannelList[MAX_2G_BAND_CHN_NUM];
 	UINT_8 ucNumOfChannel, i, ucIdx;
 	UINT_16 u2APNumScore = 0, u2UpThreshold = 0, u2LowThreshold = 0, ucInnerIdx = 0;
-	UINT_32 u4BufLen, u4LteSafeChnBitMask_2G = 0;
+	UINT_32 u4BufLen, u4LteSafeChnBitMask_2G = 0x7FFE;
 	UINT_32 u4AcsChnReport[5];
 
 	P_PARAM_GET_CHN_INFO prGetChnLoad, prQueryLteChn;
@@ -1919,6 +1998,11 @@ int mtk_p2p_cfg80211_testmode_get_best_channel(IN struct wiphy *wiphy, IN void *
 
 		kalMemFree(prQueryLteChn, VIR_MEM_TYPE, sizeof(PARAM_GET_CHN_INFO));
 	}
+
+#if CFG_TC10_FEATURE
+	/* Restrict 2.4G band channel selection range to 1~11 per customer's request */
+	u4LteSafeChnBitMask_2G &= 0x0FFE;
+#endif
 
 	/* 4. Find out the best channel, skip LTE unsafe channels */
 	for (i = 0; i < ucNumOfChannel; i++) {

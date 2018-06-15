@@ -90,7 +90,6 @@ typedef enum _ENUM_SPIN_LOCK_CATEGORY_E {
 	SPIN_LOCK_TX_SEQ_NUM,
 	SPIN_LOCK_TX_COUNT,
 	SPIN_LOCK_TXS_COUNT,
-	/* end    */
 	SPIN_LOCK_TX,
 	SPIN_LOCK_IO_REQ,
 	SPIN_LOCK_INT,
@@ -106,6 +105,10 @@ typedef enum _ENUM_SPIN_LOCK_CATEGORY_E {
 
 	SPIN_LOCK_EHPI_BUS,	/* only for EHPI */
 	SPIN_LOCK_NET_DEV,
+
+#if CFG_SUPPORT_MULTITHREAD
+	SPIN_LOCK_RX_DATA_QUE,
+#endif
 	SPIN_LOCK_NUM
 } ENUM_SPIN_LOCK_CATEGORY_E;
 
@@ -156,6 +159,12 @@ typedef enum _ENUM_KAL_MEM_ALLOCATION_TYPE_E {
 	VIR_MEM_TYPE,		/* virtually continuous */
 	MEM_TYPE_NUM
 } ENUM_KAL_MEM_ALLOCATION_TYPE;
+
+enum ENUM_BUILD_VARIANT_E {
+	MTK_BUILD_VAR_ENG = 1,		/*eng load*/
+	MTK_BUILD_VAR_USERDEUB = 2,	/*userdebug load*/
+	MTK_BUILD_VAR_USER = 3	/*user load*/
+};
 
 #if CONFIG_ANDROID		/* Defined in Android kernel source */
 typedef struct wake_lock KAL_WAKE_LOCK_T, *P_KAL_WAKE_LOCK_T;
@@ -253,12 +262,21 @@ struct KAL_HALT_CTRL_T {
 #define KAL_WAKE_UNLOCK(_prAdapter, _prWakeLock) \
 	wake_unlock(_prWakeLock)
 
+#define KAL_WAKE_LOCK_ACTIVE(_prAdapter, _prWakeLock) \
+	wake_lock_active(_prWakeLock)
+	typedef struct wake_lock KAL_WAKE_LOCK_T, *P_KAL_WAKE_LOCK_T;
+#define KAL_WAKELOCK_DECLARE(_lock) \
+	struct wake_lock _lock
+
 #else
 #define KAL_WAKE_LOCK_INIT(_prAdapter, _prWakeLock, _pcName)
 #define KAL_WAKE_LOCK_DESTROY(_prAdapter, _prWakeLock)
 #define KAL_WAKE_LOCK(_prAdapter, _prWakeLock)
 #define KAL_WAKE_LOCK_TIMEOUT(_prAdapter, _prWakeLock, _u4Timeout)
 #define KAL_WAKE_UNLOCK(_prAdapter, _prWakeLock)
+typedef UINT_32 KAL_WAKE_LOCK_T, *P_KAL_WAKE_LOCK_T;
+#define KAL_WAKELOCK_DECLARE(_lock)
+#define KAL_WAKE_LOCK_ACTIVE(_prAdapter, _prWakeLock)
 #endif
 
 /*----------------------------------------------------------------------------*/
@@ -343,6 +361,7 @@ struct KAL_HALT_CTRL_T {
 
 #define kalMdelay(u4MSec)                           mdelay(u4MSec)
 #define kalMsleep(u4MSec)                           msleep(u4MSec)
+#define kalUsleepRange(u4StarUSec, u4EndUSec)        usleep_range(u4StarUSec, u4EndUSec)
 
 /* Copy memory from user space to kernel space */
 #define kalMemCopyFromUser(_pvTo, _pvFrom, _u4N)    copy_from_user(_pvTo, _pvFrom, _u4N)
@@ -458,6 +477,7 @@ struct KAL_HALT_CTRL_T {
 
 #define WLAN_TAG                                    "[wlan]"
 #define kalPrint(_Fmt...)                           pr_debug(WLAN_TAG _Fmt)
+#define kalPrintLimited(_Fmt...)                    pr_debug_ratelimited(WLAN_TAG _Fmt)
 
 #define kalBreakPoint() \
 do { \
@@ -796,6 +816,8 @@ PINT8 kalGetFwInfoFormEmi(UINT8 section, UINT32 offset, PUINT8 buff, UINT32 len)
 */
 
 int tx_thread(void *data);
+int rx_thread(void *data);
+VOID kalWakeupRxThread(P_GLUE_INFO_T prGlueInfo);
 
 VOID kalHifAhbKalWakeLockTimeout(IN P_GLUE_INFO_T prGlueInfo);
 VOID kalMetProfilingStart(IN P_GLUE_INFO_T prGlueInfo, IN struct sk_buff *prSkb);
@@ -830,4 +852,8 @@ INT_32 kalBoostCpu(UINT_32 core_num);
 INT32 kalSetCpuNumFreq(UINT_32 core_num, UINT_32 freq);
 INT_32 kalFbNotifierReg(IN P_GLUE_INFO_T prGlueInfo);
 VOID kalFbNotifierUnReg(VOID);
+#if CFG_SUPPORT_SET_CAM_BY_PROC
+VOID nicConfigProcSetCamCfgWrite(BOOLEAN enabled);
+#endif
+VOID kalChangeSchedParams(P_GLUE_INFO_T prGlueInfo, BOOLEAN fgNormalThread);
 #endif /* _GL_KAL_H */

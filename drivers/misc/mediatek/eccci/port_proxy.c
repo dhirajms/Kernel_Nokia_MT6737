@@ -240,12 +240,14 @@ int port_kthread_handler(void *arg)
 
 	while (1) {
 		if (skb_queue_empty(&port->rx_skb_list)) {
-			ret = wait_event_interruptible(port->rx_wq, !skb_queue_empty(&port->rx_skb_list));
+			ret = wait_event_interruptible(port->rx_wq,
+				(!skb_queue_empty(&port->rx_skb_list) || kthread_should_stop()));
 			if (ret == -ERESTARTSYS)
 				continue;	/* FIXME */
 		}
 		if (kthread_should_stop())
 			break;
+
 		CCCI_DEBUG_LOG(md_id, TAG, "read on %s\n", port->name);
 		port_proxy_record_rx_sched_time(port->port_proxy, port->rx_ch);
 		/* 1. dequeue */
@@ -687,7 +689,7 @@ void port_proxy_dump_status(struct port_proxy *proxy_p)
 	for (i = 0; i < proxy_p->port_number; i++) {
 		port = proxy_p->ports + i;
 		if (port->flags & PORT_F_RX_FULLED)
-			port_full |= (1 << i);
+			port_full |= (1LL << i);
 		if (port->tx_busy_count != 0 || port->rx_busy_count != 0) {
 			CCCI_REPEAT_LOG(proxy_p->md_id, TAG, "port %s busy count %d/%d\n", port->name,
 				     port->tx_busy_count, port->rx_busy_count);
@@ -1102,6 +1104,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	unsigned int val;
 	char magic_pattern[64];
 #endif
+
 	int i = 0, j = 0, modem_type = 0;
 
 	switch (cmd) {
@@ -1142,6 +1145,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	case CCCI_IOC_MD_RESET:
 		CCCI_NORMAL_LOG(md_id, CHAR, "MD reset ioctl called by (%d)%s\n", ch, current->comm);
 		ccci_event_log("md%d: MD reset ioctl called by (%d)%s\n", md_id, ch, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_RESET_REQUEST, current->comm);
 		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_RESET_REQUEST, 0);
 #ifdef CONFIG_MTK_ECCCI_C2K
 		if (md_id == MD_SYS1)
@@ -1158,6 +1162,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	case CCCI_IOC_FORCE_MD_ASSERT:
 		CCCI_NORMAL_LOG(md_id, CHAR, "Force MD assert ioctl called by (%d)%s\n", ch, current->comm);
 		ccci_event_log("md%d: Force MD assert ioctl called by (%d)%s\n", md_id, ch, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_F_ASSERT_REQUEST, current->comm);
 		ret = ccci_md_force_assert(proxy_p->md_obj, MD_FORCE_ASSERT_BY_USER_TRIGGER, NULL, 0);
 		break;
 	case CCCI_IOC_SEND_RUN_TIME_DATA:
@@ -1210,6 +1215,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 			CCCI_ERROR_LOG(md_id, CHAR, "ignore CCCI_IOC_SEND_STOP_MD_REQUEST when MD is not ready\n");
 			break;
 		}
+		inject_md_status_event(md_id, MD_STA_EV_STOP_REQUEST, current->comm);
 		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_FORCE_STOP_REQUEST, 0);
 #ifdef CONFIG_MTK_ECCCI_C2K
 		if (md_id == MD_SYS1)
@@ -1226,6 +1232,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	case CCCI_IOC_SEND_START_MD_REQUEST:
 		CCCI_NORMAL_LOG(md_id, CHAR, "start MD request ioctl called by %s\n", current->comm);
 		ccci_event_log("md%d: start MD request ioctl called by %s\n", md_id, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_START_REQUEST, current->comm);
 		if (ccci_md_get_state_for_user(proxy_p->md_obj) != MD_STATE_INVALID) {
 			CCCI_ERROR_LOG(md_id, CHAR, "ignore CCCI_IOC_SEND_STOP_MD_REQUEST when MD is not ready\n");
 			break;
@@ -1256,13 +1263,40 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	case CCCI_IOC_ENTER_DEEP_FLIGHT:
 		CCCI_NOTICE_LOG(md_id, CHAR, "enter MD flight mode ioctl called by %s\n", current->comm);
 		ccci_event_log("md%d: enter MD flight mode ioctl called by %s\n", md_id, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_ENTER_FLIGHT_REQUEST, current->comm);
 		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_FLIGHT_STOP_REQUEST, 0);
 		break;
 	case CCCI_IOC_LEAVE_DEEP_FLIGHT:
 		CCCI_NOTICE_LOG(md_id, CHAR, "leave MD flight mode ioctl called by %s\n", current->comm);
 		ccci_event_log("md%d: leave MD flight mode ioctl called by %s\n", md_id, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_LEAVE_FLIGHT_REQUEST, current->comm);
 		port_proxy_start_wake_lock(proxy_p, 10);
 		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_FLIGHT_START_REQUEST, 0);
+		break;
+	case CCCI_IOC_ENTER_DEEP_FLIGHT_ENHANCED:
+		CCCI_NOTICE_LOG(md_id, CHAR, "enter MD flight mode enhanced ioctl called by %s\n", current->comm);
+		ccci_event_log("md%d: enter MD flight mode ioctl called by %s\n", md_id, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_ENTER_FLIGHT_E_REQUEST, current->comm);
+		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_FLIGHT_STOP_REQUEST, 0);
+#ifdef CONFIG_MTK_ECCCI_C2K
+		if (md_id == MD_SYS1)
+			exec_ccci_kern_func_by_md_id(MD_SYS3, ID_ENTER_FLIGHT_MODE, NULL, 0);
+		else if (md_id == MD_SYS3)
+			exec_ccci_kern_func_by_md_id(MD_SYS1, ID_ENTER_FLIGHT_MODE, NULL, 0);
+#endif
+		break;
+	case CCCI_IOC_LEAVE_DEEP_FLIGHT_ENHANCED:
+		CCCI_NOTICE_LOG(md_id, CHAR, "leave MD flight mode enhanced ioctl called by %s\n", current->comm);
+		ccci_event_log("md%d: leave MD flight mode ioctl called by %s\n", md_id, current->comm);
+		inject_md_status_event(md_id, MD_STA_EV_LEAVE_FLIGHT_E_REQUEST, current->comm);
+		port_proxy_start_wake_lock(proxy_p, 10);
+		ret = port_proxy_send_msg_to_user(proxy_p, CCCI_MONITOR_CH, CCCI_MD_MSG_FLIGHT_START_REQUEST, 0);
+#ifdef CONFIG_MTK_ECCCI_C2K
+		if (md_id == MD_SYS1)
+			exec_ccci_kern_func_by_md_id(MD_SYS3, ID_LEAVE_FLIGHT_MODE, NULL, 0);
+		else if (md_id == MD_SYS3)
+			exec_ccci_kern_func_by_md_id(MD_SYS1, ID_LEAVE_FLIGHT_MODE, NULL, 0);
+#endif
 		break;
 	case CCCI_IOC_SIM_SWITCH:
 		if (copy_from_user(&sim_mode, (void __user *)arg, sizeof(unsigned int))) {
@@ -1323,7 +1357,6 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 		#endif
 
 		modem_type = 0x000060;
-
 		j = 0;
 
 		for(i = 1; i < modem_ulfctg; i++)
@@ -1408,7 +1441,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 		}
 		break;
 	case CCCI_IOC_SET_RAT_STR:
-		if (copy_from_user((char *)md_boot_data, (void __user *)arg, sizeof(md_boot_data))) {
+		if (strncpy_from_user((char *)md_boot_data, (void __user *)arg, sizeof(md_boot_data))) {
 			CCCI_NORMAL_LOG(md_id, CHAR, "set rat string fail: copy_from_user fail!\n");
 			ret = -EFAULT;
 			break;
@@ -1552,6 +1585,8 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 	case CCCI_IOC_GET_MD_BOOT_MODE:
 		ret = put_user((unsigned int)ccci_md_get_boot_mode(proxy_p->md_obj), (unsigned int __user *)arg);
 		break;
+
+#ifdef CONFIG_MTK_ECCCI_C2K
 	case CCCI_IOC_GET_AT_CH_NUM:
 		{
 			unsigned int at_ch_num = 4; /*default value*/
@@ -1568,6 +1603,7 @@ long port_proxy_user_ioctl(struct port_proxy *proxy_p, int ch, unsigned int cmd,
 			ret = put_user(at_ch_num, (unsigned int __user *)arg);
 			break;
 		}
+#endif
 	default:
 		ret = -ENOTTY;
 		break;

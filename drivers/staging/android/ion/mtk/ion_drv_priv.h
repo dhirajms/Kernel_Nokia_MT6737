@@ -15,9 +15,6 @@
 #define __ION_DRV_PRIV_H__
 
 #include "ion_priv.h"
-#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT)
-#include "secmem.h"
-#endif
 
 /* STRUCT ION_HEAP *G_ION_HEAPS[ION_HEAP_IDX_MAX]; */
 
@@ -34,28 +31,27 @@ extern int (*ion_sync_kernel_func)(unsigned long start, size_t size,
 #endif
 
 #ifdef ION_HISTORY_RECORD
-extern int ion_history_init(void);
+int ion_history_init(void);
+void ion_history_count_kick(bool allc, size_t len);
 #else
 static inline int ion_history_init(void)
 {
 	return 0;
+}
+
+void ion_history_count_kick(bool allc, size_t len)
+{
+	/*do nothing*/
 }
 #endif
 
 int ion_mm_heap_for_each_pool(int (*fn)(int high, int order, int cache, size_t size));
 struct ion_heap *ion_drv_get_heap(struct ion_device *dev, int heap_id, int need_lock);
 int ion_drv_create_heap(struct ion_platform_heap *heap_data);
+struct ion_buffer *ion_drv_file_to_buffer(struct file *file);
 
 #ifdef CONFIG_PM
-extern void shrink_ion_by_scenario(void);
-#endif
-
-#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT)
-extern int secmem_api_alloc(u32 alignment, u32 size, u32 *refcount,
-					u32 *sec_handle, uint8_t *owner, uint32_t id);
-int secmem_api_alloc_zero(u32 alignment, u32 size, u32 *refcount, u32 *sec_handle, uint8_t *owner,
-	uint32_t id);
-extern int secmem_api_unref(u32 sec_handle, uint8_t *owner, uint32_t id);
+extern void shrink_ion_by_scenario(int need_lock);
 #endif
 
 #endif

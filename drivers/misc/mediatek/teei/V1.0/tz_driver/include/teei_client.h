@@ -1,9 +1,24 @@
+/*
+ * Copyright (c) 2015-2017 MICROTRUST Incorporated
+ * All Rights Reserved.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ */
+
 #ifndef __TEEI_CLIENT_H_
 #define __TEEI_CLIENT_H_
 
 #define TEEI_CLIENT_FULL_PATH_DEV_NAME "/dev/teei_client"
 #define TEEI_CLIENT_DEV "teei_client"
-#define TEEI_CLIENT_IOC_MAGIC 0x775B777F /* "TEEI Client" */
+#define TEEI_IOC_MAGIC 'T'
+#define TEEI_CLIENT_IOC_MAGIC TEEI_IOC_MAGIC /* "TEEI Client" */
 
 /** IOCTL request */
 
@@ -119,5 +134,8 @@ struct teei_smc_cdata {
 
 #define TEEI_GET_TEEI_CONFIG_STAT \
 	_IO(TEEI_CLIENT_IOC_MAGIC, 0x1001)
+
+#define TEEI_CANCEL_COMMAND \
+	_IO(TEEI_CLIENT_IOC_MAGIC, 0x1002)
 
 #endif /* __TEEI_CLIENT_H_ */

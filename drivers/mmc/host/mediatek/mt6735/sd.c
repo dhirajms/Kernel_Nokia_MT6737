@@ -81,6 +81,8 @@
 
 #include<mt-plat/upmu_common.h>
 
+#include "dbg.h"
+
 #ifdef CONFIG_MTK_CLKMGR
 #include <mach/mt_clkmgr.h>
 #else
@@ -263,6 +265,7 @@ static struct workqueue_struct *wq_tune;
 #define DAT_TIMEOUT                      (HZ    * 5)	/* 1000ms x5 */
 #define CLK_TIMEOUT                      (HZ    * 5)	/* 5s    */
 #define POLLING_BUSY                     (HZ     * 3)
+#define POLLING_PINS			 (HZ*20/1000) /*20ms*/
 /* a single transaction for WIFI may be 50K */
 #define MAX_DMA_CNT                      (64 * 1024 - 512)
 /*
@@ -1575,6 +1578,44 @@ static void msdc_pin_pud(struct msdc_host *host, u32 mode)
 }
 
 #ifndef CONFIG_MTK_LEGACY
+/*
+ * Pull DAT0~2 high/low one-by-one
+ * and power off card when DAT pin status is not the same pull level
+ * 1. PULL DAT0 Low, DAT1/2/3 high
+ * 2. PULL DAT1 Low, DAT0/2/3 high
+ * 3. PULL DAT2 Low, DAT0/1/3 high
+ */
+static int msdc_io_check(struct msdc_host *host)
+{
+	int result = 1, i;
+	void __iomem *base = host->base;
+	unsigned long polling_tmo = 0;
+	u32 pupd_patterns[3] = {0x222662, 0x226262, 0x262262};
+	u32 check_patterns[3] = {0xe0000, 0xd0000, 0xb0000};
+
+	if (host->id != 1)
+		return 1;
+	for (i = 0; i < 3; i++) {
+		sdr_set_field(MSDC1_GPIO_PUPD0_G4_ADDR, MSDC1_PUPD_CMD_CLK_DAT_MASK,
+			pupd_patterns[i]);
+		polling_tmo = jiffies + POLLING_PINS;
+		while ((sdr_read32(MSDC_PS) & 0xF0000) != check_patterns[i]) {
+			if (time_after(jiffies, polling_tmo)) {
+				pr_err("msdc%d DAT%d pin get wrong, ps = 0x%x!\n",
+					host->id, i, sdr_read32(MSDC_PS));
+				goto POWER_OFF;
+			}
+		}
+	}
+	sdr_set_field(MSDC1_GPIO_PUPD0_G4_ADDR, MSDC1_PUPD_CMD_CLK_DAT_MASK, 0x222262);
+	return result;
+
+POWER_OFF:
+	host->block_bad_card = 1;
+	host->power_control(host, 0);
+	return 0;
+}
+
 static void msdc_emmc_power(struct msdc_host *host, u32 on)
 {
 	unsigned long tmo = 0;
@@ -2003,6 +2044,7 @@ void msdc_ungate_clock(struct msdc_host *host)
 }
 
 /* do we need sync object or not */
+/* MT_CG_PERI_MSDC30_0="13+32" defined in mt_clkmgr2.h */
 void msdc_clk_status(int *status)
 {
 	int g_clk_gate = 0;
@@ -2016,7 +2058,7 @@ void msdc_clk_status(int *status)
 		spin_lock_irqsave(&mtk_msdc_host[i]->clk_gate_lock, flags);
 		if (mtk_msdc_host[i]->clk_gate_count > 0)
 #ifndef FPGA_PLATFORM
-			g_clk_gate |= 1 << ((i) + MT_CG_PERI_MSDC30_0);
+			g_clk_gate |= 1 << ((i) + (MT_CG_PERI_MSDC30_0-32));
 #endif
 		spin_unlock_irqrestore(&mtk_msdc_host[i]->clk_gate_lock, flags);
 	}
@@ -2220,7 +2262,8 @@ static void msdc_select_clksrc(struct msdc_host *host, int clksrc)
 		return;
 	}
 
-	clk_enable(g_msdc0_pll_sel);
+	if (clk_enable(g_msdc0_pll_sel))
+		pr_err("[%s]clk enable fail line at %d\n", __func__, __LINE__);
 	ret = clk_set_parent(g_msdc0_pll_sel, clk);
 	if (ret)
 		pr_err("XXX MSDC%d switch clk source ERROR...[%s]%d\n",
@@ -2367,8 +2410,8 @@ static void msdc_set_mclk(struct msdc_host *host, unsigned char timing, u32 hz)
 
 	}
 
-	/*pr_err("msdc%d Set<%dK> src:<%dK> sclk:<%dK> timing<%d> mode:%d div:%d\n",
-	       host->id, hz / 1000, hclk / 1000, sclk / 1000, timing, mode, div);*/
+	pr_err("msdc%d Set<%dK> src:<%dK> sclk:<%dK> timing<%d> mode:%d div:%d\n",
+	       host->id, hz / 1000, hclk / 1000, sclk / 1000, timing, mode, div);
 
 	msdc_irq_restore(flags);
 }
@@ -2908,6 +2951,10 @@ static void msdc_set_power_mode(struct msdc_host *host, u8 mode)
 #endif
 
 		mdelay(10);
+		if (host->id == 1) {
+			if (!msdc_io_check(host))
+				return;
+			}
 	} else if (host->power_mode != MMC_POWER_OFF && mode == MMC_POWER_OFF) {
 
 		if (is_card_sdio(host) || (host->hw->flags & MSDC_SDIO_IRQ)) {
@@ -3007,7 +3054,8 @@ static void msdc_clksrc_onoff(struct msdc_host *host, u32 on)
 			if (clk_enable(host->clock_control)) {
 				pr_err("msdc%d on clock failed ===> retry once\n", host->id);
 				clk_disable(host->clock_control);
-				clk_enable(host->clock_control);
+				if (clk_enable(host->clock_control))
+					pr_err("msdc%d on clock retry failed\n", host->id);
 			}
 #endif
 #endif
@@ -3610,6 +3658,8 @@ static unsigned int msdc_command_start(struct msdc_host *host,
 	sdr_clr_bits(MSDC_INTEN, wints_cmd);
 	rawarg = cmd->arg;
 
+	dbg_add_host_log(host->mmc, 0, cmd->opcode, cmd->arg);
+
 	sdc_send_cmd(rawcmd, rawarg);
 
 /*end:*/
@@ -3744,6 +3794,7 @@ static unsigned int msdc_command_resp_polling(struct msdc_host *host,
 				}
 				break;
 			}
+			dbg_add_host_log(host->mmc, 1, cmd->opcode, cmd->resp[0]);
 		} else if (intsts & MSDC_INT_RSPCRCERR) {
 			cmd->error = (unsigned int)-EIO;
 			pr_err("[%s]: msdc%d XXX CMD<%d> MSDC_INT_RSPCRCERR Arg<0x%.8x>",
@@ -4804,6 +4855,17 @@ static int msdc_do_request(struct mmc_host *mmc, struct mmc_request *mrq)
 				 * some emmc card have problem with cmd23, so use cmd12 here */
 				if (host->hw->host_function != MSDC_SDIO)
 					host->autocmd |= MSDC_AUTOCMD12;
+				/*
+				*check the current region is RPMB or not
+				*storage "host->autocmd when operating RPMB"
+				*mask 'MSDC_AUTOCMD12'	when operating RPMB"
+				*/
+				if (host->hw->host_function == MSDC_EMMC) {
+					if (mmc->card && (mmc->card->ext_csd.part_config
+						& EXT_CSD_PART_CONFIG_ACC_MASK)
+						== EXT_CSD_PART_CONFIG_ACC_RPMB)
+						host->autocmd &= ~MSDC_AUTOCMD12;
+				}
 			}
 		} else {
 			/* enable auto cmd23 */
@@ -4822,6 +4884,17 @@ static int msdc_do_request(struct mmc_host *mmc, struct mmc_request *mrq)
 					host->autocmd &= ~MSDC_AUTOCMD23;
 					host->autocmd |= MSDC_AUTOCMD12;
 					l_card_no_cmd23 = 1;
+				}
+				/*
+				*check the current region is RPMB or not
+				*storage "host->autocmd when operating RPMB"
+				*mask 'MSDC_AUTOCMD12'	when operating RPMB"
+				*/
+				if (host->hw->host_function == MSDC_EMMC) {
+					if (mmc->card && (mmc->card->ext_csd.part_config
+						& EXT_CSD_PART_CONFIG_ACC_MASK)
+						== EXT_CSD_PART_CONFIG_ACC_RPMB)
+						host->autocmd &= ~MSDC_AUTOCMD12;
 				}
 			}
 		}
@@ -7688,7 +7761,8 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 #ifdef CONFIG_MTK_CLKMGR
 		enable_clock(MT_CG_PERI_MSDC30_0 + host->id, "SD");
 #else
-		clk_enable(host->clock_control);
+		if (clk_enable(host->clock_control))
+			pr_err("[%s] clk_enbale fail\n", __func__);
 #endif
 #endif
 		host->core_clkon = 1;
@@ -7776,7 +7850,7 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 #if (MSDC_DATA1_INT == 1)
 	if ((host->hw->flags & MSDC_SDIO_IRQ) && (intsts & MSDC_INT_XFER_COMPL))
 		goto done;
-	else
+	else {
 #endif
 		if (intsts & MSDC_INT_XFER_COMPL) {
 			if ((stop != NULL) && (host->autocmd & MSDC_AUTOCMD12)) {
@@ -7785,7 +7859,9 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 			}
 			goto done;
 		}
-
+#if (MSDC_DATA1_INT == 1)
+	}
+#endif
 		if (intsts & datsts) {
 			/*for sd card: ACMD51/ACMD13/CMD6 return error directly*/
 			if (intsts & MSDC_INT_DATTMO) {

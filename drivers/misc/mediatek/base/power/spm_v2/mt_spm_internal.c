@@ -722,7 +722,8 @@ void __spm_set_power_control(const struct pwr_ctrl *pwrctrl)
 			(!!pwrctrl->ccif1_to_ap_mask_b << 4) |
 			(!!pwrctrl->ccif1_to_md_mask_b << 3) |
 			(!!pwrctrl->ccif0_to_ap_mask_b << 2) |
-			(!!pwrctrl->ccif0_to_md_mask_b << 1));
+			(!!pwrctrl->ccif0_to_md_mask_b << 1) |
+			(!!pwrctrl->syspwreq_mask << 0));
 
 	spm_write(SPM_SRC2_MASK,
 #if defined(CONFIG_ARCH_MT6797)
@@ -943,15 +944,15 @@ wake_reason_t __spm_output_wake_reason(const struct wake_status *wakesta,
 
 	if (wakesta->r12 & WAKE_SRC_R12_PCM_TIMER) {
 		if (wakesta->wake_misc & WAKE_MISC_PCM_TIMER) {
-			strcat(buf, " PCM_TIMER");
+			strncat(buf, " PCM_TIMER", strlen(" PCM_TIMER"));
 			wr = WR_PCM_TIMER;
 		}
 		if (wakesta->wake_misc & WAKE_MISC_TWAM) {
-			strcat(buf, " TWAM");
+			strncat(buf, " TWAM", strlen(" TWAM"));
 			wr = WR_WAKE_SRC;
 		}
 		if (wakesta->wake_misc & WAKE_MISC_CPU_WAKE) {
-			strcat(buf, " CPU");
+			strncat(buf, " CPU", strlen(" CPU"));
 			wr = WR_WAKE_SRC;
 		}
 	}
@@ -1249,7 +1250,7 @@ void spm_set_dummy_read_addr(void)
 	spm_crit("dram_rank_num: %d\n", dram_rank_num);
 	spm_crit("dummy read addr: rank0: 0x%x, rank1: 0x%x\n", rank0_addr, rank1_addr);
 
-#if defined(CONFIG_ARCH_MT6797)
+#if defined(CONFIG_ARCH_MT6797) || defined(CONFIG_ARCH_MT6757)
 	MAPPING_DRAM_ACCESS_ADDR(rank0_addr);
 	MAPPING_DRAM_ACCESS_ADDR(rank1_addr);
 	spm_crit("dummy read addr(4GB: %d): rank0: 0x%x, rank1: 0x%x\n", enable_4G(), rank0_addr, rank1_addr);

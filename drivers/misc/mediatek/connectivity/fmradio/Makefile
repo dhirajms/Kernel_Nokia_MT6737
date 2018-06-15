@@ -25,7 +25,18 @@ ifeq ($(FM_CHIP), mt6625)
 	subdir-ccflags-y += -DMT6625_FM
 endif
 
-$(warning FM_CHIP := $(FM_CHIP))
+ifeq ($(FM_CHIP), mt6580)
+	FM_CHIP_MACRO := soc
+	FM_CHIP := soc
+	subdir-ccflags-y += -Dsoc
+endif
+
+ifeq ($(FM_CHIP), mt0633)
+	FM_CHIP_MACRO := soc
+	FM_CHIP := soc
+	subdir-ccflags-y += -Dsoc
+endif
+
 	WMT_INCLUDE_PATH := common_main
 	FM_CHIP_PATH := $(FM_CHIP)/pub/$(FM_CHIP)
 	subdir-ccflags-y += -D$(FM_CHIP_MACRO)
@@ -47,7 +58,6 @@ $(warning FM_CHIP := $(FM_CHIP))
 					$(FM_CHIP_PATH)_fm_lib.o \
 					$(FM_CHIP_PATH)_fm_rds.o
 	mtk_fm_drv-objs += $($(FM_CHIP)-objs)
-$(warning $(mtk_fm_drv-objs))
 	#obj-$(CONFIG_MTK_FMRADIO) += private/
 endif
 

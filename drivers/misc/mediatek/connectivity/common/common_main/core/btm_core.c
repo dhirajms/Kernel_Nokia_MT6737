@@ -28,7 +28,6 @@
 #define STP_BTM_LOG_ERR                  0
 
 INT32 gBtmDbgLevel = STP_BTM_LOG_INFO;
-INT32 host_trigger_assert_flag = 0;
 
 #define STP_BTM_LOUD_FUNC(fmt, arg...) \
 do { \
@@ -77,9 +76,10 @@ const PINT8 g_btm_op_name[] = {
 	"STP_OPID_BTM_EXIT"
 };
 
-UINT32 __weak wmt_plat_force_trigger_assert(ENUM_FORCE_TRG_ASSERT_T type)
+static VOID stp_btm_trigger_assert_timeout_handler(ULONG data)
 {
-	return 0;
+	if (mtk_wcn_stp_coredump_start_get() == 0)
+		stp_btm_notify_assert_timeout_wq((MTKSTP_BTM_T *)data);
 }
 
 static INT32 _stp_btm_handler(MTKSTP_BTM_T *stp_btm, P_STP_BTM_OP pStpOp)
@@ -115,7 +115,6 @@ static INT32 _stp_btm_handler(MTKSTP_BTM_T *stp_btm, P_STP_BTM_OP pStpOp)
 		}
 
 		STP_BTM_INFO_FUNC("whole chip reset end!\n");
-		host_trigger_assert_flag = 0;
 		break;
 
 	case STP_OPID_BTM_DBG_DUMP:
@@ -126,6 +125,23 @@ static INT32 _stp_btm_handler(MTKSTP_BTM_T *stp_btm, P_STP_BTM_OP pStpOp)
 		break;
 
 	case STP_OPID_BTM_DUMP_TIMEOUT:
+		#define FAKECOREDUMPEND "coredump end - fake"
+		dump_sink = mtk_wcn_stp_coredump_flag_get();
+		if (dump_sink == 2) {
+			UINT8 tmp[32];
+
+			tmp[0] = '[';
+			tmp[1] = 'M';
+			tmp[2] = ']';
+			tmp[3] = (UINT8)osal_sizeof(FAKECOREDUMPEND);
+			tmp[4] = 0;
+			osal_memcpy(&tmp[5], FAKECOREDUMPEND, osal_sizeof(FAKECOREDUMPEND));
+			/* stp_dump case, append fake coredump end message */
+			stp_dbg_set_coredump_timer_state(CORE_DUMP_DOING);
+			STP_BTM_WARN_FUNC("generate fake coredump message\n");
+			stp_dbg_dump_send_retry_handler((PINT8)&tmp, (INT32)osal_sizeof(FAKECOREDUMPEND)+5);
+		}
+
 		/* Flush dump data, and reset compressor */
 		STP_BTM_INFO_FUNC("Flush dump data\n");
 		stp_dbg_core_dump_flush(0, MTK_WCN_BOOL_TRUE);
@@ -136,6 +152,10 @@ static INT32 _stp_btm_handler(MTKSTP_BTM_T *stp_btm, P_STP_BTM_OP pStpOp)
 		ret = wmt_idc_msg_to_lte_handing();
 		break;
 #endif
+	case STP_OPID_BTM_ASSERT_TIMEOUT:
+		mtk_wcn_stp_assert_timeout_handle();
+		ret = 0;
+		break;
 	default:
 		ret = -1;
 		break;
@@ -185,7 +205,9 @@ static INT32 _stp_btm_put_op(MTKSTP_BTM_T *stp_btm, P_OSAL_OP_Q pOpQ, P_OSAL_OP 
 			RB_PUT(pOpQ, pOp);
 		else
 			ret = -1;
-	} else if (pOp->op.opId == STP_OPID_BTM_RST || pOp->op.opId == STP_OPID_BTM_DUMP_TIMEOUT) {
+	} else if (pOp->op.opId == STP_OPID_BTM_RST ||
+		   pOp->op.opId == STP_OPID_BTM_ASSERT_TIMEOUT ||
+		   pOp->op.opId == STP_OPID_BTM_DUMP_TIMEOUT) {
 			if (!RB_FULL(pOpQ)) {
 				RB_PUT(pOpQ, pOp);
 				STP_BTM_ERR_FUNC("RB_PUT: 0x%d\n", pOp->op.opId);
@@ -195,6 +217,7 @@ static INT32 _stp_btm_put_op(MTKSTP_BTM_T *stp_btm, P_OSAL_OP_Q pOpQ, P_OSAL_OP 
 		pOp_current = stp_btm_get_current_op(stp_btm);
 		if (pOp_current) {
 			if (pOp_current->op.opId == STP_OPID_BTM_RST ||
+			    pOp_current->op.opId == STP_OPID_BTM_ASSERT_TIMEOUT ||
 			    pOp_current->op.opId == STP_OPID_BTM_DUMP_TIMEOUT) {
 				STP_BTM_ERR_FUNC("current: 0x%d\n", pOp_current->op.opId);
 				flag_current = 0;
@@ -204,7 +227,8 @@ static INT32 _stp_btm_put_op(MTKSTP_BTM_T *stp_btm, P_OSAL_OP_Q pOpQ, P_OSAL_OP 
 		RB_GET_LATEST(pOpQ, pOp_latest);
 		if (pOp_latest) {
 			if (pOp_latest->op.opId == STP_OPID_BTM_RST ||
-				pOp_latest->op.opId == STP_OPID_BTM_DUMP_TIMEOUT) {
+			    pOp_latest->op.opId == STP_OPID_BTM_ASSERT_TIMEOUT ||
+			    pOp_latest->op.opId == STP_OPID_BTM_DUMP_TIMEOUT) {
 				STP_BTM_ERR_FUNC("latest: 0x%d\n", pOp_latest->op.opId);
 				flag_latest = 0;
 			}
@@ -241,8 +265,15 @@ P_OSAL_OP _stp_btm_get_free_op(MTKSTP_BTM_T *stp_btm)
 
 	if (stp_btm) {
 		pOp = _stp_btm_get_op(stp_btm, &stp_btm->rFreeOpQ);
-		if (pOp)
+		if (pOp) {
 			osal_memset(&pOp->op, 0, sizeof(pOp->op));
+
+			/* at the moment the signal's timeoutValue is initialized by caller of _stp_btm_get_free_op(),
+			 * and the signal's comp is initialized in _stp_btm_put_act_op(),
+			 * leaving us with no choice but to initialize timeoutExtension here.
+			 */
+			pOp->signal.timeoutExtension = 0;
+		}
 
 		return pOp;
 	} else
@@ -289,7 +320,7 @@ INT32 _stp_btm_put_act_op(MTKSTP_BTM_T *stp_btm, P_OSAL_OP pOp)
 		bCleanup = 1;	/* MTK_WCN_BOOL_TRUE; */
 
 		/* check result */
-		wait_ret = osal_wait_for_signal_timeout(&pOp->signal);
+		wait_ret = osal_wait_for_signal_timeout(&pOp->signal, &stp_btm->BTMd);
 
 		STP_BTM_DBG_FUNC("wait completion:%d\n", wait_ret);
 		if (!wait_ret) {
@@ -393,7 +424,6 @@ handler_done:
 		} else if (STP_OPID_BTM_RST == id) {
 			/* prevent multi reset case */
 			stp_btm_reset_btm_wq(stp_btm);
-			mtk_wcn_stp_coredump_start_ctrl(0);
 		}
 	}
 
@@ -458,6 +488,16 @@ static inline INT32 _stp_btm_notify_coredump_timeout_wq(MTKSTP_BTM_T *stp_btm)
 	return retval;
 }
 
+static inline INT32 _stp_btm_notify_assert_timeout_wq(MTKSTP_BTM_T *stp_btm)
+{
+	INT32 retval;
+
+	if (!stp_btm)
+		return STP_BTM_OPERATION_FAIL;
+
+	retval = _stp_btm_dump_type(stp_btm, STP_OPID_BTM_ASSERT_TIMEOUT);
+	return retval;
+}
 
 static inline INT32 _stp_btm_notify_wmt_dmp_wq(MTKSTP_BTM_T *stp_btm)
 {
@@ -469,8 +509,6 @@ static inline INT32 _stp_btm_notify_wmt_dmp_wq(MTKSTP_BTM_T *stp_btm)
 
 	/* Paged dump */
 	retval = _stp_btm_dump_type(stp_btm, STP_OPID_BTM_DBG_DUMP);
-	if (!retval)
-		mtk_wcn_stp_coredump_start_ctrl(1);
 	return retval;
 }
 
@@ -487,6 +525,11 @@ INT32 stp_btm_notify_stp_retry_wq(MTKSTP_BTM_T *stp_btm)
 INT32 stp_btm_notify_coredump_timeout_wq(MTKSTP_BTM_T *stp_btm)
 {
 	return _stp_btm_notify_coredump_timeout_wq(stp_btm);
+}
+
+INT32 stp_btm_notify_assert_timeout_wq(MTKSTP_BTM_T *stp_btm)
+{
+	return _stp_btm_notify_assert_timeout_wq(stp_btm);
 }
 
 INT32 stp_btm_notify_wmt_dmp_wq(MTKSTP_BTM_T *stp_btm)
@@ -536,6 +579,8 @@ MTKSTP_BTM_T *stp_btm_init(VOID)
 		osal_signal_init(&(stp_btm->arQue[i].signal));
 		_stp_btm_put_op(stp_btm, &stp_btm->rFreeOpQ, &(stp_btm->arQue[i]));
 	}
+
+	stp_btm_init_trigger_assert_timer(stp_btm);
 
 	/*Generate PSM thread, to servie STP-CORE for packet retrying and core dump receiving */
 	stp_btm->BTMd.pThreadData = (PVOID) stp_btm;
@@ -616,16 +661,9 @@ INT32 stp_notify_btm_dump(MTKSTP_BTM_T *stp_btm)
 static inline INT32 _stp_btm_do_fw_assert(MTKSTP_BTM_T *stp_btm)
 {
 	INT32 status = -1;
-	INT32 j = 0;
 	MTK_WCN_BOOL bRet = MTK_WCN_BOOL_FALSE;
 	PUINT8 pbuf;
 	INT32 len;
-
-	if (1 == host_trigger_assert_flag) {
-		STP_BTM_ERR_FUNC("BTM-CORE: host_trigger_assert_flag is set, end this assert flow!\n");
-		return status;
-	}
-	host_trigger_assert_flag = 1;
 
 	/* send assert command */
 	STP_BTM_INFO_FUNC("trigger stp assert process\n");
@@ -641,34 +679,16 @@ static inline INT32 _stp_btm_do_fw_assert(MTKSTP_BTM_T *stp_btm)
 			pbuf = "btif_rxd thread be blocked too long,just collect SYS_FTRACE to DB";
 			len = osal_strlen(pbuf);
 			stp_dbg_trigger_collect_ftrace(pbuf, len);
-	} else
+		} else
 #endif
-		wmt_plat_force_trigger_assert(STP_FORCE_TRG_ASSERT_DEBUG_PIN);
+			status = wmt_plat_force_trigger_assert(STP_FORCE_TRG_ASSERT_DEBUG_PIN);
 	}
-	do {
-		if (0 != mtk_wcn_stp_coredump_start_get()) {
-			status = 0;
-			break;
-		}
-		stp_dbg_poll_cpupcr(5, 1, 1);
-		j++;
-		STP_BTM_INFO_FUNC("Wait for assert message (%d)\n", j);
-		osal_sleep_ms(20);
 
-		if (j > 49) {
-			stp_dbg_set_fw_info("host trigger fw assert timeout",
-					osal_strlen("host trigger fw assert timeout"),
-					STP_HOST_TRIGGER_ASSERT_TIMEOUT);
-			pbuf = "Trigger assert timeout ,just collect SYS_FTRACE to DB";
-			len = osal_strlen(pbuf);
-			/* wcn_core_dump_timeout(); */
-			stp_dbg_trigger_collect_ftrace(pbuf, len);
-			break;
-		}
+	stp_btm_start_trigger_assert_timer(stp_btm);
 
-	} while (1);
 	if (0 == status)
 		STP_BTM_INFO_FUNC("trigger stp assert succeed\n");
+
 	return status;
 }
 
@@ -677,6 +697,7 @@ INT32 stp_notify_btm_do_fw_assert(MTKSTP_BTM_T *stp_btm)
 {
 	return _stp_btm_do_fw_assert(stp_btm);
 }
+
 INT32 wmt_btm_trigger_reset(VOID)
 {
 	return stp_btm_notify_wmt_rst_wq(stp_btm);
@@ -699,4 +720,23 @@ P_OSAL_OP stp_btm_get_current_op(MTKSTP_BTM_T *stp_btm)
 		return stp_btm->pCurOP;
 	STP_BTM_ERR_FUNC("Invalid pointer\n");
 	return NULL;
+}
+
+INT32 stp_btm_init_trigger_assert_timer(MTKSTP_BTM_T *stp_btm)
+{
+	stp_btm->trigger_assert_timer.timeoutHandler = stp_btm_trigger_assert_timeout_handler;
+	stp_btm->trigger_assert_timer.timeroutHandlerData = (ULONG)stp_btm;
+	stp_btm->timeout = 1000;
+
+	return osal_timer_create(&stp_btm->trigger_assert_timer);
+}
+
+INT32 stp_btm_start_trigger_assert_timer(MTKSTP_BTM_T *stp_btm)
+{
+	return osal_timer_start(&stp_btm->trigger_assert_timer, stp_btm->timeout);
+}
+
+INT32 stp_btm_stop_trigger_assert_timer(MTKSTP_BTM_T *stp_btm)
+{
+	return osal_timer_stop(&stp_btm->trigger_assert_timer);
 }

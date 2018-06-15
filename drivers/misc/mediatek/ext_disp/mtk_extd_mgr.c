@@ -48,8 +48,8 @@ static dev_t extd_devno;
 static struct cdev *extd_cdev;
 static struct class *extd_class;
 
-static const struct EXTD_DRIVER *extd_driver[DEV_MAX_NUM - 1];
-static const struct EXTD_DRIVER *extd_factory_driver[DEV_MAX_NUM - 1];
+static const struct EXTD_DRIVER *extd_driver[DEV_MAX_NUM];
+static const struct EXTD_DRIVER *extd_factory_driver[DEV_MAX_NUM];
 
 static void external_display_enable(unsigned long param)
 {
@@ -216,7 +216,13 @@ static long mtk_extd_mgr_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			 * X = 0 - mhl
 			 * X = 1 - wifi display
 			 */
-			r = external_display_get_dev_info(*((unsigned long *)argp), argp);
+			int displayid = 0;
+
+			if (copy_from_user(&displayid, argp, sizeof(displayid))) {
+				HDMI_ERR(": copy_from_user failed! line:%d\n", __LINE__);
+				return -EAGAIN;
+			}
+			r = external_display_get_dev_info(displayid, argp);
 			break;
 		}
 	case MTK_HDMI_USBOTG_STATUS:

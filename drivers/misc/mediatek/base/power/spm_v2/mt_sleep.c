@@ -129,7 +129,6 @@ static u32 slp_spm_flags = {
 #endif
 };
 
-#if !defined(CONFIG_ARCH_MT6797)
 #if SLP_SLEEP_DPIDLE_EN
 /* sync with mt_idle.c spm_deepidle_flags setting */
 static u32 slp_spm_deepidle_flags = {
@@ -141,7 +140,6 @@ static u32 slp_spm_deepidle_flags = {
 	0
 	#endif
 };
-#endif
 #endif
 
 /* static u32 slp_spm_data = 0; */
@@ -298,7 +296,7 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 	int ret = 0;
 
 #if SLP_SLEEP_DPIDLE_EN
-#if defined(CONFIG_MT_SND_SOC_6755) /*|| defined(CONFIG_MT_SND_SOC_6757)*/ || defined(CONFIG_MT_SND_SOC_6797)
+#if defined(CONFIG_MT_SND_SOC_6755) || defined(CONFIG_MT_SND_SOC_6750) || defined(CONFIG_MT_SND_SOC_6797)
 	int fm_radio_is_playing = 0;
 
 	if (ConditionEnterSuspend() == true)
@@ -366,9 +364,8 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 	}
 #endif
 
-#if !defined(CONFIG_ARCH_MT6797)
 #if SLP_SLEEP_DPIDLE_EN
-#if defined(CONFIG_MT_SND_SOC_6755) /*|| defined(CONFIG_MT_SND_SOC_6757)*/ || defined(CONFIG_MT_SND_SOC_6797)
+#if defined(CONFIG_MT_SND_SOC_6755) || defined(CONFIG_MT_SND_SOC_6750) || defined(CONFIG_MT_SND_SOC_6797)
 	if (slp_ck26m_on | fm_radio_is_playing)
 #else
 	if (slp_ck26m_on)
@@ -378,7 +375,6 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 #endif
 		slp_wake_reason = spm_go_to_sleep(slp_spm_flags, slp_spm_data);
 
-#endif
 
 LEAVE_SLEEP:
 #ifdef CONFIG_MTKPASR
@@ -474,6 +470,22 @@ wake_reason_t slp_get_wake_reason(void)
 bool slp_will_infra_pdn(void)
 {
 	return is_infra_pdn(slp_spm_flags);
+}
+
+void slp_set_infra_on(bool infra_on)
+{
+	if (infra_on) {
+		slp_spm_flags |= SPM_FLAG_DIS_INFRA_PDN;
+#if SLP_SLEEP_DPIDLE_EN
+		slp_spm_deepidle_flags |= SPM_FLAG_DIS_INFRA_PDN;
+#endif
+	} else {
+		slp_spm_flags &= ~SPM_FLAG_DIS_INFRA_PDN;
+#if SLP_SLEEP_DPIDLE_EN
+		slp_spm_deepidle_flags &= ~SPM_FLAG_DIS_INFRA_PDN;
+#endif
+	}
+	slp_notice("slp_set_infra_on (%d): 0x%x, 0x%x\n", infra_on, slp_spm_flags, slp_spm_deepidle_flags);
 }
 
 void slp_module_init(void)

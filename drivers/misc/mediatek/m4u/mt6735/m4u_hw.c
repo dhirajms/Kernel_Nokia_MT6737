@@ -26,8 +26,8 @@ static unsigned long gM4UBaseAddr[TOTAL_M4U_NUM];
 static unsigned long gLarbBaseAddr[SMI_LARB_NR];
 static unsigned long gPericfgBaseAddr;
 
-static M4U_MAU_STATUS_T gM4u0_mau[M4U0_MAU_NR] = {{0} };
-static unsigned int gMAU_candidate_id = M4U0_MAU_NR - 1;
+/*static M4U_MAU_STATUS_T gM4u0_mau[M4U0_MAU_NR] = {{0} };*/
+/*static unsigned int gMAU_candidate_id = M4U0_MAU_NR - 1;*/
 
 static DEFINE_MUTEX(gM4u_seq_mutex);
 
@@ -40,7 +40,13 @@ int gM4u_port_num = M4U_PORT_UNKNOWN;
 int m4u_invalid_tlb(int m4u_id, int L2_en, int isInvAll, unsigned int mva_start, unsigned int mva_end)
 {
 	unsigned int reg = 0;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
+
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_id];
 
 	if (mva_start >= mva_end)
 		isInvAll = 1;
@@ -212,7 +218,13 @@ int mau_start_monitor(int m4u_id, int m4u_slave_id, int mau_set,
 		      int wr, int vir, int io, int bit32,
 		      unsigned int start, unsigned int end, unsigned int port_mask, unsigned int larb_mask)
 {
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
+
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_id];
 
 	if (0 == m4u_base)
 		return -1;
@@ -238,7 +250,7 @@ int mau_start_monitor(int m4u_id, int m4u_slave_id, int mau_set,
 
 	return 0;
 }
-
+#if 0
 int config_mau(M4U_MAU_STRUCT mau)
 {
 	int i;
@@ -250,11 +262,6 @@ int config_mau(M4U_MAU_STRUCT mau)
 
 	if (0 != m4u_id)
 		return -1;
-
-	if (mau.port < 0 || mau.port >= M4U_PORT_NR || larb == -1) {
-		M4UMSG("%s,unknown port %d\n", __func__, mau.port);
-		return -1;
-	}
 
 	for (i = 0; i < M4U0_MAU_NR; i++) {
 		if (0 != gM4u0_mau[i].Enabled) {
@@ -294,6 +301,7 @@ int config_mau(M4U_MAU_STRUCT mau)
 			1, 0, 0, MVAStart, MVAEnd, 1 << m4u_port_2_larb_port(mau.port), 1 << larb);
 	return free_id;
 }
+#endif
 
 /* notes: you must fill cfg->m4u_id/m4u_slave_id/mau_set before call this func. */
 int mau_get_config_info(struct mau_config_info *cfg)
@@ -327,6 +335,11 @@ int __mau_dump_status(int m4u_id, int m4u_slave_id, int mau)
 	unsigned int assert_id, assert_addr, assert_b32;
 	int larb, port;
 	struct mau_config_info mau_cfg;
+
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
 
 	m4u_base = gM4UBaseAddr[m4u_id];
 	status = M4U_ReadReg32(m4u_base, REG_MMU_MAU_ASSERT_ST(m4u_slave_id));
@@ -391,7 +404,14 @@ int m4u_dump_reg(int m4u_index, unsigned int start)
 unsigned int m4u_get_main_descriptor(int m4u_id, int m4u_slave_id, int idx)
 {
 	unsigned int regValue = 0;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
+
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+
+	m4u_base = gM4UBaseAddr[m4u_id];
 
 	regValue = F_READ_ENTRY_EN
 			| F_READ_ENTRY_MMx_MAIN(m4u_slave_id)
@@ -405,7 +425,14 @@ unsigned int m4u_get_main_descriptor(int m4u_id, int m4u_slave_id, int idx)
 
 unsigned int m4u_get_main_tag(int m4u_id, int m4u_slave_id, int idx)
 {
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
+
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+
+	m4u_base = gM4UBaseAddr[m4u_id];
 
 	return M4U_ReadReg32(m4u_base, REG_MMU_MAIN_TAG(m4u_slave_id, idx));
 }
@@ -544,11 +571,16 @@ int m4u_dump_pfh_tlb(int m4u_id)
 int m4u_get_pfh_tlb_all(int m4u_id, mmu_pfh_tlb_t *pfh_buf)
 {
 	unsigned int regval;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
 	int set_nr, way_nr, set, way;
 	int valid;
 	int pfh_id = 0;
 
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_id];
 	set_nr = MMU_SET_NR(m4u_id);
 	way_nr = MMU_WAY_NR;
 
@@ -634,10 +666,15 @@ int m4u_confirm_range_invalidated(int m4u_index, unsigned int MVAStart, unsigned
 {
 	unsigned int i = 0;
 	unsigned int regval;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_index];
+	unsigned long m4u_base;
 	int result = 0;
 	int set_nr, way_nr, set, way;
 
+	if (m4u_index < 0 && m4u_index > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_index);
+		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_index];
 	/* /> check Main TLB part */
 	result = m4u_confirm_main_range_invalidated(m4u_index, 0, MVAStart, MVAEnd);
 	if (result < 0)
@@ -719,18 +756,24 @@ int m4u_confirm_main_all_invalid(int m4u_index, int m4u_slave_id)
 int m4u_confirm_pfh_all_invalid(int m4u_index)
 {
 	unsigned int regval;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_index];
+	unsigned long m4u_base;
 	int set_nr, way_nr, set, way;
 
+	if (m4u_index < 0 && m4u_index > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_index);
+		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_index];
 	set_nr = MMU_SET_NR(m4u_index);
 	way_nr = MMU_WAY_NR;
 
-	for (way = 0; way < way_nr; way++)
-		for (set = 0; set < set_nr; set++)
+	for (way = 0; way < way_nr; way++) {
+		for (set = 0; set < set_nr; set++) {
 			regval = M4U_ReadReg32(m4u_base, REG_MMU_PFH_VLD(m4u_index, set, way));
 			if (regval & F_MMU_PFH_VLD_BIT(set, way))
 				return -1;
-
+		}
+	}
 	return 0;
 }
 
@@ -793,7 +836,8 @@ static int m4u_clock_off(void)
 #if !defined(CONFIG_MTK_CLKMGR)
 const char *smi_clk_name[] = {
 	"smi_common", "m4u_disp0_smi_larb0", "m4u_vdec0_vdec", "m4u_vdec1_larb",
-	"m4u_img_image_larb2_smi", "m4u_venc_venc", "m4u_venc_larb"
+	"m4u_img_image_larb2_smi", "m4u_venc_venc", "m4u_venc_larb",
+	"mtcmos-dis", "mtcmos-vde", "mtcmos-isp", "mtcmos-ven"
 };
 #endif
 
@@ -822,15 +866,31 @@ static int larb_clock_on(int larb)
 	break;
 	}
 #else
-	int ret;
+	int ret = 0;
+
+	ret = clk_prepare_enable(gM4uDev->smi_clk[MTCMOS_LARB0]);
+	if (ret)
+		M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[MTCMOS_LARB0]);
 
 	switch (larb) {
 	case 0:
+		ret = clk_prepare_enable(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[SMI_COMMON_CLK]);
+
 		ret = clk_prepare_enable(gM4uDev->smi_clk[DISP0_SMI_LARB0_CLK]);
 		if (ret)
 			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[DISP0_SMI_LARB0_CLK]);
 	break;
 	case 1:
+		ret = clk_prepare_enable(gM4uDev->smi_clk[MTCMOS_LARB1]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[MTCMOS_LARB1]);
+
+		ret = clk_prepare_enable(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[SMI_COMMON_CLK]);
+
 		ret = clk_prepare_enable(gM4uDev->smi_clk[VDEC0_VDEC_CLK]);
 	    if (ret)
 		M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[VDEC0_VDEC_CLK]);
@@ -839,12 +899,28 @@ static int larb_clock_on(int larb)
 		M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[VDEC1_LARB_CLK]);
 	break;
 	case 2:
+		ret = clk_prepare_enable(gM4uDev->smi_clk[MTCMOS_LARB2]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[MTCMOS_LARB2]);
+
+		ret = clk_prepare_enable(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[SMI_COMMON_CLK]);
+
 		ret = clk_prepare_enable(gM4uDev->smi_clk[LARB2_SMI_CLK]);
 		if (ret)
 			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[LARB2_SMI_CLK]);
 	break;
 #if defined(CONFIG_ARCH_MT6735) || defined(CONFIG_ARCH_MT6753)
 	case 3:
+		ret = clk_prepare_enable(gM4uDev->smi_clk[MTCMOS_LARB3]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[MTCMOS_LARB3]);
+
+		ret = clk_prepare_enable(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+		if (ret)
+			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[SMI_COMMON_CLK]);
+
 		ret = clk_prepare_enable(gM4uDev->smi_clk[VENC_VENC_CLK]);
 		if (ret)
 			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[VENC_VENC_CLK]);
@@ -853,15 +929,13 @@ static int larb_clock_on(int larb)
 			M4UMSG("error: prepare clk %s fail!.\n", smi_clk_name[VENC_LARB_CLK]);
 	break;
 #endif
-	default:
-		M4UMSG("error: unknown larb id  %d, %s\n", larb, __func__);
-	break;
-	}
+default:
+	M4UMSG("error: unknown larb id  %d, %s\n", larb, __func__);
+break;
+}
 #endif
-
 	return 0;
 }
-
 static int larb_clock_off(int larb)
 {
 #if defined(CONFIG_MTK_CLKMGR)
@@ -890,24 +964,36 @@ static int larb_clock_off(int larb)
 	switch (larb) {
 	case 0:
 		clk_disable_unprepare(gM4uDev->smi_clk[DISP0_SMI_LARB0_CLK]);
+		clk_disable_unprepare(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+
 	break;
 	case 1:
 		clk_disable_unprepare(gM4uDev->smi_clk[VDEC0_VDEC_CLK]);
 		clk_disable_unprepare(gM4uDev->smi_clk[VDEC1_LARB_CLK]);
+		clk_disable_unprepare(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+
+		clk_disable_unprepare(gM4uDev->smi_clk[MTCMOS_LARB1]);
 	break;
 	case 2:
 		clk_disable_unprepare(gM4uDev->smi_clk[LARB2_SMI_CLK]);
+		clk_disable_unprepare(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+
+		clk_disable_unprepare(gM4uDev->smi_clk[MTCMOS_LARB2]);
 	break;
 #if defined(CONFIG_ARCH_MT6735) || defined(CONFIG_ARCH_MT6753)
 	case 3:
 		clk_disable_unprepare(gM4uDev->smi_clk[VENC_VENC_CLK]);
 		clk_disable_unprepare(gM4uDev->smi_clk[VENC_LARB_CLK]);
+		clk_disable_unprepare(gM4uDev->smi_clk[SMI_COMMON_CLK]);
+
+		clk_disable_unprepare(gM4uDev->smi_clk[MTCMOS_LARB3]);
 	break;
 #endif
 	default:
 		M4UMSG("error: unknown larb id  %d, %s\n", larb, __func__);
 	break;
 	}
+	clk_disable_unprepare(gM4uDev->smi_clk[MTCMOS_LARB0]);
 #endif
 	return 0;
 }
@@ -985,10 +1071,14 @@ EXPORT_SYMBOL(smi_common_clock_off);
 int m4u_insert_seq_range(M4U_PORT_ID port, unsigned int MVAStart, unsigned int MVAEnd)
 {
 	int i, free_id = -1;
-	unsigned int m4u_index = m4u_port_2_m4u_id(port);
+	unsigned int m4u_index;
 	unsigned int m4u_slave_id = m4u_port_2_m4u_slave_id(port);
-	M4U_RANGE_DES_T *pSeq = gM4USeq[m4u_index] + M4U_SEQ_NUM(m4u_index)*m4u_slave_id;
+	M4U_RANGE_DES_T *pSeq;
 
+	m4u_index = m4u_port_2_m4u_id(port);
+	if (m4u_index == -1)
+		return -1;
+	pSeq = gM4USeq[m4u_index] + M4U_SEQ_NUM(m4u_index)*m4u_slave_id;
 	M4ULOG_MID("m4u_insert_seq_range , module:%s, MVAStart:0x%x, MVAEnd:0x%x\n",
 			m4u_get_port_name(port), MVAStart, MVAEnd);
 
@@ -1062,11 +1152,17 @@ int m4u_insert_seq_range(M4U_PORT_ID port, unsigned int MVAStart, unsigned int M
 
 int m4u_invalid_seq_range_by_id(int port, int seq_id)
 {
-	int m4u_index = m4u_port_2_m4u_id(port);
+	int m4u_index;
 	int m4u_slave_id = m4u_port_2_m4u_slave_id(port);
-	unsigned long m4u_base = gM4UBaseAddr[m4u_index];
-	M4U_RANGE_DES_T *pSeq = gM4USeq[m4u_index] + M4U_SEQ_NUM(m4u_index)*m4u_slave_id;
+	unsigned long m4u_base;
+	M4U_RANGE_DES_T *pSeq;
 	int ret = 0;
+
+	m4u_index = m4u_port_2_m4u_id(port);
+	if (m4u_index == -1)
+		return -1;
+	m4u_base = gM4UBaseAddr[m4u_index];
+	pSeq = gM4USeq[m4u_index] + M4U_SEQ_NUM(m4u_index)*m4u_slave_id;
 
 	mutex_lock(&gM4u_seq_mutex);
 	{
@@ -1114,11 +1210,22 @@ static int m4u_invalid_seq_range_by_mva(int m4u_index, int m4u_slave_id, unsigne
 
 static int _m4u_config_port(int port, int virt, int sec, int dis, int dir)
 {
-	int m4u_index = m4u_port_2_m4u_id(port);
-	unsigned long m4u_base = gM4UBaseAddr[m4u_index];
+	int m4u_index;
+	unsigned long m4u_base;
 	unsigned long larb_base;
 	unsigned int larb, larb_port;
 	int ret = 0;
+	int mmu_en = 0;
+
+	m4u_index = m4u_port_2_m4u_id(port);
+	larb = m4u_port_2_larb_id(port);
+	larb_port = m4u_port_2_larb_port(port);
+	if ((m4u_index == -1) || (larb == -1) || (larb_port == M4U_PORT_UNKNOWN)) {
+		m4u_aee_print(" %s invalid parameter: port=%d\n", __func__, port);
+		return -1;
+	}
+
+	m4u_base = gM4UBaseAddr[m4u_index];
 
 	M4ULOG_HIGH("config_port:%s,v%d,s%d\n",
 	m4u_get_port_name(port), virt, sec);
@@ -1134,10 +1241,7 @@ static int _m4u_config_port(int port, int virt, int sec, int dis, int dir)
 			F_MMU_PFH_DIST_MASK(port), F_MMU_PFH_DIST_VAL(port, dis));
 
 	if (m4u_index == 0) {
-		int mmu_en = 0;
 
-		larb = m4u_port_2_larb_id(port);
-		larb_port = m4u_port_2_larb_port(port);
 		larb_base = gLarbBaseAddr[larb];
 
 		m4uHw_set_field_by_mask(larb_base, SMI_LARB_MMU_EN,
@@ -1196,17 +1300,20 @@ static inline void _m4u_port_clock_toggle(int m4u_index, int larb, int on)
 
 int m4u_config_port(M4U_PORT_STRUCT *pM4uPort) /* native */
 {
-	M4U_PORT_ID PortID = (pM4uPort->ePortID);
-	int m4u_index = m4u_port_2_m4u_id(PortID);
-	int larb = m4u_port_2_larb_id(PortID);
+	M4U_PORT_ID PortID;
+	int m4u_index;
+	int larb;
 	int ret;
 #ifdef M4U_TEE_SERVICE_ENABLE
 	unsigned int larb_port, mmu_en = 0, sec_en = 0;
 #endif
-	if (pM4uPort->ePortID < 0 || pM4uPort->ePortID >= M4U_PORT_NR) {
-		M4UMSG("%s,unknown port %d\n", __func__, pM4uPort->ePortID);
+	if (pM4uPort->ePortID < 0 && pM4uPort->ePortID > M4U_PORT_UNKNOWN) {
+		M4UMSG("error port id, error id is %d\n", pM4uPort->ePortID);
 		return -1;
 	}
+	PortID = pM4uPort->ePortID;
+	m4u_index = m4u_port_2_m4u_id(PortID);
+	larb = m4u_port_2_larb_id(PortID);
 
 	_m4u_port_clock_toggle(m4u_index, larb, 1);
 
@@ -1280,9 +1387,17 @@ int m4u_config_port_array(struct m4u_port_array *port_array)
 
 			larb = m4u_port_2_larb_id(port);
 			larb_port = m4u_port_2_larb_port(port);
+
+			if ((larb == -1) || (larb_port == M4U_PORT_UNKNOWN)) {
+				m4u_aee_print(" %s invalid parameter: port=%d\n", __func__, port);
+				return ret;
+			}
+
 			config_larb[larb] |= (1 << larb_port);
 			value = (!!(port_array->ports[port] && M4U_PORT_ATTR_VIRTUAL))<<larb_port;
+			_m4u_port_clock_toggle(0, larb, 1);
 			regOri[larb] = M4U_ReadReg32(gLarbBaseAddr[larb], SMI_LARB_MMU_EN);
+			_m4u_port_clock_toggle(0, larb, 0);
 			regNew[larb] = (regOri[larb] & (~(1 << larb_port)))
 							| (regNew[larb] & (~(1 << larb_port))) | value;
 
@@ -1358,11 +1473,15 @@ void m4u_get_perf_counter(int m4u_index, int m4u_slave_id, M4U_PERF_COUNT *pM4U_
 
 int m4u_monitor_start(int m4u_id)
 {
-	unsigned long m4u_base = gM4UBaseAddr[m4u_id];
+	unsigned long m4u_base;
 
-	M4UINFO("====m4u_monitor_start: %d,m4u_base:0x%lx======\n", m4u_id, m4u_base);
-	if (m4u_base == 0)
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
 		return -1;
+	}
+	m4u_base = gM4UBaseAddr[m4u_id];
+
+	M4UINFO("====m4u_monitor_start: %d======\n", m4u_id);
 	/* clear GMC performance counter */
 	m4uHw_set_field_by_mask(m4u_base, REG_MMU_CTRL_REG,
 			F_MMU_CTRL_MONITOR_CLR(1), F_MMU_CTRL_MONITOR_CLR(1));
@@ -1383,12 +1502,15 @@ int m4u_monitor_start(int m4u_id)
 int m4u_monitor_stop(int m4u_id)
 {
 	M4U_PERF_COUNT cnt;
-	int m4u_index = m4u_id;
-	unsigned long m4u_base = gM4UBaseAddr[m4u_index];
+	int m4u_index;
+	unsigned long m4u_base;
 
-	M4UINFO("====m4u_monitor_stop: %d,m4u_base:0x%lx======\n", m4u_id, m4u_base);
-	if (m4u_base == 0)
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
 		return -1;
+	}
+	m4u_index = m4u_id;
+	m4u_base = gM4UBaseAddr[m4u_index];
 
 	/* disable GMC performance monitor */
 	m4uHw_set_field_by_mask(m4u_base, REG_MMU_CTRL_REG,
@@ -1606,15 +1728,20 @@ void m4u_print_port_status(struct seq_file *seq, int only_print_active)
 
 	for (port = 0; port < gM4u_port_num; port++) {
 		m4u_index = m4u_port_2_m4u_id(port);
+		larb = m4u_port_2_larb_id(port);
+		larb_port = m4u_port_2_larb_port(port);
+
+		if ((m4u_index == -1) || (larb == -1) || (larb_port == M4U_PORT_UNKNOWN)) {
+			m4u_aee_print(" %s invalid parameter: port=%d\n", __func__, port);
+			return;
+		}
+
 		if (m4u_index == 0) {
-			larb = m4u_port_2_larb_id(port);
-			larb_port = m4u_port_2_larb_port(port);
 			larb_base = gLarbBaseAddr[larb];
 
 			mmu_en = m4uHw_get_field_by_mask(larb_base, SMI_LARB_MMU_EN, F_SMI_MMU_EN(larb_port, 1));
 			sec = m4uHw_get_field_by_mask(larb_base, SMI_LARB_SEC_EN, F_SMI_SEC_EN(larb_port, 1));
 		} else {
-			larb_port = m4u_port_2_larb_port(port);
 			mmu_en = m4uHw_get_field_by_mask(gPericfgBaseAddr,
 					REG_PERIAXI_BUS_CTL3, F_PERI_MMU_EN(larb_port, 1));
 		}
@@ -1911,10 +2038,14 @@ irqreturn_t MTK_M4U_isr(int irq, void *dev_id)
 		if (IntrSrc & F_INT_MAIN_MULTI_HIT_FAULT(m4u_slave_id))
 			MMU_INT_REPORT(m4u_index, m4u_slave_id, F_INT_MAIN_MULTI_HIT_FAULT(m4u_slave_id));
 
-		if (IntrSrc & F_INT_INVALID_PHYSICAL_ADDRESS_FAULT(m4u_slave_id))
-			if (!(IntrSrc & F_INT_TRANSLATION_FAULT(m4u_slave_id)))
+		if (IntrSrc & F_INT_INVALID_PHYSICAL_ADDRESS_FAULT(m4u_slave_id)) {
+			if (!(IntrSrc & F_INT_TRANSLATION_FAULT(m4u_slave_id))) {
 				MMU_INT_REPORT(m4u_index, m4u_slave_id,
-				F_INT_INVALID_PHYSICAL_ADDRESS_FAULT(m4u_slave_id));
+					       F_INT_INVALID_PHYSICAL_ADDRESS_FAULT(m4u_slave_id));
+				M4UMSG("Invalid PA fault: port=%s, mva=0x%x, pa=0x%x, layer=%d, wr=%d, 0x%x\n",
+				       m4u_get_port_name(m4u_port), fault_mva, fault_pa, layer, write, regval);
+			}
+		}
 
 		if (IntrSrc & F_INT_ENTRY_REPLACEMENT_FAULT(m4u_slave_id))
 			MMU_INT_REPORT(m4u_index, m4u_slave_id, F_INT_ENTRY_REPLACEMENT_FAULT(m4u_slave_id));
@@ -2122,9 +2253,15 @@ int m4u_hw_init(struct m4u_device *m4u_dev, int m4u_id)
 {
 	unsigned long pProtectVA;
 	phys_addr_t ProtectPA;
-
 #if !defined(CONFIG_MTK_CLKMGR)
 	int i;
+#endif
+	if (m4u_id < 0 && m4u_id > TOTAL_M4U_NUM) {
+		M4UMSG("error m4u id, error id is %d\n", m4u_id);
+		return -1;
+	}
+
+#if !defined(CONFIG_MTK_CLKMGR)
 
 	gM4uDev->infra_m4u = devm_clk_get(gM4uDev->pDev[m4u_id], "infra_m4u");
 	if (IS_ERR(gM4uDev->infra_m4u)) {

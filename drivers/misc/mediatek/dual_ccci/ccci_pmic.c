@@ -246,7 +246,7 @@ static const struct file_operations pmic_fops = {
 	.owner = THIS_MODULE,
 };
 
-int __init ccci_pmic_init(void)
+int ccci_pmic_init(void)
 {
 	int ret;
 
@@ -275,7 +275,7 @@ int __init ccci_pmic_init(void)
 	return 0;
 }
 
-void __exit ccci_pmic_exit(void)
+void ccci_pmic_exit(void)
 {
 	ccci_pmic_stop();
 

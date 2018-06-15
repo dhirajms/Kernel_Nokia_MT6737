@@ -14,6 +14,8 @@
 #ifndef __CCCI_TTY_H__
 #define __CCCI_TTY_H__
 
+#include <mt_ccci_common.h>
+
 #define  CCCI_TTY_MODEM      0
 #define  CCCI_TTY_META       1
 #define  CCCI_TTY_IPC         2
@@ -33,7 +35,7 @@ struct shared_mem_tty_t {
 };
 
 extern void ccci_reset_buffers(struct shared_mem_tty_t *shared_mem, int size);
-extern int __init ccci_tty_init(int);
-extern void __exit ccci_tty_exit(int);
+extern int  ccci_tty_init(int);
+extern void ccci_tty_exit(int);
 
 #endif				/*  __CCCI_TTY_H__ */

@@ -599,16 +599,6 @@ void kbasep_job_slot_soft_or_hard_stop_do_action(struct kbase_device *kbdev,
 					(unsigned int)core_reqs);
 			return;
 		}
-#ifdef CONFIG_DEBUG_FS
-		/*
-		 * If job fault dumping is enabled then don't actually hard stop
-		 * to give the fault dumping mechanism time to capture the dump
-		 */
-		if (kbase_debug_job_fault_process(target_katom,
-					BASE_JD_EVENT_JOB_CANCELLED))
-			return;
-#endif
-
 		target_katom->atom_flags |= KBASE_KATOM_FLAG_BEEN_HARD_STOPPED;
 
 		if (kbase_hw_has_feature(

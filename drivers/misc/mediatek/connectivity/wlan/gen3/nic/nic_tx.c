@@ -324,7 +324,7 @@ WLAN_STATUS nicTxPollingResource(IN P_ADAPTER_T prAdapter, IN UINT_8 ucTC)
 	P_TX_CTRL_T prTxCtrl;
 	WLAN_STATUS u4Status = WLAN_STATUS_FAILURE;
 	INT_32 i = NIC_TX_RESOURCE_POLLING_TIMEOUT;
-	UINT_32 au4WTSR[8];
+	UINT_16 au2WTSR[HIF_TX_NUM];
 
 	ASSERT(prAdapter);
 	prTxCtrl = &prAdapter->rTxCtrl;
@@ -336,12 +336,12 @@ WLAN_STATUS nicTxPollingResource(IN P_ADAPTER_T prAdapter, IN UINT_8 ucTC)
 		return WLAN_STATUS_SUCCESS;
 
 	while (i-- > 0) {
-		HAL_READ_TX_RELEASED_COUNT(prAdapter, au4WTSR);
+		HAL_READ_TX_RELEASED_COUNT(prAdapter, au2WTSR);
 
 		if (kalIsCardRemoved(prAdapter->prGlueInfo) == TRUE || fgIsBusAccessFailed == TRUE) {
 			u4Status = WLAN_STATUS_FAILURE;
 			break;
-		} else if (nicTxReleaseResource(prAdapter, (PUINT_16) au4WTSR)) {
+		} else if (nicTxReleaseResource(prAdapter, au2WTSR)) {
 			if (prTxCtrl->rTc.au2FreeBufferCount[ucTC] > 0) {
 				u4Status = WLAN_STATUS_SUCCESS;
 				break;
@@ -592,12 +592,14 @@ BOOLEAN nicTxReleaseResource(IN P_ADAPTER_T prAdapter, IN UINT_16 *au2TxRlsCnt)
 				       "Release: TC%u ReturnPageCnt[%hu] FreePageCnt[%hu] FreeBufferCnt[%hu]\n",
 					i, au2FreeTcResource[i], prTcqStatus->au2FreePageCount[i],
 					prTcqStatus->au2FreeBufferCount[i]);
+#if (CFG_SUPPORT_TRACE_TC4 == 1)
+			if (i == TC4_INDEX)
+				wlanTraceReleaseTcRes(prAdapter, au2FreeTcResource[i],
+					prTcqStatus->au2FreePageCount[i]);
+#endif
 			}
 		}
-#if (CFG_SUPPORT_TRACE_TC4 == 1)
-		if (au2TxRlsCnt[TC4_INDEX] != 0)
-			wlanTraceReleaseTcRes(prAdapter, au2TxRlsCnt, prTcqStatus->au2FreeBufferCount[TC4_INDEX]);
-#endif
+
 		for (i = TC0_INDEX; i < TC_NUM; i++)
 			prQM->au4QmTcResourceBackCounter[i] += au2FreeTcResource[i];
 		KAL_RELEASE_SPIN_LOCK(prAdapter, SPIN_LOCK_TX_RESOURCE);
@@ -1377,7 +1379,7 @@ WLAN_STATUS nicTxGenerateDescTemplate(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_
 	for (ucTid = 0; ucTid < TX_DESC_TID_NUM; ucTid++)
 		prStaRec->aprTxDescTemplate[ucTid] = NULL;
 
-	prMsduInfo = cnmPktAlloc(prAdapter, 0);
+	prMsduInfo = cnmCommonPktAlloc(prAdapter, 0);
 
 	if (!prMsduInfo)
 		return WLAN_STATUS_RESOURCES;
@@ -1592,6 +1594,8 @@ WLAN_STATUS nicTxMsduQueue(IN P_ADAPTER_T prAdapter, UINT_8 ucPortIdx, P_QUE_T p
 			prNextMsduInfo = (P_MSDU_INFO_T)
 			    QUEUE_GET_NEXT_ENTRY(&prMsduInfo->rQueEntry);
 
+			StatsEnvTxTime2Hif(prAdapter, prMsduInfo);
+
 			/* Free MSDU_INFO */
 			if (prMsduInfo->eSrc == TX_PACKET_MGMT) {
 				GLUE_DEC_REF_CNT(prTxCtrl->i4TxMgmtPendingNum);
@@ -1648,7 +1652,6 @@ WLAN_STATUS nicTxMsduQueue(IN P_ADAPTER_T prAdapter, UINT_8 ucPortIdx, P_QUE_T p
 				u4TotalLength = 0;
 			}
 #endif
-
 			prMsduInfo = prNextMsduInfo;
 		}
 
@@ -2061,7 +2064,6 @@ VOID nicTxReturnMsduInfo(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfoLi
 BOOLEAN nicTxFillMsduInfo(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo, IN P_NATIVE_PACKET prPacket)
 {
 	P_GLUE_INFO_T prGlueInfo;
-	BOOLEAN fgIsUseFixRate = FALSE;
 
 	ASSERT(prAdapter);
 
@@ -2087,26 +2089,23 @@ BOOLEAN nicTxFillMsduInfo(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo,
 		if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_DHCP) && prAdapter->rWifiVar.ucDhcpTxDone) {
 			prMsduInfo->pfTxDoneHandler = wlanDhcpTxDone;
 			prMsduInfo->ucTxSeqNum = GLUE_GET_PKT_SEQ_NO(prPacket);
-			fgIsUseFixRate = TRUE;
 		} else if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_ARP) && prAdapter->rWifiVar.ucArpTxDone) {
 			prMsduInfo->pfTxDoneHandler = wlanArpTxDone;
 			prMsduInfo->ucTxSeqNum = GLUE_GET_PKT_SEQ_NO(prPacket);
-			fgIsUseFixRate = TRUE;
 		} else if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_ICMP) && prAdapter->rWifiVar.ucIcmpTxDone) {
 			prMsduInfo->pfTxDoneHandler = wlanIcmpTxDone;
 			prMsduInfo->ucTxSeqNum = GLUE_GET_PKT_SEQ_NO(prPacket);
 		} else if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_TDLS)) {
 			prMsduInfo->pfTxDoneHandler = wlanTdlsTxDone;
 			prMsduInfo->ucTxSeqNum = GLUE_GET_PKT_SEQ_NO(prPacket);
+		} else if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_DNS)) {
+			prMsduInfo->pfTxDoneHandler = wlanDnsTxDone;
+			prMsduInfo->ucTxSeqNum = GLUE_GET_PKT_SEQ_NO(prPacket);
 		}
 
-		if (fgIsUseFixRate == TRUE) {
-			if (prMsduInfo->ucBssIndex <= MAX_BSS_INDEX) {
-				P_BSS_INFO_T prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter, prMsduInfo->ucBssIndex);
-
-				prMsduInfo->u4FixedRateOption |= HAL_MAC_TX_DESC_SET_FIX_RATE(prBssInfo);
-				prMsduInfo->ucRateMode = MSDU_RATE_MODE_MANUAL_DESC;
-			}
+		if (GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_DHCP) || GLUE_TEST_PKT_FLAG(prPacket, ENUM_PKT_ARP)) {
+			prMsduInfo->ucUserPriority = 6; /* use VO priority */
+			prMsduInfo->ucDhcpArpFlag = 1;
 		}
 	}
 
@@ -2344,10 +2343,6 @@ WLAN_STATUS nicTxInitResetResource(IN P_ADAPTER_T prAdapter)
 
 BOOLEAN nicTxProcessMngPacket(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo)
 {
-	UINT_16 u2RateCode;
-	P_BSS_INFO_T prBssInfo;
-	P_STA_RECORD_T prStaRec;
-
 	if (prMsduInfo->eSrc != TX_PACKET_MGMT)
 		return FALSE;
 
@@ -2361,9 +2356,6 @@ BOOLEAN nicTxProcessMngPacket(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduI
 	if (!prMsduInfo->ucMacHeaderLength)
 		return FALSE;
 
-	prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter, prMsduInfo->ucBssIndex);
-	prStaRec = cnmGetStaRecByIndex(prAdapter, prMsduInfo->ucStaRecIndex);
-
 	/* MMPDU: force stick to TC4 */
 	prMsduInfo->ucTC = TC4_INDEX;
 
@@ -2371,16 +2363,9 @@ BOOLEAN nicTxProcessMngPacket(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduI
 	prMsduInfo->fgIsTXDTemplateValid = FALSE;
 
 	/* Fixed Rate */
-	if (prMsduInfo->ucRateMode == MSDU_RATE_MODE_AUTO) {
-		prMsduInfo->ucRateMode = MSDU_RATE_MODE_MANUAL_DESC;
+	if (prMsduInfo->ucRateMode == MSDU_RATE_MODE_AUTO)
+		nicTxSetPktLowestFixedRate(prAdapter, prMsduInfo);
 
-		if (prStaRec)
-			u2RateCode = prStaRec->u2HwDefaultFixedRateCode;
-		else
-			u2RateCode = prBssInfo->u2HwDefaultFixedRateCode;
-
-		nicTxSetPktFixedRateOption(prMsduInfo, u2RateCode, FIX_BW_NO_FIXED, FALSE, FALSE);
-	}
 #if CFG_SUPPORT_MULTITHREAD
 	nicTxFillDesc(prAdapter, prMsduInfo, prMsduInfo->aucTxDescBuffer, NULL);
 #endif
@@ -2397,7 +2382,7 @@ VOID nicTxProcessTxDoneEvent(IN P_ADAPTER_T prAdapter, IN P_WIFI_EVENT_T prEvent
 
 	if (prTxDone->ucFlag & BIT(0)) {
 		/* Tx Done with advanced info */
-		DBGLOG(TX, TRACE, "EVENT_ID_TX_DONE WIDX:PID[%u:%u] Status[%u] SN[%u] CNT[%u] RATE[0x%04x]\n",
+		DBGLOG(TX, INFO, "EVENT_ID_TX_DONE WIDX:PID[%u:%u] Status[%u] SN[%u] CNT[%u] RATE[0x%04x]\n",
 				    prTxDone->ucWlanIndex, prTxDone->ucPacketSeq, prTxDone->ucStatus,
 				    prTxDone->u2SequenceNumber, prTxDone->ucTxCount, prTxDone->u2TxRate);
 	} else {
@@ -3019,7 +3004,53 @@ nicTxSetPktFixedRateOption(P_MSDU_INFO_T prMsduInfo,
 
 	/* Write back to RateOption of MSDU_INFO */
 	HAL_MAC_TX_DESC_GET_DW(prTxDesc, 6, 1, &prMsduInfo->u4FixedRateOption);
+}
 
+VOID nicTxSetPktLowestFixedRate(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo)
+{
+	P_BSS_INFO_T prBssInfo = GET_BSS_INFO_BY_INDEX(prAdapter, prMsduInfo->ucBssIndex);
+	P_STA_RECORD_T prStaRec = cnmGetStaRecByIndex(prAdapter, prMsduInfo->ucStaRecIndex);
+	UINT_8 ucRateSwIndex, ucRateIndex, ucRatePreamble;
+	UINT_16 u2RateCode, u2RateCodeLimit, u2OperationalRateSet;
+	UINT_32 u4CurrentPhyRate, u4Status;
+
+	/* Not to use TxD template for fixed rate */
+	prMsduInfo->fgIsTXDTemplateValid = FALSE;
+
+	/* Fixed Rate */
+	prMsduInfo->ucRateMode = MSDU_RATE_MODE_MANUAL_DESC;
+
+	if (prStaRec) {
+		u2RateCode = prStaRec->u2HwDefaultFixedRateCode;
+		u2OperationalRateSet = prStaRec->u2OperationalRateSet;
+	} else {
+		u2RateCode = prBssInfo->u2HwDefaultFixedRateCode;
+		u2OperationalRateSet = prBssInfo->u2OperationalRateSet;
+	}
+
+	/* CoexPhyRateLimit is 0 means phy rate is unlimited */
+	if (prBssInfo->u4CoexPhyRateLimit != 0) {
+
+		u4CurrentPhyRate = nicRateCode2PhyRate(u2RateCode, FIX_BW_NO_FIXED, MAC_GI_NORMAL, AR_SS_NULL);
+
+		if (prBssInfo->u4CoexPhyRateLimit > u4CurrentPhyRate) {
+			nicGetRateIndexFromRateSetWithLimit(
+				u2OperationalRateSet,
+				prBssInfo->u4CoexPhyRateLimit, TRUE, &ucRateSwIndex);
+
+			/* Convert SW rate index to rate code */
+			nicSwIndex2RateIndex(ucRateSwIndex, &ucRateIndex, &ucRatePreamble);
+			u4Status = nicRateIndex2RateCode(ucRatePreamble, ucRateIndex, &u2RateCodeLimit);
+			DBGLOG(NIC, INFO,
+				"Coex RatePreamble=%d, R_SW_IDX:%d, R_CODE:0x%x, R_CODE_LIMIT:0x%x, Status:0x%x\n",
+				ucRatePreamble, ucRateIndex, u2RateCode, u2RateCodeLimit, u4Status);
+			if (u4Status == WLAN_STATUS_SUCCESS) {
+				/* Replace by limitation rate */
+				u2RateCode = u2RateCodeLimit;
+			}
+		}
+	}
+	nicTxSetPktFixedRateOption(prMsduInfo, u2RateCode, FIX_BW_NO_FIXED, FALSE, FALSE);
 }
 
 VOID nicTxSetPktMoreData(P_MSDU_INFO_T prCurrentMsduInfo, BOOLEAN fgSetMoreDataBit)

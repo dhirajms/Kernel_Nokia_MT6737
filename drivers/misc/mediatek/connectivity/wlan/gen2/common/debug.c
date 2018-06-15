@@ -59,6 +59,13 @@ typedef struct _COMMAND_ENTRY {
 	struct COMMAND rCmd;
 } COMMAND_ENTRY, *P_COMMAND_ENTRY;
 
+struct COMMAND_DEBUG_INFO {
+	UINT_8 ucCID;
+	UINT_8 ucCmdSeqNum;
+	UINT_32 u4InqueTime;
+	UINT_32 u4SendToFwTime;
+	UINT_32 u4FwResponseTime;
+};
 typedef struct _PKT_INFO_ENTRY {
 	UINT_64 u8Timestamp;
 	UINT_8 status;
@@ -115,6 +122,9 @@ typedef struct _PKT_STATUS_ENTRY {
 	UINT_8 u1Type;
 	UINT_16 u2IpId;
 	UINT_8 status;
+	UINT_64 u4pktXmitTime; /* unit: naro seconds */
+	UINT_64 u4pktToHifTime; /* unit: naro seconds */
+	UINT_32 u4ProcessTimeDiff; /*ms*/
 } PKT_STATUS_ENTRY, *P_PKT_STATUS_ENTRY;
 
 typedef struct _PKT_STATUS_RECORD {
@@ -136,6 +146,8 @@ typedef struct _PKT_STATUS_RECORD {
 #define PKT_STATUS_MSG_GROUP_RANGE 80
 #define PKT_STATUS_MSG_LENGTH 900
 
+#define CMD_BUF_MSG_LENGTH 1024
+
 #if CFG_SUPPORT_EMI_DEBUG
 #define WLAN_EMI_DEBUG_BUF_SIZE 512
 #define WLAN_EMI_DEBUG_LINE_SIZE 256
@@ -144,6 +156,8 @@ typedef struct _PKT_STATUS_RECORD {
 static P_TC_RES_RELEASE_ENTRY gprTcReleaseTraceBuffer;
 static P_CMD_TRACE_ENTRY gprCmdTraceEntry;
 static P_COMMAND_ENTRY gprCommandEntry;
+static struct COMMAND_DEBUG_INFO *gprCommandDebugInfo;
+
 
 static PKT_TRACE_RECORD grPktRec;
 static PKT_STATUS_RECORD grPktStaRec;
@@ -153,6 +167,8 @@ P_FWDL_DEBUG_T gprFWDLDebug = NULL;
 
 UINT_32 u4FWDL_packet_count;
 static SCAN_TARGET_BSS_LIST grScanTargetBssList;
+static UINT_16 gau2PktSeq[PKT_STATUS_BUF_MAX_NUM];
+UINT_32 u4PktSeqCount;
 
 
 VOID wlanPktDebugTraceInfoARP(UINT_8 status, UINT_8 eventType, UINT_16 u2ArpOpCode)
@@ -289,23 +305,60 @@ VOID wlanPktDebugDumpInfo(P_ADAPTER_T prAdapter)
 	} while (FALSE);
 
 }
-
-VOID wlanPktStatusDebugTraceInfoARP(UINT_8 status, UINT_8 eventType, UINT_16 u2ArpOpCode, PUINT_8 pucPkt)
+VOID wlanPktStausDebugUpdateProcessTime(UINT_32 u4DbgTxPktStatusIndex)
 {
-	if (eventType == PKT_TX)
-		status = 0xFF;
-	wlanPktStatusDebugTraceInfo(status, eventType, ETH_P_ARP, 0, 0, u2ArpOpCode, pucPkt);
+	P_PKT_STATUS_ENTRY prPktInfo;
+
+	if (u4DbgTxPktStatusIndex == 0xffff || u4DbgTxPktStatusIndex >= PKT_STATUS_BUF_MAX_NUM) {
+		DBGLOG(TX, WARN, "Can't support the index %d!\n", u4DbgTxPktStatusIndex);
+		return;
+	}
+
+	prPktInfo = &grPktStaRec.pTxPkt[u4DbgTxPktStatusIndex];
+	if (prPktInfo != NULL) {
+
+		prPktInfo->u4pktToHifTime = sched_clock();
+		if (prPktInfo->u4pktToHifTime > prPktInfo->u4pktXmitTime)
+			prPktInfo->u4ProcessTimeDiff = (UINT_32)(prPktInfo->u4pktToHifTime - prPktInfo->u4pktXmitTime);
+		else
+			prPktInfo->u4ProcessTimeDiff = 0;
+
+		/* transfer the time's uint from 'ns' to 'ms'*/
+		prPktInfo->u4ProcessTimeDiff /= 1000000;
+	}
+
 }
 
-VOID wlanPktStatusDebugTraceInfoIP(UINT_8 status, UINT_8 eventType, UINT_8 ucIpProto, UINT_16 u2IpId, PUINT_8 pucPkt)
+
+VOID wlanPktStatusDebugTraceInfoSeq(P_ADAPTER_T prAdapter, UINT_16 u2NoSeq)
+{
+	if (u4PktSeqCount >= PKT_STATUS_BUF_MAX_NUM)
+		u4PktSeqCount = 0;
+	gau2PktSeq[u4PktSeqCount] = u2NoSeq;
+	u4PktSeqCount++;
+}
+
+
+
+VOID wlanPktStatusDebugTraceInfoARP(UINT_8 status, UINT_8 eventType, UINT_16 u2ArpOpCode, PUINT_8 pucPkt
+	, P_MSDU_INFO_T prMsduInfo)
 {
 	if (eventType == PKT_TX)
 		status = 0xFF;
-	wlanPktStatusDebugTraceInfo(status, eventType, ETH_P_IP, ucIpProto, u2IpId, 0, pucPkt);
+	wlanPktStatusDebugTraceInfo(status, eventType, ETH_P_ARP, 0, 0, u2ArpOpCode, pucPkt, prMsduInfo);
+}
+
+VOID wlanPktStatusDebugTraceInfoIP(UINT_8 status, UINT_8 eventType, UINT_8 ucIpProto, UINT_16 u2IpId, PUINT_8 pucPkt
+	, P_MSDU_INFO_T prMsduInfo)
+{
+	if (eventType == PKT_TX)
+		status = 0xFF;
+	wlanPktStatusDebugTraceInfo(status, eventType, ETH_P_IP, ucIpProto, u2IpId, 0, pucPkt, prMsduInfo);
 }
 
 VOID wlanPktStatusDebugTraceInfo(UINT_8 status, UINT_8 eventType
-	, UINT_16 u2EtherType, UINT_8 ucIpProto, UINT_16 u2IpId, UINT_16 u2ArpOpCode, PUINT_8 pucPkt)
+	, UINT_16 u2EtherType, UINT_8 ucIpProto, UINT_16 u2IpId, UINT_16 u2ArpOpCode
+	, PUINT_8 pucPkt, P_MSDU_INFO_T prMsduInfo)
 {
 	P_PKT_STATUS_ENTRY prPktSta = NULL;
 	UINT_32 index;
@@ -319,26 +372,21 @@ VOID wlanPktStatusDebugTraceInfo(UINT_8 status, UINT_8 eventType
 		}
 
 		/* debug for Package info begin */
-		if (eventType == PKT_TX) {
+		if (eventType == PKT_TX)
 			prPktSta = &grPktStaRec.pTxPkt[grPktStaRec.u4TxIndex];
-			grPktStaRec.u4TxIndex++;
-			if (grPktStaRec.u4TxIndex == PKT_STATUS_BUF_MAX_NUM) {
-				DBGLOG(TX, INFO, "grPktStaRec.u4TxIndex reset");
-				grPktStaRec.u4TxIndex = 0;
-			}
-		} else if (eventType == PKT_RX) {
+		else if (eventType == PKT_RX)
 			prPktSta = &grPktStaRec.pRxPkt[grPktStaRec.u4RxIndex];
-			grPktStaRec.u4RxIndex++;
-			if (grPktStaRec.u4RxIndex == PKT_STATUS_BUF_MAX_NUM) {
-				DBGLOG(TX, INFO, "grPktStaRec.u4RxIndex reset");
-				grPktStaRec.u4RxIndex = 0;
-			}
-		}
+
 
 		if (prPktSta) {
 			prPktSta->u1Type = kalGetPktEtherType(pucPkt);
 			prPktSta->status = status;
 			prPktSta->u2IpId = u2IpId;
+			if (eventType == PKT_TX) {
+				prMsduInfo->u4DbgTxPktStatusIndex = grPktStaRec.u4TxIndex;
+				prPktSta->u4pktXmitTime = GLUE_GET_PKT_XTIME(prMsduInfo->prPacket);
+
+			}
 		}
 
 		/* Update tx status */
@@ -354,6 +402,22 @@ VOID wlanPktStatusDebugTraceInfo(UINT_8 status, UINT_8 eventType
 				}
 			}
 		}
+
+		/*update the index of record */
+		if (eventType == PKT_TX) {
+			grPktStaRec.u4TxIndex++;
+			if (grPktStaRec.u4TxIndex == PKT_STATUS_BUF_MAX_NUM) {
+				DBGLOG(TX, INFO, "grPktStaRec.u4TxIndex reset");
+				grPktStaRec.u4TxIndex = 0;
+			}
+		} else if (eventType == PKT_RX) {
+			grPktStaRec.u4RxIndex++;
+			if (grPktStaRec.u4RxIndex == PKT_STATUS_BUF_MAX_NUM) {
+				DBGLOG(TX, INFO, "grPktStaRec.u4RxIndex reset");
+				grPktStaRec.u4RxIndex = 0;
+			}
+		}
+
 	} while (FALSE);
 }
 
@@ -365,6 +429,9 @@ VOID wlanPktStatusDebugDumpInfo(P_ADAPTER_T prAdapter)
 	P_PKT_STATUS_ENTRY prPktInfo;
 	UINT_8 pucMsg[PKT_STATUS_MSG_LENGTH];
 	UINT_32 u4PktCnt;
+	UINT_64 u8TxTimeBase; /*ns*/
+	UINT_32 u4TxTimeOffset; /*ms*/
+	UINT_8 uMsgGroupRange;
 
 	do {
 
@@ -374,14 +441,22 @@ VOID wlanPktStatusDebugDumpInfo(P_ADAPTER_T prAdapter)
 		if (grPktStaRec.u4TxIndex == 0 && grPktStaRec.u4RxIndex == 0)
 			break;
 
-		DBGLOG(TX, INFO, "Pkt dump: TxCnt %d, RxCnt %d\n" , grPktStaRec.u4TxIndex, grPktStaRec.u4RxIndex);
 		offsetMsg = 0;
+		u4TxTimeOffset = 0;
+		u8TxTimeBase = grPktStaRec.pTxPkt[0].u4pktXmitTime;
+
+		DBGLOG(TX, INFO, "Pkt dump: TxCnt %d, RxCnt %d tx_pkt timebase:%lld ns\n"
+			, grPktStaRec.u4TxIndex, grPktStaRec.u4RxIndex, u8TxTimeBase);
+
 		/* start dump pkt info of tx/rx by decrease timestap */
 		for (i = 0 ; i < 2 ; i++) {
-			if (i == 0)
+			if (i == 0) {
 				u4PktCnt = grPktStaRec.u4TxIndex;
-			else
+				uMsgGroupRange = PKT_STATUS_MSG_GROUP_RANGE/2;
+			} else {
 				u4PktCnt = grPktStaRec.u4RxIndex;
+				uMsgGroupRange = PKT_STATUS_MSG_GROUP_RANGE;
+			}
 
 			for (index = 0; index < u4PktCnt; index++) {
 				if (i == 0)
@@ -391,14 +466,39 @@ VOID wlanPktStatusDebugDumpInfo(P_ADAPTER_T prAdapter)
 				/*ucIpProto = 0x01 ICMP */
 				/*ucIpProto = 0x11 UPD */
 				/*ucIpProto = 0x06 TCP */
-				offsetMsg += kalSnprintf(pucMsg + offsetMsg
-				, PKT_STATUS_MSG_LENGTH
-				, "%d,%02x,%x "
-				, prPktInfo->u1Type
-				, prPktInfo->u2IpId
-				, prPktInfo->status);
 
-				if (((index + 1) % PKT_STATUS_MSG_GROUP_RANGE == 0) || (index == (u4PktCnt - 1))) {
+				if (i == 0) {
+					/*tx format*/
+					u4TxTimeOffset =  prPktInfo->u4pktXmitTime - u8TxTimeBase;
+					/*transfer the time's uint form 'ns' to 'ms'*/
+					u4TxTimeOffset /= 1000000;
+
+					DBGLOG(TX, LOUD, "ipid=0x%x,(%lld - %lld = %d ms),offset=%d ms\n"
+					, prPktInfo->u2IpId, prPktInfo->u4pktToHifTime
+					, prPktInfo->u4pktXmitTime, prPktInfo->u4ProcessTimeDiff
+					, u4TxTimeOffset);
+
+
+					offsetMsg += kalSnprintf(pucMsg + offsetMsg
+					, PKT_STATUS_MSG_LENGTH
+					, "%d,%02x,%x,%d,%d "
+					, prPktInfo->u1Type
+					, prPktInfo->u2IpId
+					, prPktInfo->status
+					, u4TxTimeOffset	/*ms*/
+					, prPktInfo->u4ProcessTimeDiff	/*ms*/
+					);
+				} else {
+					/*rx format*/
+					offsetMsg += kalSnprintf(pucMsg + offsetMsg
+					, PKT_STATUS_MSG_LENGTH
+					, "%d,%02x,%x "
+					, prPktInfo->u1Type
+					, prPktInfo->u2IpId
+					, prPktInfo->status);
+				}
+
+				if (((index + 1) % uMsgGroupRange == 0) || (index == (u4PktCnt - 1))) {
 					if (i == 0)
 						DBGLOG(TX, INFO, "%s\n" , pucMsg);
 					else if (i == 1)
@@ -409,9 +509,25 @@ VOID wlanPktStatusDebugDumpInfo(P_ADAPTER_T prAdapter)
 				}
 			}
 		}
+
+		/*dump rx sequence*/
+		kalMemZero(pucMsg, PKT_STATUS_MSG_LENGTH * sizeof(UINT_8));
+		offsetMsg = 0;
+		offsetMsg += kalSnprintf(pucMsg + offsetMsg, (PKT_STATUS_MSG_LENGTH - offsetMsg)
+			, "RX Seq count: %d [", u4PktSeqCount);
+
+		for (index = 0; index < u4PktSeqCount; index++)
+			offsetMsg += kalSnprintf(pucMsg + offsetMsg, (PKT_STATUS_MSG_LENGTH - offsetMsg)
+			, "%x,", gau2PktSeq[index]);
+
+		DBGLOG(RX, INFO, "%s]\n", pucMsg);
+
+		u4PktSeqCount = 0;
+		kalMemZero(gau2PktSeq, sizeof(UINT_16) * PKT_STATUS_BUF_MAX_NUM);
 	} while (FALSE);
 	u4PktCnt = grPktStaRec.u4TxIndex = 0;
 	u4PktCnt = grPktStaRec.u4RxIndex = 0;
+
 }
 #if CFG_SUPPORT_EMI_DEBUG
 static UINT32 gPrevIdxPagedtrace;
@@ -428,7 +544,7 @@ VOID wlanDebugInit(VOID)
 	gprCommandEntry = kalMemAlloc(TXED_COMMAND_BUF_MAX_NUM * sizeof(COMMAND_ENTRY), PHY_MEM_TYPE);
 	kalMemZero(gprCommandEntry, TXED_COMMAND_BUF_MAX_NUM * sizeof(COMMAND_ENTRY));
 #if CFG_SUPPORT_EMI_DEBUG
-	gPrevIdxPagedtrace = 0;
+	gPrevIdxPagedtrace = 0xFFFF;
 #endif
 	/* debug for command/tc4 resource end */
 
@@ -465,6 +581,17 @@ VOID wlanDebugInit(VOID)
 	kalMemZero(grPktStaRec.pRxPkt, PKT_STATUS_BUF_MAX_NUM * sizeof(PKT_STATUS_ENTRY));
 	grPktStaRec.u4RxIndex = 0;
 	/* debug for package info end */
+
+	/*debug for rx sequence tid begin*/
+	kalMemZero(gau2PktSeq, PKT_STATUS_BUF_MAX_NUM * sizeof(UINT_16));
+	u4PktSeqCount = 0;
+	/* debug for rx sequence tid end*/
+
+	/*debug for command record begin*/
+	gprCommandDebugInfo = kalMemAlloc(TXED_CMD_TRACE_BUF_MAX_NUM * sizeof(struct COMMAND_DEBUG_INFO)
+	, PHY_MEM_TYPE);
+	kalMemZero(gprCommandDebugInfo, TXED_CMD_TRACE_BUF_MAX_NUM * sizeof(struct COMMAND_DEBUG_INFO));
+	/*debug for command record end*/
 }
 
 VOID wlanDebugUninit(VOID)
@@ -505,6 +632,17 @@ VOID wlanDebugUninit(VOID)
 	kalMemFree(grPktStaRec.pRxPkt, VIR_MEM_TYPE, PKT_STATUS_BUF_MAX_NUM * sizeof(PKT_STATUS_ENTRY));
 	grPktStaRec.u4RxIndex = 0;
 	/* debug for package status info end */
+
+
+	/*debug for rx sequence tid begin*/
+	u4PktSeqCount = 0;
+	/* debug for rx sequence tid end*/
+
+	/*debug for command record begin*/
+	kalMemFree(gprCommandDebugInfo, PHY_MEM_TYPE
+	, TXED_CMD_TRACE_BUF_MAX_NUM * sizeof(struct COMMAND_DEBUG_INFO));
+	/*debug for command record end*/
+
 }
 VOID wlanDebugScanTargetBSSRecord(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc)
 {
@@ -870,6 +1008,7 @@ VOID wlanTraceReleaseTcRes(P_ADAPTER_T prAdapter, PUINT_8 aucTxRlsCnt, UINT_8 uc
 {
 	static UINT_16 u2CurEntry;
 	P_TC_RES_RELEASE_ENTRY prCurBuf = &gprTcReleaseTraceBuffer[u2CurEntry];
+
 	HAL_MCR_RD(prAdapter, MCR_D2HRM2R, &prCurBuf->u4RelCID);
 	prCurBuf->u8RelaseTime = sched_clock();
 	prCurBuf->ucTc4RelCnt = aucTxRlsCnt[TC4_INDEX];
@@ -891,6 +1030,7 @@ VOID wlanDumpTcResAndTxedCmd(PUINT_8 pucBuf, UINT_32 maxLen)
 	UINT_16 i = 0;
 	P_CMD_TRACE_ENTRY prCmd = gprCmdTraceEntry;
 	P_TC_RES_RELEASE_ENTRY prTcRel = gprTcReleaseTraceBuffer;
+
 	if (pucBuf) {
 		int bufLen = 0;
 
@@ -1018,7 +1158,7 @@ VOID wlanFWDLDebugDumpInfo(VOID)
 		/* Tx:[TxStartTime][TxDoneTime]
 		*	Pkt:[DL Pkt Section][DL Pkt Size][DL Pkt Resp Time]
 		*/
-		DBGLOG(INIT, WARN, "wlanFWDLDumpLog > Tx:[%u][%u] Rx:[%u][%u] Pkt:[%d][%d][%u]\n"
+		DBGLOG(INIT, TRACE, "wlanFWDLDumpLog > Tx:[%u][%u] Rx:[%u][%u] Pkt:[%d][%d][%u]\n"
 		, (*(gprFWDLDebug+i)).u4TxStartTime, (*(gprFWDLDebug+i)).u4TxDoneTime
 		, (*(gprFWDLDebug+i)).u4RxStartTime, (*(gprFWDLDebug+i)).u4RxDoneTime
 		, (*(gprFWDLDebug+i)).u4Section, (*(gprFWDLDebug+i)).u4DownloadSize
@@ -1088,6 +1228,13 @@ VOID wlanReadFwInfoFromEmi(IN PUINT32 pAddr)
 
 	DBGLOG(RX, TRACE, "%s Start !\n", __func__);
 
+	if (gPrevIdxPagedtrace == 0xFFFF) {
+		/* FW will provide start index for the first time. */
+		gPrevIdxPagedtrace = *pAddr;
+		DBGLOG(RX, WARN, "Invalid PreIdx, reset PreIdx to %d\n", gPrevIdxPagedtrace);
+		return;
+	}
+
 	pEmiBuf = kalMemAlloc(WLAN_EMI_DEBUG_BUF_SIZE, VIR_MEM_TYPE);
 	if (pEmiBuf == NULL) {
 		DBGLOG(RX, WARN, "Buffer allocate fail !\n");
@@ -1121,6 +1268,7 @@ VOID wlanReadFwInfoFromEmi(IN PUINT32 pAddr)
 		if (gPrevIdxPagedtrace >= 0x8000) {
 			DBGLOG(RX, WARN, "++ prev_idx_pagedtrace invalid ...+\n");
 			gPrevIdxPagedtrace = 0x8000 - 1;
+			kalMemFree(pEmiBuf, VIR_MEM_TYPE, WLAN_EMI_DEBUG_BUF_SIZE);
 			return;
 		}
 
@@ -1167,3 +1315,107 @@ VOID wlanReadFwInfoFromEmi(IN PUINT32 pAddr)
 	kalMemFree(pEmiBuf, VIR_MEM_TYPE, WLAN_EMI_DEBUG_BUF_SIZE);
 }
 #endif
+
+/* Begin: Functions used to breakdown packet jitter, for test case VoE 5.7 */
+static VOID wlanSetBE32(UINT_32 u4Val, PUINT_8 pucBuf)
+{
+	PUINT_8 littleEn = (PUINT_8)&u4Val;
+
+	pucBuf[0] = littleEn[3];
+	pucBuf[1] = littleEn[2];
+	pucBuf[2] = littleEn[1];
+	pucBuf[3] = littleEn[0];
+}
+
+VOID wlanFillTimestamp(P_ADAPTER_T prAdapter, PVOID pvPacket, UINT_8 ucPhase)
+{
+	struct sk_buff *skb = (struct sk_buff *)pvPacket;
+	PUINT_8 pucEth = NULL;
+	UINT_32 u4Length = 0;
+	PUINT_8 pucUdp = NULL;
+	struct timeval tval;
+
+	if (!prAdapter || !prAdapter->rDebugInfo.fgVoE5_7Test || !skb)
+		return;
+	pucEth = skb->data;
+	u4Length = skb->len;
+	if (u4Length < 200 ||
+		((pucEth[ETH_TYPE_LEN_OFFSET] << 8) | (pucEth[ETH_TYPE_LEN_OFFSET + 1])) != ETH_P_IP)
+		return;
+	if (pucEth[ETH_HLEN+9] != IP_PRO_UDP)
+		return;
+	pucUdp = &pucEth[ETH_HLEN+28];
+	if (kalStrnCmp(pucUdp, "1345678", 7))
+		return;
+	do_gettimeofday(&tval);
+	switch (ucPhase) {
+	case PHASE_XMIT_RCV: /* xmit */
+		pucUdp += 20;
+		break;
+	case PHASE_ENQ_QM: /* enq */
+		pucUdp += 28;
+		break;
+	case PHASE_HIF_TX: /* tx */
+		pucUdp += 36;
+		break;
+	}
+	wlanSetBE32(tval.tv_sec, pucUdp);
+	wlanSetBE32(tval.tv_usec, pucUdp+4);
+}
+/* End: Functions used to breakdown packet jitter, for test case VoE 5.7 */
+VOID wlanDebugCommandRecodTime(P_CMD_INFO_T prCmdInfo)
+{
+	UINT_32 u4CurCmdIndex = 0;
+	struct COMMAND_DEBUG_INFO *pCommandDebugInfo = NULL;
+
+	if (prCmdInfo == NULL) {
+		DBGLOG(RX, WARN, "prCmdInfo is NULL!\n");
+		return;
+	}
+	/*Getting a index by using  (seq mod size)*/
+	u4CurCmdIndex = prCmdInfo->ucCmdSeqNum % TXED_CMD_TRACE_BUF_MAX_NUM;
+	pCommandDebugInfo = &(gprCommandDebugInfo[u4CurCmdIndex]);
+
+	pCommandDebugInfo->ucCID = prCmdInfo->ucCID;
+	pCommandDebugInfo->ucCmdSeqNum = prCmdInfo->ucCmdSeqNum;
+	pCommandDebugInfo->u4InqueTime = prCmdInfo->u4InqueTime;
+	pCommandDebugInfo->u4SendToFwTime = prCmdInfo->u4SendToFwTime;
+	pCommandDebugInfo->u4FwResponseTime = prCmdInfo->u4FwResponseTime;
+
+	DBGLOG(RX, LOUD, "(%d),CID:0x%02x,SEQ:%d,INQ[%u],SEND[%u],RSP[%u],now[%u]\n"
+	, u4CurCmdIndex
+	, pCommandDebugInfo->ucCID
+	, pCommandDebugInfo->ucCmdSeqNum
+	, pCommandDebugInfo->u4InqueTime
+	, pCommandDebugInfo->u4SendToFwTime
+	, pCommandDebugInfo->u4FwResponseTime, kalGetTimeTick());
+
+}
+VOID wlanDebugCommandRecodDump(VOID)
+{
+	UINT_16 i = 0;
+	UINT_8 pucMsg[CMD_BUF_MSG_LENGTH];
+	UINT_32 offsetMsg = 0;
+
+	DBGLOG(RX, INFO, "now getTimeTick:%u\n", kalGetTimeTick());
+	kalMemZero(pucMsg, sizeof(UINT_8)*CMD_BUF_MSG_LENGTH);
+
+	for (i = 0; i < TXED_CMD_TRACE_BUF_MAX_NUM; i++) {
+		offsetMsg += kalSnprintf(pucMsg + offsetMsg, CMD_BUF_MSG_LENGTH - offsetMsg
+		, "SEQ:%d,CID:0x%02x,,INQ:%u,SEND:%u,RSP:%u |"
+		, gprCommandDebugInfo[i].ucCmdSeqNum
+		, gprCommandDebugInfo[i].ucCID
+		, gprCommandDebugInfo[i].u4InqueTime
+		, gprCommandDebugInfo[i].u4SendToFwTime
+		, gprCommandDebugInfo[i].u4FwResponseTime);
+
+		if (i%5 == 0 && i > 0) {
+			DBGLOG(RX, INFO, "%s\n", pucMsg);
+			kalMemZero(pucMsg, sizeof(UINT_8)*CMD_BUF_MSG_LENGTH);
+			offsetMsg = 0;
+		}
+	}
+	DBGLOG(RX, INFO, "%s\n", pucMsg);
+	kalMemZero(gprCommandDebugInfo, sizeof(struct COMMAND_DEBUG_INFO)*TXED_CMD_TRACE_BUF_MAX_NUM);
+}
+

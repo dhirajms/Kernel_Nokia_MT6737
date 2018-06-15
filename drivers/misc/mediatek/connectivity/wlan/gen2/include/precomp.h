@@ -113,9 +113,8 @@
 #include "rlm_protection.h"
 #include "rlm_obss.h"
 #include "rate.h"
-#if CFG_SUPPORT_802_11V
 #include "wnm.h"
-#endif
+
 #include "qosmap.h"
 
 #include "aa_fsm.h"
@@ -123,6 +122,8 @@
 #include "cnm_timer.h"
 
 #include "que_mgt.h"
+
+#include "wmm.h"
 
 #if CFG_ENABLE_BT_OVER_WIFI
 #include "bow.h"
@@ -198,7 +199,7 @@ extern void wlanUnregisterNotifier(void);
 extern void register_set_p2p_mode_handler(set_p2p_mode handler);
 extern void register_set_dbg_level_handler(set_dbg_level handler);
 
-#if CFG_TC1_FEATURE
+#if defined(CFG_USE_AOSP_TETHERING_NAME)
 extern volatile int wlan_if_changed;
 #endif
 extern BOOLEAN fgIsResetting;

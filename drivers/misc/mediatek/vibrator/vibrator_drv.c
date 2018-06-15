@@ -1,12 +1,15 @@
-/******************************************************************************
- * mt6575_vibrator.c - MT6575 Android Linux Vibrator Device Driver
+/*
+ * Copyright (C) 2015 MediaTek Inc.
  *
- * Copyright 2009-2010 MediaTek Co.,Ltd.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
- * DESCRIPTION:
- *     This file provid the other drivers vibrator relative functions
- *
- ******************************************************************************/
+ * This program is distributed in the hope that it will be useful,
+i * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -24,6 +27,7 @@
 
 #include <linux/jiffies.h>
 #include <linux/timer.h>
+#include <linux/debugfs.h>
 
 /* #include <mach/mt6577_pm_ldo.h> */
 
@@ -33,11 +37,19 @@
 #define VERSION					        "v 0.1"
 #define VIB_DEVICE				"mtk_vibrator"
 
-static int debug_enable_vib_hal = 1;
+static struct dentry *vibr_droot;
+static struct dentry *vibr_dklog;
+int vibr_klog_en;
+
 /* #define pr_fmt(fmt) "[vibrator]"fmt */
 #define VIB_DEBUG(format, args...) do { \
-	if (debug_enable_vib_hal) {\
+	if (vibr_klog_en) {\
 		pr_debug(format, ##args);\
+	} \
+} while (0)
+#define VIB_INFO(format, args...) do { \
+	if (vibr_klog_en) {\
+		pr_info(format, ##args);\
 	} \
 } while (0)
 
@@ -225,7 +237,7 @@ static ssize_t store_vibr_on(struct device *dev, struct device_attribute *attr,
 			     const char *buf, size_t size)
 {
 	if (buf != NULL && size != 0) {
-		/* VIB_DEBUG("buf is %s and size is %d\n", buf, size); */
+		VIB_DEBUG("buf is %s and size is %zu\n", buf, size);
 		if (buf[0] == '0')
 			vibr_Disable();
 		else
@@ -256,9 +268,15 @@ static DEVICE_ATTR(vibr_on, 0220, NULL, store_vibr_on);
 static int vib_mod_init(void)
 {
 	s32 ret;
+	struct vibrator_hw *hw;
 
 	VIB_DEBUG("MediaTek MTK vibrator driver register, version %s\n",
 		  VERSION);
+	hw = mt_get_cust_vibrator_hw();
+	if (hw == NULL) {
+		VIB_INFO("%s: get dts fail.\n", __func__);
+		return -1;
+	}
 	/* set vibr voltage if needs.  Before MT6320 vibr default voltage=2.8v,
 	   but in MT6323 vibr default voltage=1.2v */
 	vibr_power_set();
@@ -293,6 +311,18 @@ static int vib_mod_init(void)
 	ret = device_create_file(mtk_vibrator.dev, &dev_attr_vibr_on);
 	if (ret)
 		VIB_DEBUG("device_create_file vibr_on fail!\n");
+
+	/* Add vibrator debug node */
+#ifdef CONFIG_MTK_ENG_BUILD
+		vibr_klog_en = 1;
+#else
+		vibr_klog_en = 0;
+#endif
+		vibr_droot = debugfs_create_dir("vibrator", NULL);
+		if (IS_ERR_OR_NULL(vibr_droot))
+			return 0;
+		vibr_dklog = debugfs_create_u32("debug", 0600, vibr_droot, &vibr_klog_en);
+
 
 	VIB_DEBUG("vib_mod_init Done\n");
 

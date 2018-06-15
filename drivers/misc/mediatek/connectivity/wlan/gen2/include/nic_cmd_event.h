@@ -36,6 +36,7 @@
 
 #define MAX_IE_LENGTH       (600)
 #define MAX_WSC_IE_LENGTH   (400)
+#define MAX_FW_LOG_LENGTH   (896)
 
 /* Action field in structure CMD_CH_PRIVILEGE_T */
 #define CMD_CH_ACTION_REQ           0
@@ -124,12 +125,20 @@ typedef enum _ENUM_CMD_ID_T {
 	CMD_ID_SET_PSCN_MAC_ADDR = 0x47,	/* 0x47 (Set) */
 	CMD_ID_GET_GSCN_SCN_RESULT = 0x48,	/* 0x48 (Get) */
 	CMD_ID_SET_COUNTRY_POWER_LIMIT = 0x4A,	/* 0x4A (Set) */
+	CMD_ID_SET_RRM_CAPABILITY = 0x59, /* 0x59 (Set) */
+	CMD_ID_SET_MAX_TXPWR_LIMIT = 0x5A, /* 0x5A (Set) */
 	CMD_ID_REQ_CHNL_UTILIZATION = 0x5C, /* 0x5C (Get) */
+#if CFG_SUPPORT_P2P_ECSA
+	CMD_ID_SET_ECSA_PARAM = 0x5D,		/* 0x5D (Set) */
+#endif
+	CMD_ID_SET_TSM_STATISTICS_REQUEST = 0x5E,
+	CMD_ID_GET_TSM_STATISTICS = 0x5F,
 	CMD_ID_SET_SYSTEM_SUSPEND = 0x60,	/* 0x60 (Set) */
-
+	CMD_ID_UPDATE_AC_PARMS = 0x6A,		/* 0x6A (Set) */
+	CMD_ID_SET_CTIA_MODE_STATUS = 0x6B,		/* 0x6B (Set) */
 	CMD_ID_SET_ROAMING_SKIP = 0x6D, /* 0x6D (Set) */
 	CMD_ID_SET_DROP_PACKET_CFG = 0x6E,   /* 0x6E (Set) */
-#if CFG_SUPPORT_FCC_DYNAMIC_TX_PWR_ADJUST
+#if (CFG_SUPPORT_FCC_DYNAMIC_TX_PWR_ADJUST || CFG_SUPPORT_FCC_POWER_BACK_OFF)
 	CMD_ID_SET_FCC_TX_PWR_CERT = 0x6F,	/* 0x6F (Set) */
 #endif
 #ifdef FW_CFG_SUPPORT
@@ -163,17 +172,18 @@ typedef enum _ENUM_CMD_ID_T {
 	CMD_ID_SEC_CHECK,	/* 0xc7 (Set / Query) */
 #endif
 	CMD_ID_DUMP_MEM,	/* 0xc8 (Query) */
-#if CFG_SUPPORT_TX_BACKOFF
+#if CFG_SUPPORT_TX_POWER_BACK_OFF
 	CMD_ID_SET_TX_PWR_OFFSET = 0xC9,	/* 0xc9 (Set) */
 #endif
 	CMD_ID_CHIP_CONFIG = 0xCA,	/* 0xca (Set / Query) */
-#if CFG_SUPPORT_TX_BACKOFF
+#if CFG_SUPPORT_TX_POWER_BACK_OFF
 	CMD_ID_SET_TX_PWR_BACKOFF = 0xCC,	/* 0xcc (Set) */
 #endif
 #if CFG_SUPPORT_RDD_TEST_MODE
 	CMD_ID_SET_RDD_CH = 0xE1,
 #endif
 
+	CMD_ID_SET_NVRAM_SETTINGS = 0xEF,
 	CMD_ID_SET_BWCS = 0xF1,
 	CMD_ID_SET_ROAMING_INFO = 0xF3,
 
@@ -251,12 +261,19 @@ typedef enum _ENUM_EVENT_ID_T {
 	EVENT_ID_GSCAN_SCAN_AVAILABLE = 0x35,
 	EVENT_ID_GSCAN_RESULT = 0x36,
 	EVENT_ID_BATCH_RESULT = 0x37,
+
 	EVENT_ID_CHECK_REORDER_BUBBLE = 0x39,
+#if CFG_SUPPORT_P2P_ECSA
+		EVENT_ID_ECSA_RESULT = 0x3D,
+#endif
+	EVENT_ID_ADD_PKEY_DONE = 0x44, /* 0x44 (Unsolicited) */
+	EVENT_ID_GET_TSM_STATISTICS = 0x47,
+
+
 
 #if CFG_RX_BA_REORDERING_ENHANCEMENT
 	EVENT_ID_BA_FW_DROP_SN = 0x51,
 #endif
-
 	EVENT_ID_RSP_CHNL_UTILIZATION = 0x59, /* 0x59 (Query - CMD_ID_REQ_CHNL_UTILIZATION) */
 #if CFG_SUPPORT_EMI_DEBUG
 	EVENT_ID_DRIVER_DUMP_LOG = 0x76, /*request driver to dump EMI message*/
@@ -275,6 +292,17 @@ typedef enum _ENUM_EVENT_ID_T {
 	EVENT_ID_FW_LOG_ENV = 0xFE,	/* 0xFE, FW real time debug log */
 } ENUM_EVENT_ID_T, *P_ENUM_EVENT_ID_T;
 
+#if CFG_SUPPORT_P2P_ECSA
+typedef enum _ENUM_ECSA_STATE_T {
+	ECSA_EVENT_STATUS_SUCCESS = 0,
+	ECSA_EVENT_STATUS_UPDATE_BEACON = 1, /*Notify Driver to update GO’s ECSA/CSA IE*/
+	ECSA_EVENT_STATUS_INVALID_PARAM = 2,
+	ECSA_EVENT_STATUS_CHNL_SWITCH_FAILED = 3,
+	ECSA_EVENT_STATUS_UNACCEPTABLE = 4,
+	ECSA_EVENT_STATUS_NUM,
+} ENUM_ECSA_STATE_T;
+#endif
+
 /*******************************************************************************
 *                             D A T A   T Y P E S
 ********************************************************************************
@@ -283,7 +311,7 @@ typedef enum _ENUM_EVENT_ID_T {
 typedef UINT_8 CMD_STATUS;
 #endif
 
-#if CFG_SUPPORT_FCC_DYNAMIC_TX_PWR_ADJUST
+#if (CFG_SUPPORT_FCC_DYNAMIC_TX_PWR_ADJUST || CFG_SUPPORT_FCC_POWER_BACK_OFF)
 /* TX Power Adjust For FCC/CE Certification */
 typedef struct _CMD_FCC_TX_PWR_ADJUST_T {
 	UINT_8 fgFccTxPwrAdjust;
@@ -293,7 +321,9 @@ typedef struct _CMD_FCC_TX_PWR_ADJUST_T {
 	UINT_8 Channel_CCK[2];  /* [0] for start channel, [1] for ending channel */
 	UINT_8 Channel_HT20[2]; /* [0] for start channel, [1] for ending channel */
 	UINT_8 Channel_HT40[2]; /* [0] for start channel, [1] for ending channel */
-	UINT_8 cReserved[2];
+	UINT_8 Channel_Bandedge[2]; /* Set specical bandedge for flight mode
+								  *[0] for start channel, [1] for ending channel
+								  */
 } CMD_FCC_TX_PWR_ADJUST, *P_CMD_FCC_TX_PWR_ADJUST;
 #endif
 
@@ -465,6 +495,19 @@ typedef struct _CMD_CUSTOM_UAPSD_PARAM_STRUCT_T {
 	UINT_8 ucMaxSpLen;
 	UINT_8 aucResv[2];
 } CMD_CUSTOM_UAPSD_PARAM_STRUCT_T, *P_CMD_CUSTOM_UAPSD_PARAM_STRUCT_T;
+
+struct CMD_SET_MAX_TXPWR_LIMIT {
+	UINT_8 ucMaxTxPwrLimitEnable;
+	INT_8 cMaxTxPwr; /* in unit of 0.5 dBm */
+	INT_8 cMinTxPwr; /* in unit of 0.5 dBm */
+	UINT_8 ucReserved;
+};
+
+struct CMD_SET_RRM_CAPABILITY {
+	UINT_8 ucDot11RadioMeasurementEnabled;
+	UINT_8 aucCapabilities[5];
+	UINT_8 aucReserved[2];
+};
 
 /* EVENT_CONNECTION_STATUS */
 typedef struct _EVENT_CONNECTION_STATUS {
@@ -943,13 +986,14 @@ typedef struct _CMD_SCAN_REQ_T {
 	UINT_8 ucScanType;
 	UINT_8 ucSSIDType;	/* BIT(0) wildcard / BIT(1) P2P-wildcard / BIT(2) specific */
 	UINT_8 ucSSIDLength;
-	UINT_8 aucReserved[1];
+	UINT_8 ucStructVersion;
 	UINT_16 u2ChannelMinDwellTime;
 	UINT_8 aucSSID[32];
 	UINT_16 u2ChannelDwellTime;	/* For P2P */
 	UINT_8 ucChannelType;
 	UINT_8 ucChannelListNum;
 	CHANNEL_INFO_T arChannelList[32];
+	UINT_8 aucBSSID[MAC_ADDR_LEN];
 	UINT_16 u2IELen;
 	UINT_8 aucIE[MAX_IE_LENGTH];
 } CMD_SCAN_REQ, *P_CMD_SCAN_REQ;
@@ -1148,7 +1192,7 @@ typedef struct _CMD_5G_PWR_OFFSET_T {
 	INT_8 cOffsetBand7;	/* 5.700-5.825G */
 } CMD_5G_PWR_OFFSET_T, *P_CMD_5G_PWR_OFFSET_T;
 
-#if CFG_SUPPORT_TX_BACKOFF
+#if CFG_SUPPORT_TX_POWER_BACK_OFF
 typedef struct _CMD_MITIGATED_PWR_OFFSET_T {
 	MITIGATED_PWR_BY_CH_BY_MODE arRlmMitigatedPwrByChByMode[40];
 } CMD_MITIGATED_PWR_OFFSET_T, *P_CMD_MITIGATED_PWR_OFFSET_T;
@@ -1174,6 +1218,66 @@ typedef struct _CMD_AUTO_POWER_PARAM_T {
 	UINT_8 aucReserved3[1];
 	UINT_8 aucReserved4[8];
 } CMD_AUTO_POWER_PARAM_T, *P_CMD_AUTO_POWER_PARAM_T;
+
+/*for WMMAC, CMD_ID_UPDATE_AC_PARAMS*/
+typedef struct _CMD_UPDATE_AC_PARAMS_T {
+	UINT_8  ucAcIndex; /*0 ~3, from AC0 to AC3*/
+	UINT_8  ucNetTypeIndex;  /*no use*/
+	UINT_16 u2MediumTime; /*if 0, disable ACM for ACx specified by ucAcIndex,
+							otherwise in unit of 32us*/
+	UINT_32 u4PhyRate; /* rate to be used to tx packet with priority ucAcIndex , unit: bps */
+	UINT_16 u2EDCALifeTime; /* msdu life time for this TC, unit: 2TU */
+	UINT_8 ucRetryCount; /* if we use fix rate to tx packets, should tell firmware the limited retries */
+	UINT_8 aucReserved[5];
+} CMD_UPDATE_AC_PARAMS_T, *P_CMD_UPDATE_AC_PARAMS_T;
+/* S56 Traffic Stream Metrics */
+typedef struct _CMD_SET_TSM_STATISTICS_REQUEST_T {
+	UINT_8 ucEnabled; /* 0, disable; 1, enable; */
+	UINT_8 ucNetTypeIndex; /* always NETWORK_TYPE_AIS_INDEX now */
+	UINT_8 ucAcIndex; /* wmm ac index, the statistics should be on this TC */
+	UINT_8 ucTid;
+	UINT_8 aucPeerAddr[MAC_ADDR_LEN]; /* packet to the target address to be mesured */
+	UINT_8 ucBin0Range;
+	UINT_8 aucReserved[3];
+
+	 /* if this variable is 0, followed variables are meaningless
+	    only report once for a same trigger condition in this time frame */
+	UINT_8 ucTriggerCondition; /* for triggered mode: bit(0):average, bit(1):consecutive, bit(2):delay */
+	UINT_8 ucAvgErrThreshold;
+	UINT_8 ucConsecutiveErrThreshold;
+	UINT_8 ucDelayThreshold;
+	UINT_8 ucMeasureCount;
+	UINT_8 ucTriggerTimeout; /* unit: 100 TU*/
+} CMD_SET_TSM_STATISTICS_REQUEST_T, *P_CMD_SET_TSM_STATISTICS_REQUEST_T;
+
+typedef struct _CMD_GET_TSM_STATISTICS_T {
+	UINT_8 ucNetTypeIndex; /* always NETWORK_TYPE_AIS_INDEX now */
+	UINT_8 ucAcIndex;	/* wmm ac index, the statistics should be on this TC or TS */
+	UINT_8 ucTid; /* */
+	UINT_8 aucPeerAddr[MAC_ADDR_LEN];  /* indicating the RA for the measured frames */
+	UINT_8 ucReportReason; /* for triggered mode: bit(0):average, bit(1):consecutive, bit(2):delay */
+	UINT_16 u2Reserved;
+
+	UINT_32 u4PktTxDoneOK;
+	UINT_32 u4PktDiscard; /* u2PktTotal - u2PktTxDoneOK */
+	UINT_32 u4PktFail; /* failed count for exceeding retry limit */
+	UINT_32 u4PktRetryTxDoneOK;
+	UINT_32 u4PktQosCfPollLost;
+
+	/* 802.11k - Average Packet Transmission delay for all packets per this TC or TS */
+	UINT_32 u4AvgPktTxDelay;
+	/* 802.11k - Average Packet Queue Delay */
+	UINT_32 u4AvgPktQueueDelay;
+	UINT_64 u8StartTime; /* represented by TSF */
+	/* sum of packets whose packet tx delay is less than Bi (i=0~6) range value(unit: TU) */
+	UINT_32 au4PktCntBin[6];
+} CMD_GET_TSM_STATISTICS_T, *P_CMD_GET_TSM_STATISTICS_T;
+
+typedef struct _CMD_MAX_TXPWR_LIMIT_T {
+	UINT_8 ucMaxTxPwrLimitEnable;
+	UINT_8 ucMaxTxPwr;
+	UINT_8 ucReserved[2];
+} CMD_MAX_TXPWR_LIMIT_T, *P_CMD_MAX_TXPWR_LIMIT_T;
 
 typedef struct _EVENT_CH_PRIVILEGE_T {
 	UINT_8 ucNetTypeIndex;
@@ -1238,6 +1342,12 @@ typedef struct _EVENT_AP_OBSS_STATUS_T {
 	UINT_8 ucObssBeaconForcedTo20M;
 	UINT_8 aucReserved[2];
 } EVENT_AP_OBSS_STATUS_T, *P_EVENT_AP_OBSS_STATUS_T;
+
+struct EVENT_ADD_KEY_DONE_INFO {
+	UINT_8 ucNetworkType;
+	UINT_8 ucReserved;
+	UINT_8 aucStaAddr[MAC_ADDR_LEN];
+};
 
 typedef struct _CMD_EDGE_TXPWR_LIMIT_T {
 	INT_8 cBandEdgeMaxPwrCCK;
@@ -1395,7 +1505,7 @@ typedef struct _EVENT_FW_LOG_T {
 	UINT_8 fileName[64];
 	UINT_32 lineNo;
 	UINT_32 WifiUpTime;
-	UINT_8 log[896];	/* total size is aucBuffer in WIFI_EVENT_T */
+	UINT_8 log[MAX_FW_LOG_LENGTH];	/* total size is aucBuffer in WIFI_EVENT_T */
 } EVENT_FW_LOG_T, *P_EVENT_FW_LOG_T;
 
 typedef enum _ENUM_NLO_CIPHER_ALGORITHM {
@@ -1452,6 +1562,13 @@ typedef struct _CMD_NLO_CANCEL_T {
 	UINT_8 ucSeqNum;
 	UINT_8 aucReserved[3];
 } CMD_NLO_CANCEL, *P_CMD_NLO_CANCEL;
+
+
+struct CMD_SET_CTIA_MODE {
+	UINT_8  ucCmdVersion;
+	UINT_8  ucCtiaModeEnable;
+	UINT_8  ucReserved[2];
+};
 
 typedef struct _EVENT_NLO_DONE_T {
 	UINT_8      ucSeqNum;
@@ -1599,6 +1716,7 @@ struct CMD_TDLS_PS_T {
 	UINT_8	aucReserved[3];
 };
 
+
 struct CMD_REQ_CHNL_UTILIZATION {
 	UINT_16 u2MeasureDuration;
 	UINT_8 ucChannelNum;
@@ -1626,6 +1744,29 @@ struct EVENT_RSP_CHNL_UTILIZATION {
 	UINT_8 aucReserved2[16];
 };
 
+#if CFG_SUPPORT_P2P_ECSA
+typedef struct _CMD_SET_ECSA_PARAM_T {
+	UINT_8  ucNetTypeIndex;
+	UINT_8  ucSwitchMode;
+	UINT_8  ucOperatingClass;
+	UINT_8  ucSwitchTotalCount; /* unit:tbtt, min value: 1 sec */
+	UINT_8  ucPrimaryChannel;
+	UINT_8  ucRfSco;
+	UINT_8  ucReserved[2];
+} CMD_SET_ECSA_PARAM, *P_CMD_SET_ECSA_PARAM;
+typedef struct _EVENT_ECSA_RESULT_T {
+	UINT_8 ucNetTypeIndex;
+	UINT_8 ucStatus;	/*
+				 * 0: ECSA success
+				 * 1: update beacon success
+				 * 2: Fail due to wrong parameter
+				 * 3: Set channel fail
+				 */
+	UINT_8 ucPrimaryChannel;
+	UINT_8 ucRfSco;
+	UINT_8 ucReserved[4];
+} EVENT_ECSA_RESULT, *P_EVENT_ECSA_RESULT;
+#endif
 /*******************************************************************************
 *                            P U B L I C   D A T A
 ********************************************************************************

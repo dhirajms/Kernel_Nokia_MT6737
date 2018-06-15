@@ -653,18 +653,18 @@ wextSrchDesiredWPSIE(IN PUINT_8 pucIEStart,
 */
 /*----------------------------------------------------------------------------*/
 static int
-wext_get_name(IN struct net_device *prNetDev, IN struct iw_request_info *prIwrInfo, OUT char *pcName, IN char *pcExtra)
+wext_get_name(IN struct net_device *prNetDev, IN struct iw_request_info *prIwrInfo,
+	      OUT char *pcName, IN size_t szNameSize, IN char *pcExtra)
 {
-	ENUM_PARAM_NETWORK_TYPE_T eNetWorkType;
+	ENUM_PARAM_NETWORK_TYPE_T eNetWorkType = PARAM_NETWORK_TYPE_NUM;
 
 	P_GLUE_INFO_T prGlueInfo = NULL;
 	WLAN_STATUS rStatus = WLAN_STATUS_SUCCESS;
 	UINT_32 u4BufLen = 0;
 
-	ASSERT(prNetDev);
-	ASSERT(pcName);
 	if (FALSE == GLUE_CHK_PR2(prNetDev, pcName))
 		return -EINVAL;
+
 	prGlueInfo = *((P_GLUE_INFO_T *) netdev_priv(prNetDev));
 
 	if (netif_carrier_ok(prNetDev)) {
@@ -675,24 +675,25 @@ wext_get_name(IN struct net_device *prNetDev, IN struct iw_request_info *prIwrIn
 
 		switch (eNetWorkType) {
 		case PARAM_NETWORK_TYPE_DS:
-			strcpy(pcName, "IEEE 802.11b");
+			strncpy(pcName, "IEEE 802.11b", szNameSize);
 			break;
 		case PARAM_NETWORK_TYPE_OFDM24:
-			strcpy(pcName, "IEEE 802.11bgn");
+			strncpy(pcName, "IEEE 802.11bgn", szNameSize);
 			break;
 		case PARAM_NETWORK_TYPE_AUTOMODE:
 		case PARAM_NETWORK_TYPE_OFDM5:
-			strcpy(pcName, "IEEE 802.11abgn");
+			strncpy(pcName, "IEEE 802.11abgn", szNameSize);
 			break;
 		case PARAM_NETWORK_TYPE_FH:
 		default:
-			strcpy(pcName, "IEEE 802.11");
+			strncpy(pcName, "IEEE 802.11", szNameSize);
 			break;
 		}
 	} else {
-		strcpy(pcName, "Disconnected");
+		strncpy(pcName, "Disconnected", szNameSize);
 	}
 
+	pcName[szNameSize - 1] = '\0';
 	return 0;
 }				/* wext_get_name */
 
@@ -894,7 +895,7 @@ static int
 wext_get_mode(IN struct net_device *prNetDev,
 	      IN struct iw_request_info *prIwReqInfo, OUT unsigned int *pu4Mode, IN char *pcExtra)
 {
-	ENUM_PARAM_OP_MODE_T eOpMode;
+	ENUM_PARAM_OP_MODE_T eOpMode = NET_TYPE_NUM;
 
 	P_GLUE_INFO_T prGlueInfo = NULL;
 	WLAN_STATUS rStatus = WLAN_STATUS_SUCCESS;
@@ -1127,7 +1128,7 @@ wext_get_ap(IN struct net_device *prNetDev,
 	/* } */
 
 	if (prGlueInfo->eParamMediaStateIndicated == PARAM_MEDIA_STATE_DISCONNECTED) {
-		memset(prAddr, 0, 6);
+		memset(prAddr, 0, sizeof(struct sockaddr));
 		return 0;
 	}
 
@@ -1375,7 +1376,7 @@ wext_get_scan(IN struct net_device *prNetDev,
 	}
 
 	if (prList->u4NumberOfItems > CFG_MAX_NUM_BSS_LIST) {
-		DBGLOG(INIT, INFO, "[wifi] strange scan result count:%ld\n", prList->u4NumberOfItems);
+		DBGLOG(INIT, INFO, "[wifi] strange scan result count:%u\n", prList->u4NumberOfItems);
 		goto error;
 	}
 
@@ -2034,7 +2035,7 @@ static int
 wext_get_rts(IN struct net_device *prNetDev,
 	     IN struct iw_request_info *prIwrInfo, OUT struct iw_param *prRts, IN char *pcExtra)
 {
-	PARAM_RTS_THRESHOLD u4RtsThresh;
+	PARAM_RTS_THRESHOLD u4RtsThresh = 0;
 
 	P_GLUE_INFO_T prGlueInfo = NULL;
 	WLAN_STATUS rStatus = WLAN_STATUS_SUCCESS;
@@ -2211,7 +2212,7 @@ wext_get_encode(IN struct net_device *prNetDev,
 {
 #if 1
 	/* ENUM_ENCRYPTION_STATUS_T eEncMode; */
-	ENUM_PARAM_ENCRYPTION_STATUS_T eEncMode;
+	ENUM_PARAM_ENCRYPTION_STATUS_T eEncMode = ENUM_WEP_ENABLED;
 
 	P_GLUE_INFO_T prGlueInfo = NULL;
 	WLAN_STATUS rStatus = WLAN_STATUS_SUCCESS;
@@ -2658,11 +2659,14 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 	WLAN_STATUS rStatus = WLAN_STATUS_SUCCESS;
 	UINT_32 u4BufLen = 0;
 
-	ASSERT(prNetDev);
-	ASSERT(prEnc);
 	if (FALSE == GLUE_CHK_PR3(prNetDev, prEnc, pcExtra))
 		return -EINVAL;
+
 	prGlueInfo = *((P_GLUE_INFO_T *) netdev_priv(prNetDev));
+	if (!prGlueInfo) {
+		DBGLOG(INIT, ERROR, "No glue info\n");
+		return -EFAULT;
+	}
 
 	memset(keyStructBuf, 0, sizeof(keyStructBuf));
 
@@ -2710,7 +2714,6 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 	} else
 #endif
 	{
-
 		if ((prEnc->flags & IW_ENCODE_MODE) == IW_ENCODE_DISABLED) {
 			prRemoveKey->u4Length = sizeof(*prRemoveKey);
 			memcpy(prRemoveKey->arBSSID, prIWEncExt->addr.sa_data, 6);
@@ -2721,9 +2724,14 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 
 			if (rStatus != WLAN_STATUS_SUCCESS)
 				DBGLOG(INIT, INFO, "remove key error:%x\n", rStatus);
+
 			return 0;
 		}
-		/* return 0; */
+
+		if (prIWEncExt->key_len > 32) {
+			DBGLOG(INIT, ERROR, "Invalid key length %d\n", prIWEncExt->key_len);
+			return -EINVAL;
+		}
 
 		switch (prIWEncExt->alg) {
 		case IW_ENCODE_ALG_NONE:
@@ -2787,7 +2795,7 @@ wext_set_encode_ext(IN struct net_device *prNetDev,
 				}
 
 			} else {
-				DBGLOG(INIT, INFO, "key length %x\n", prIWEncExt->key_len);
+				DBGLOG(INIT, INFO, "key length %d\n", prIWEncExt->key_len);
 				DBGLOG(INIT, INFO, "key error\n");
 			}
 
@@ -2962,7 +2970,7 @@ int wext_support_ioctl(IN struct net_device *prDev, IN struct ifreq *prIfReq, IN
 
 	switch (i4Cmd) {
 	case SIOCGIWNAME:	/* 0x8B01, get wireless protocol name */
-		ret = wext_get_name(prDev, &rIwReqInfo, (char *)&iwr->u.name, NULL);
+		ret = wext_get_name(prDev, &rIwReqInfo, (char *)&iwr->u.name, sizeof(iwr->u.name), NULL);
 		break;
 
 		/* case SIOCSIWNWID: 0x8B02, deprecated */
@@ -3135,7 +3143,7 @@ int wext_support_ioctl(IN struct net_device *prDev, IN struct ifreq *prIfReq, IN
 			ASSERT(iwr->u.data.length <= u4ExtraSize);
 			if (iwr->u.data.length > u4ExtraSize) {
 				DBGLOG(INIT, INFO,
-				       "Updated result length is larger than allocated (%d > %ld)\n",
+				       "Updated result length is larger than allocated (%u > %u)\n",
 					iwr->u.data.length, u4ExtraSize);
 				iwr->u.data.length = u4ExtraSize;
 			}
@@ -3712,5 +3720,60 @@ stat_out:
 	return pStats;
 }				/* wlan_get_wireless_stats */
 
+BOOLEAN wextSrchOkcAndPMKID(IN PUINT_8 pucIEStart, IN INT_32 i4TotalIeLen, OUT PUINT_8 *ppucPMKID, OUT PUINT_8 okc)
+{
+	INT_32 i4InfoElemLen;
+	UINT_8 ucDone = 0;
 
+	ASSERT(pucIEStart);
+	ASSERT(ppucPMKID);
+	ASSERT(okc);
+	*okc = 0;
+	*ppucPMKID = NULL;
+	while (i4TotalIeLen >= 2) {
+		i4InfoElemLen = (INT_32) pucIEStart[1] + 2;
+		if (i4InfoElemLen > i4TotalIeLen)
+			break;
+		if (pucIEStart[0] == ELEM_ID_VENDOR) {
+			if (pucIEStart[1] != 4 || pucIEStart[2] != 0 || pucIEStart[3] != 0x8 || pucIEStart[4] != 0x22)
+				goto check_next;
+			*okc = pucIEStart[5];
+			ucDone |= 1;
+		} else if (pucIEStart[0] == ELEM_ID_RSN) {
+			/* RSN IE:
+			EID(1), Len(1), Version(2), GrpCipher(4), PairCipherCnt(2), PairCipherList(PairCipherCnt * 4)
+			AKMCnt(2), AkmList(4*AkmCnt), RSNCap(2), PMKIDCnt(2), PMKIDList(16*PMKIDCnt), GrpMgtCipher(4) */
+			UINT_16 u2CipherCnt = 0;
+			UINT_16 u2AkmCnt = 0;
+			INT_32 i4LenToCheck = 8;
+
+			/* if no Pairwise Cipher Count field, bypass */
+			if (i4InfoElemLen < i4LenToCheck + 2)
+				goto check_next;
+			u2CipherCnt = *(PUINT_16)&pucIEStart[i4LenToCheck];
+			i4LenToCheck += 2; /* include length of Pairwise Cipher Count field */
+			i4LenToCheck += u2CipherCnt * 4; /* include cipher list field */
+			/* if no AKM Count, bypass */
+			if (i4InfoElemLen < i4LenToCheck + 2)
+				goto check_next;
+			u2AkmCnt = *(PUINT_16)&pucIEStart[i4LenToCheck];
+			i4LenToCheck += 2; /* include length of AKM Count */
+			i4LenToCheck += u2AkmCnt * 4 + 2; /* include akm list field and RSN Cap field */
+			/* if IE length is 10 + u2CipherCnt * 4 + 2 + u2AkmCnt * 4 + 2 + 6,
+			means PMKID count field is zero, and Group Mgmt Cipher may be exist */
+			if (i4InfoElemLen <= i4LenToCheck + 6)
+				goto check_next;
+			*ppucPMKID = pucIEStart + i4LenToCheck; /* return PMKID field and started at PMKID count */
+			ucDone |= 2;
+		}
+		if (ucDone == 3)
+			return TRUE;
+		/* check desired EID */
+		/* Select next information element. */
+check_next:
+		i4TotalIeLen -= i4InfoElemLen;
+		pucIEStart += i4InfoElemLen;
+	}
+	return FALSE;
+}
 #endif /* WIRELESS_EXT */

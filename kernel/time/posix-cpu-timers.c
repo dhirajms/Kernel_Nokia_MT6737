@@ -784,6 +784,7 @@ static void posix_cpu_timer_get(struct k_itimer *timer, struct itimerspec *itp)
 			timer->it.cpu.expires = 0;
 			sample_to_timespec(timer->it_clock, timer->it.cpu.expires,
 					   &itp->it_value);
+			return;
 		} else {
 			cpu_timer_sample_group(timer->it_clock, p, &now);
 			unlock_task_sighand(p, &flags);
@@ -1334,8 +1335,7 @@ static long posix_cpu_nsleep_restart(struct restart_block *restart_block);
 static int posix_cpu_nsleep(const clockid_t which_clock, int flags,
 			    struct timespec *rqtp, struct timespec __user *rmtp)
 {
-	struct restart_block *restart_block =
-		&current_thread_info()->restart_block;
+	struct restart_block *restart_block = &current->restart_block;
 	struct itimerspec it;
 	int error;
 

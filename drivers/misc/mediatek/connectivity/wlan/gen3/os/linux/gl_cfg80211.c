@@ -361,8 +361,9 @@ int mtk_cfg80211_get_station(struct wiphy *wiphy, struct net_device *ndev, const
 	P_GLUE_INFO_T prGlueInfo = NULL;
 	WLAN_STATUS rStatus;
 	PARAM_MAC_ADDRESS arBssid;
-	UINT_32 u4BufLen, u4Rate;
-	INT_32 i4Rssi;
+	UINT_32 u4BufLen;
+	UINT_32 u4Rate = 0;
+	INT_32 i4Rssi = 0;
 	PARAM_GET_STA_STA_STATISTICS rQueryStaStatistics;
 	UINT_32 u4TotalError;
 	struct net_device_stats *prDevStats;
@@ -373,12 +374,15 @@ int mtk_cfg80211_get_station(struct wiphy *wiphy, struct net_device *ndev, const
 	kalMemZero(arBssid, MAC_ADDR_LEN);
 	wlanQueryInformation(prGlueInfo->prAdapter, wlanoidQueryBssid, &arBssid[0], sizeof(arBssid), &u4BufLen);
 
-	/* 1. check BSSID */
-	if (UNEQUAL_MAC_ADDR(arBssid, mac)) {
+	/* 1. check MAC address */
+	/* Should be currently connected BSSID or device itself
+	 * wificond will bring the MAC address of device itself to retrieve TX/RX statistics
+	 */
+	if (UNEQUAL_MAC_ADDR(arBssid, mac) && UNEQUAL_MAC_ADDR(ndev->dev_addr, mac)) {
 		/* wrong MAC address */
 		DBGLOG(REQ, WARN,
-		       "incorrect BSSID: [" MACSTR "] currently connected BSSID[" MACSTR "]\n",
-			MAC2STR(mac), MAC2STR(arBssid));
+		       "Incorrect MAC addr[" MACSTR "], device[" MACSTR "], currently connected BSSID[" MACSTR "]\n",
+		       MAC2STR(mac), MAC2STR(ndev->dev_addr), MAC2STR(arBssid));
 		return -ENOENT;
 	}
 
@@ -571,7 +575,7 @@ int mtk_cfg80211_scan(struct wiphy *wiphy,
 	WLAN_STATUS rStatus;
 	UINT_32 i, u4BufLen;
 	PARAM_SCAN_REQUEST_ADV_T rScanRequest;
-	UINT_32 num_ssid = 0;
+	UINT_32 num_ssid = 0, u4ValidIdx;
 
 	prGlueInfo = (P_GLUE_INFO_T) wiphy_priv(wiphy);
 	ASSERT(prGlueInfo);
@@ -583,21 +587,33 @@ int mtk_cfg80211_scan(struct wiphy *wiphy,
 	kalMemZero(&rScanRequest, sizeof(PARAM_SCAN_REQUEST_ADV_T));
 
 	num_ssid = (UINT_32)request->n_ssids;
+	DBGLOG(REQ, INFO, "request->n_ssids=%d", request->n_ssids);
+
 	if (request->n_ssids == 0) {
 		rScanRequest.u4SsidNum = 0;
 	} else if (request->n_ssids <= (SCN_SSID_MAX_NUM + 1)) {
-		if ((request->ssids[request->n_ssids - 1].ssid == NULL)
-			|| (request->ssids[request->n_ssids - 1].ssid_len == 0))
-			num_ssid--; /* remove the rear NULL SSID if this is a wildcard scan*/
+		u4ValidIdx = 0;
+		for (i = 0; i < request->n_ssids; i++) {
+			if ((request->ssids[i].ssid[0] == 0)
+				|| (request->ssids[i].ssid_len == 0)) {
+				num_ssid--; /* remove if this is a wildcard scan*/
+				DBGLOG(REQ, INFO, "i=%d, num_ssid-- for wildcard scan\n", i);
+				continue;
+			}
+			COPY_SSID(rScanRequest.rSsid[u4ValidIdx].aucSsid,
+				rScanRequest.rSsid[u4ValidIdx].u4SsidLen,
+				request->ssids[i].ssid, request->ssids[i].ssid_len);
+			DBGLOG(REQ, INFO, "i=%d, u4ValidIdx=%d, aucSsid=%s, u4SsidLen=%d\n",
+				i, u4ValidIdx,
+				rScanRequest.rSsid[u4ValidIdx].aucSsid, rScanRequest.rSsid[u4ValidIdx].u4SsidLen);
 
-		if (num_ssid == (SCN_SSID_MAX_NUM + 1)) /* remove the rear SSID if this is a specific scan */
-			num_ssid--;
-
-		rScanRequest.u4SsidNum = num_ssid; /* real SSID number to firmware */
-		for (i = 0; i < rScanRequest.u4SsidNum; i++) {
-			COPY_SSID(rScanRequest.rSsid[i].aucSsid, rScanRequest.rSsid[i].u4SsidLen,
-				  request->ssids[i].ssid, request->ssids[i].ssid_len);
+			u4ValidIdx++;
+			if (u4ValidIdx == SCN_SSID_MAX_NUM) {
+				DBGLOG(REQ, INFO, "i=%d, u4ValidIdx is SCN_SSID_MAX_NUM\n", i);
+				break;
+			}
 		}
+		rScanRequest.u4SsidNum = u4ValidIdx; /* real SSID number to firmware */
 	} else {
 		DBGLOG(REQ, ERROR, "request->n_ssids:%d\n", request->n_ssids);
 		return -EINVAL;
@@ -646,15 +662,20 @@ int mtk_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev, struct cf
 	WLAN_STATUS rStatus;
 	UINT_32 u4BufLen;
 	ENUM_PARAM_ENCRYPTION_STATUS_T eEncStatus;
-	ENUM_PARAM_AUTH_MODE_T eAuthMode;
+	ENUM_PARAM_AUTH_MODE_T eAuthMode = AUTH_MODE_NUM;
 	UINT_32 cipher;
 	PARAM_CONNECT_T rNewSsid;
 	BOOLEAN fgCarryWPSIE = FALSE;
 	ENUM_PARAM_OP_MODE_T eOpMode;
 	UINT_32 i, u4AkmSuite = 0;
 	P_DOT11_RSNA_CONFIG_AUTHENTICATION_SUITES_ENTRY prEntry;
+	P_CONNECTION_SETTINGS_T prConnSettings = NULL;
+#if CFG_SUPPORT_REPLAY_DETECTION
+	struct GL_DETECT_REPLAY_INFO *prDetRplyInfo = NULL;
+#endif
 
 	prGlueInfo = (P_GLUE_INFO_T) wiphy_priv(wiphy);
+	prConnSettings = &prGlueInfo->prAdapter->rWifiVar.rConnSettings;
 	ASSERT(prGlueInfo);
 
 	if (prGlueInfo->prAdapter->rWifiVar.rConnSettings.eOPMode > NET_TYPE_AUTO_SWITCH)
@@ -678,6 +699,12 @@ int mtk_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev, struct cf
 	prGlueInfo->rWpaInfo.u4CipherGroup = IW_AUTH_CIPHER_NONE;
 	prGlueInfo->rWpaInfo.u4CipherPairwise = IW_AUTH_CIPHER_NONE;
 	prGlueInfo->rWpaInfo.u4AuthAlg = IW_AUTH_ALG_OPEN_SYSTEM;
+#if CFG_SUPPORT_REPLAY_DETECTION
+	/* reset Detect replay information */
+	prDetRplyInfo = &prGlueInfo->prDetRplyInfo;
+	kalMemZero(prDetRplyInfo, sizeof(struct GL_DETECT_REPLAY_INFO));
+#endif
+
 #if CFG_SUPPORT_802_11W
 	prGlueInfo->rWpaInfo.u4Mfp = IW_AUTH_MFP_DISABLED;
 	switch (sme->mfp) {
@@ -820,6 +847,7 @@ int mtk_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev, struct cf
 #if CFG_SUPPORT_PASSPOINT
 	prGlueInfo->fgConnectHS20AP = FALSE;
 #endif /* CFG_SUPPORT_PASSPOINT */
+	prConnSettings->fgUseOkc = FALSE;
 
 	if (sme->ie && sme->ie_len > 0) {
 		WLAN_STATUS rStatus;
@@ -874,6 +902,29 @@ int mtk_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev, struct cf
 #endif
 		}
 #endif /* CFG_SUPPORT_PASSPOINT */
+#if CFG_SUPPORT_OKC
+		if (wextSrchOkcAndPMKID(pucIEStart, sme->ie_len, (PUINT_8 *) &prDesiredIE, &prConnSettings->fgUseOkc)) {
+			UINT_16 u2PmkIdCnt = 0;
+
+			if (prDesiredIE)
+				u2PmkIdCnt = *(PUINT_16)prDesiredIE;
+			DBGLOG(REQ, TRACE, "u2PmkIdCnt %d\n", u2PmkIdCnt);
+			if (u2PmkIdCnt != 0 && sme->bssid && !EQUAL_MAC_ADDR("\x0\x0\x0\x0\x0\x0", sme->bssid) &&
+				IS_UCAST_MAC_ADDR(sme->bssid)) {
+				PARAM_PMKID_T rPmkid;
+
+				rPmkid.u4Length = (UINT_32)(sizeof(rPmkid) | (1 << 31));
+				rPmkid.u4BSSIDInfoCount = 1;
+				kalMemCopy(rPmkid.arBSSIDInfo[0].arBSSID, sme->bssid, MAC_ADDR_LEN);
+				kalMemCopy(rPmkid.arBSSIDInfo[0].arPMKID, prDesiredIE+2, IW_PMKID_LEN);
+				rStatus = kalIoctl(prGlueInfo,
+					   wlanoidSetPmkid,
+					   (PVOID)&rPmkid, rPmkid.u4Length, FALSE, FALSE, FALSE, &u4BufLen);
+				if (rStatus != WLAN_STATUS_SUCCESS)
+					DBGLOG(REQ, WARN, "failed to add OKC PMKID\n");
+			}
+		}
+#endif
 
 	}
 
@@ -1735,6 +1786,7 @@ mtk_cfg80211_testmode_get_sta_statistics(IN struct wiphy *wiphy, IN void *data, 
 	P_NL80211_DRIVER_GET_STA_STATISTICS_PARAMS prParams = NULL;
 	PARAM_GET_STA_STA_STATISTICS rQueryStaStatistics;
 	struct sk_buff *skb;
+	INT_32 ifree = 0;
 
 	ASSERT(wiphy);
 	ASSERT(prGlueInfo);
@@ -1744,11 +1796,6 @@ mtk_cfg80211_testmode_get_sta_statistics(IN struct wiphy *wiphy, IN void *data, 
 
 	if (!prParams) {
 		DBGLOG(QM, TRACE, "%s prParams is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	if (!prParams->aucMacAddr) {
-		DBGLOG(QM, TRACE, "%s MAC Address is NULL\n", __func__);
 		return -EINVAL;
 	}
 
@@ -1929,8 +1976,11 @@ mtk_cfg80211_testmode_get_sta_statistics(IN struct wiphy *wiphy, IN void *data, 
 			sizeof(rQueryStaStatistics.au4Reserved), rQueryStaStatistics.au4Reserved))
 			break;
 		i4Status = cfg80211_testmode_reply(skb);
+		ifree = 1;
 	} while (0);
 
+	if (ifree == 0)
+		kfree_skb(skb);
 	return i4Status;
 }
 
@@ -1981,7 +2031,7 @@ mtk_cfg80211_testmode_get_link_detection(IN struct wiphy *wiphy, IN void *data, 
 			   prBugReport, sizeof(EVENT_BUG_REPORT_T), TRUE, TRUE, TRUE, &u4BufLen);
 
 	if (rStatus != WLAN_STATUS_SUCCESS)
-		DBGLOG(INIT, INFO, "query statistics error:%lx\n", rStatus);
+		DBGLOG(INIT, INFO, "query statistics error:%x\n", rStatus);
 
 	kalMemCopy(arBugReport, prBugReport, sizeof(EVENT_BUG_REPORT_T));
 
@@ -1997,57 +2047,59 @@ mtk_cfg80211_testmode_get_link_detection(IN struct wiphy *wiphy, IN void *data, 
 	rStatistics.u4CurrTick = prGlueInfo->u4CurrTick;
 	rStatistics.u8CurrTime = prGlueInfo->u8CurrTime;
 
-	do {
-		if (!NLA_PUT_U8(skb, NL80211_TESTMODE_LINK_INVALID, &u1buf))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_FAIL_CNT, &rStatistics.rFailedCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_RETRY_CNT, &rStatistics.rRetryCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_MULTI_RETRY_CNT,
-				&rStatistics.rMultipleRetryCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_ACK_FAIL_CNT, &rStatistics.rACKFailureCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_FCS_ERR_CNT, &rStatistics.rFCSErrorCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_CNT, &rStatistics.rTransmittedFragmentCount.QuadPart))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_RX_CNT, &rStatistics.rReceivedFragmentCount.QuadPart))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_RST_REASON, &rStatistics.u4RstReason))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_RST_TIME, &rStatistics.u8RstTime))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ROAM_FAIL_TIMES, &rStatistics.u4RoamFailCnt))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_ROAM_FAIL_TIME, &rStatistics.u8RoamFailTime))
-			break;
-		if (!NLA_PUT_U8(skb, NL80211_TESTMODE_LINK_TX_DONE_DELAY_IS_ARP, &rStatistics.u2TxDoneDelayIsARP))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ARRIVE_DRV_TICK, &rStatistics.u4ArriveDrvTick))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ENQUE_TICK, &rStatistics.u4EnQueTick))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_DEQUE_TICK, &rStatistics.u4DeQueTick))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_LEAVE_DRV_TICK, &rStatistics.u4LeaveDrvTick))
-			break;
-		if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_CURR_TICK, &rStatistics.u4CurrTick))
-			break;
-		if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_CURR_TIME, &rStatistics.u8CurrTime))
-			break;
+	if (!NLA_PUT_U8(skb, NL80211_TESTMODE_LINK_INVALID, &u1buf))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_FAIL_CNT, &rStatistics.rFailedCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_RETRY_CNT, &rStatistics.rRetryCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_MULTI_RETRY_CNT,
+			&rStatistics.rMultipleRetryCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_ACK_FAIL_CNT, &rStatistics.rACKFailureCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_FCS_ERR_CNT, &rStatistics.rFCSErrorCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_TX_CNT, &rStatistics.rTransmittedFragmentCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_RX_CNT, &rStatistics.rReceivedFragmentCount.QuadPart))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_RST_REASON, &rStatistics.u4RstReason))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_RST_TIME, &rStatistics.u8RstTime))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ROAM_FAIL_TIMES, &rStatistics.u4RoamFailCnt))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_ROAM_FAIL_TIME, &rStatistics.u8RoamFailTime))
+		goto nla_put_failure;
+	if (!NLA_PUT_U8(skb, NL80211_TESTMODE_LINK_TX_DONE_DELAY_IS_ARP, &rStatistics.u2TxDoneDelayIsARP))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ARRIVE_DRV_TICK, &rStatistics.u4ArriveDrvTick))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_ENQUE_TICK, &rStatistics.u4EnQueTick))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_DEQUE_TICK, &rStatistics.u4DeQueTick))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_LEAVE_DRV_TICK, &rStatistics.u4LeaveDrvTick))
+		goto nla_put_failure;
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_LINK_CURR_TICK, &rStatistics.u4CurrTick))
+		goto nla_put_failure;
+	if (!NLA_PUT_U64(skb, NL80211_TESTMODE_LINK_CURR_TIME, &rStatistics.u8CurrTime))
+		goto nla_put_failure;
 
-		for (i = 0; i < sizeof(EVENT_BUG_REPORT_T) / sizeof(UINT_32); i++) {
-			if (!NLA_PUT_U32(skb, i + NL80211_TESTMODE_LINK_DETECT_NUM, &arBugReport[i])) {
-				kalMemFree(prBugReport, VIR_MEM_TYPE, sizeof(EVENT_BUG_REPORT_T));
-				return i4Status;
-			}
-		}
+	for (i = 0; i < sizeof(EVENT_BUG_REPORT_T) / sizeof(UINT_32); i++) {
+		if (!NLA_PUT_U32(skb, i + NL80211_TESTMODE_LINK_DETECT_NUM, &arBugReport[i]))
+			goto nla_put_failure;
+	}
 
-		i4Status = cfg80211_testmode_reply(skb);
-	} while (0);
+	i4Status = cfg80211_testmode_reply(skb);
+	if (i4Status)
+		DBGLOG(REQ, ERROR, "i4Status=%d\n", i4Status);
+	kalMemFree(prBugReport, VIR_MEM_TYPE, sizeof(EVENT_BUG_REPORT_T));
+	return i4Status;
 
+nla_put_failure:
+	kfree_skb(skb);
 	kalMemFree(prBugReport, VIR_MEM_TYPE, sizeof(EVENT_BUG_REPORT_T));
 	return i4Status;
 }
@@ -2111,10 +2163,10 @@ int mtk_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev *wd
 		i4Status = mtk_cfg80211_testmode_set_key_ext(wiphy, data, len);
 		break;
 #endif
-	case 0x10:
+	case TESTMODE_CMD_ID_STATISTICS:
 		i4Status = mtk_cfg80211_testmode_get_sta_statistics(wiphy, data, len, prGlueInfo);
 		break;
-	case 0x20:
+	case TESTMODE_CMD_ID_LINK:
 		i4Status = mtk_cfg80211_testmode_get_link_detection(wiphy, data, len, prGlueInfo);
 		break;
 #if CFG_SUPPORT_PASSPOINT
@@ -2146,34 +2198,79 @@ mtk_cfg80211_sched_scan_start(IN struct wiphy *wiphy,
 	UINT_32 i, u4BufLen;
 	P_PARAM_SCHED_SCAN_REQUEST prSchedScanRequest;
 	P_SCAN_INFO_T prScanInfo;
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	UINT_32 num = 0;
+#endif
 
-	DBGLOG(REQ, INFO, "--> %s()\n", __func__);
+	DBGLOG(REQ, INFO, "--> %s() n_ssid:%d , match_set:%d\n", __func__, request->n_ssids, request->n_match_sets);
 
 	prGlueInfo = (P_GLUE_INFO_T) wiphy_priv(wiphy);
 	ASSERT(prGlueInfo);
 
 	/* check if there is any pending scan/sched_scan not yet finished */
 	if (prGlueInfo->prScanRequest != NULL || prGlueInfo->prSchedScanRequest != NULL) {
-		DBGLOG(SCN, INFO, "(prGlueInfo->prScanRequest != NULL || prGlueInfo->prSchedScanRequest != NULL)\n");
+		DBGLOG(SCN, ERROR, "(prGlueInfo->prScanRequest != NULL || prGlueInfo->prSchedScanRequest != NULL)\n");
 		return -EBUSY;
 	} else if (request == NULL || request->n_match_sets > CFG_SCAN_SSID_MATCH_MAX_NUM) {
-		DBGLOG(SCN, INFO, "(request == NULL || request->n_match_sets > CFG_SCAN_SSID_MATCH_MAX_NUM)\n");
+		DBGLOG(SCN, ERROR, "(request == NULL || request->n_match_sets > CFG_SCAN_SSID_MATCH_MAX_NUM)\n");
 		/* invalid scheduled scan request */
 		return -EINVAL;
 	} else if (!request->n_match_sets) {
 		/* invalid scheduled scan request */
 		return -EINVAL;
-	} else if (request->n_match_sets > CFG_SCAN_SSID_MATCH_MAX_NUM) {
-		DBGLOG(SCN, INFO, "request->n_match_sets %d > CFG_SCAN_SSID_MATCH_MAX_NUM\n", request->n_match_sets);
-		request->n_match_sets = CFG_SCAN_SSID_MATCH_MAX_NUM;
 	}
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	else if (!request->n_ssids || request->n_ssids > CFG_SCAN_HIDDEN_SSID_MAX_NUM) {
+		/* invalid scheduled scan request */
+		DBGLOG(SCN, ERROR, "invalid n_ssids=%d\n", request->n_ssids);
+		return -EINVAL;
+	}
+#endif
 
 	prSchedScanRequest = (P_PARAM_SCHED_SCAN_REQUEST) kalMemAlloc(sizeof(PARAM_SCHED_SCAN_REQUEST), VIR_MEM_TYPE);
 	if (prSchedScanRequest == NULL) {
-		DBGLOG(SCN, INFO, "(prSchedScanRequest == NULL) kalMemAlloc fail\n");
+		DBGLOG(SCN, ERROR, "(prSchedScanRequest == NULL) kalMemAlloc fail\n");
 		return -ENOMEM;
 	}
+	kalMemZero(prSchedScanRequest, sizeof(PARAM_SCHED_SCAN_REQUEST));
 
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	/* passed in the probe_reqs in active scans */
+	if (request->ssids) {
+		for (i = 0; i < request->n_ssids; i++) {
+			DBGLOG(SCN, TRACE, "ssids : (%d)[%s]\n", i, request->ssids[i].ssid);
+			/* driver ignored the null ssid */
+			if (request->ssids[i].ssid_len == 0 || request->ssids[i].ssid[0] == 0)
+				DBGLOG(SCN, WARN, "ignore the null ssid, index:%d\n", i);
+			else {
+				COPY_SSID(prSchedScanRequest->arSsid[num].aucSsid,
+					  prSchedScanRequest->arSsid[num].u4SsidLen,
+					  request->ssids[i].ssid, request->ssids[i].ssid_len);
+				num++;
+			}
+		}
+	}
+	prSchedScanRequest->u4SsidNum = num;
+	num = 0;
+	if (request->match_sets) {
+		for (i = 0; i < request->n_match_sets; i++) {
+			DBGLOG(SCN, TRACE, "match : (%d)[%s]\n", i, request->match_sets[i].ssid.ssid);
+			/* driver ignored the null ssid */
+			if (request->match_sets[i].ssid.ssid_len == 0
+				|| request->match_sets[i].ssid.ssid[0] == 0)
+				DBGLOG(SCN, WARN, "ignore the null ssid, index:%d\n", i);
+			else {
+				COPY_SSID(prSchedScanRequest->arMatchSsid[num].aucSsid,
+					  prSchedScanRequest->arMatchSsid[num].u4SsidLen,
+					  request->match_sets[i].ssid.ssid,
+					  request->match_sets[i].ssid.ssid_len);
+				prSchedScanRequest->acRssiThresold[i] = (INT_8)request->match_sets[i].rssi_thold;
+				num++;
+			}
+		}
+	}
+	prSchedScanRequest->u4MatchSsidNum = num;
+#else
 	prSchedScanRequest->u4SsidNum = request->n_match_sets;
 	for (i = 0; i < request->n_match_sets; i++) {
 		if (request->match_sets == NULL || &(request->match_sets[i]) == NULL) {
@@ -2185,18 +2282,27 @@ mtk_cfg80211_sched_scan_start(IN struct wiphy *wiphy,
 			prSchedScanRequest->acRssiThresold[i] = 0;/* (INT_8)request->match_sets[i].rssi_thold;*/
 		}
 	}
+#endif
 
 	prSchedScanRequest->u4IELength = request->ie_len;
-	if (request->ie_len > 0)
-		prSchedScanRequest->pucIE = (PUINT_8) (request->ie);
+	if (request->ie_len > 0) {
+		prSchedScanRequest->pucIE = kalMemAlloc(request->ie_len, VIR_MEM_TYPE);
+		if (prSchedScanRequest->pucIE == NULL) {
+			DBGLOG(SCN, ERROR, "prSchedScanRequest->pucIE kalMemAlloc fail\n");
+		} else {
+			kalMemZero(prSchedScanRequest->pucIE, request->ie_len);
+			kalMemCopy(prSchedScanRequest->pucIE, (PUINT_8)request->ie, request->ie_len);
+		}
+	}
 
 	prSchedScanRequest->u2ScanInterval = (UINT_16) (request->interval);
 
 	prSchedScanRequest->ucChnlNum = (UINT_8)request->n_channels;
 	prSchedScanRequest->pucChannels = kalMemAlloc(request->n_channels, VIR_MEM_TYPE);
-	if (!prSchedScanRequest->pucChannels)
+	if (!prSchedScanRequest->pucChannels) {
+		DBGLOG(SCN, ERROR, "prSchedScanRequest->pucChannels kalMemAlloc fail\n");
 		prSchedScanRequest->ucChnlNum = 0;
-	else
+	} else
 		for (i = 0; i < request->n_channels; i++)
 			prSchedScanRequest->pucChannels[i] =
 				nicFreq2ChannelNum(request->channels[i]->center_freq * 1000);
@@ -2206,6 +2312,7 @@ mtk_cfg80211_sched_scan_start(IN struct wiphy *wiphy,
 			   prSchedScanRequest, sizeof(PARAM_SCHED_SCAN_REQUEST), FALSE, FALSE, TRUE, &u4BufLen);
 
 	kalMemFree(prSchedScanRequest->pucChannels, VIR_MEM_TYPE, request->n_channels);
+	kalMemFree(prSchedScanRequest->pucIE, VIR_MEM_TYPE, request->ie_len);
 	kalMemFree(prSchedScanRequest, VIR_MEM_TYPE, sizeof(PARAM_SCHED_SCAN_REQUEST));
 
 	if (rStatus != WLAN_STATUS_SUCCESS) {
@@ -2241,11 +2348,10 @@ int mtk_cfg80211_sched_scan_stop(IN struct wiphy *wiphy, IN struct net_device *n
 		DBGLOG(REQ, WARN, "scheduled scan error:%x\n", rStatus);
 		return -EINVAL;
 	}
-	/* 1. reset first for newly incoming request */
-	/* GLUE_ACQUIRE_SPIN_LOCK(prGlueInfo, SPIN_LOCK_NET_DEV); */
+
 	if (prGlueInfo->prSchedScanRequest != NULL)
 		prGlueInfo->prSchedScanRequest = NULL;
-	/* GLUE_RELEASE_SPIN_LOCK(prGlueInfo, SPIN_LOCK_NET_DEV); */
+
 	return 0;
 }
 
@@ -2361,11 +2467,15 @@ int mtk_cfg80211_testmode_get_scan_done(IN struct wiphy *wiphy, IN void *data, I
 		return -ENOMEM;
 	}
 
-	if (!NLA_PUT_U8(skb, NL80211_TESTMODE_P2P_SCANDONE_INVALID, &u1Buf))
+	if (!NLA_PUT_U8(skb, NL80211_TESTMODE_P2P_SCANDONE_INVALID, &u1Buf)) {
+		kfree_skb(skb);
 		return i4Status;
+	}
 
-	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_P2P_SCANDONE_STATUS, &READY_TO_BEAM))
+	if (!NLA_PUT_U32(skb, NL80211_TESTMODE_P2P_SCANDONE_STATUS, &READY_TO_BEAM)) {
+		kfree_skb(skb);
 		return i4Status;
+	}
 
 	i4Status = cfg80211_testmode_reply(skb);
 	return i4Status;
@@ -2561,9 +2671,12 @@ int mtk_cfg80211_del_station(struct wiphy *wiphy, struct net_device *ndev, const
 	STA_RECORD_T *prStaRec;
 	u8 deleteMac[MAC_ADDR_LEN];
 
-	prAdapter = prGlueInfo->prAdapter;
 	prGlueInfo = (P_GLUE_INFO_T) wiphy_priv(wiphy);
 	ASSERT(prGlueInfo);
+	if (!prGlueInfo)
+		return -1;
+	prAdapter = prGlueInfo->prAdapter;
+
 	/* For kernel 3.18 modification, we trasfer to local buff to query sta */
 	memset(deleteMac, 0, MAC_ADDR_LEN);
 	memcpy(&deleteMac, mac, MAC_ADDR_LEN);

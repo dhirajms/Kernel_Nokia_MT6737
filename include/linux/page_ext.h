@@ -42,7 +42,7 @@ struct page_ext {
 	unsigned int order;
 	gfp_t gfp_mask;
 #ifdef CONFIG_PAGE_OWNER_SLIM
-	BtEntry *entry;
+	struct BtEntry *entry;
 #else
 	unsigned int nr_entries;
 	unsigned long trace_entries[8];

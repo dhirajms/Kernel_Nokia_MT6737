@@ -72,6 +72,23 @@ enum ccci_ipi_op_id {
 	CCCI_OP_ASSERT_TEST,
 };
 
+enum md_bc_event {
+	MD_STA_EV_INVALID = 0,
+	MD_STA_EV_RESET_REQUEST,
+	MD_STA_EV_F_ASSERT_REQUEST,
+	MD_STA_EV_STOP_REQUEST,
+	MD_STA_EV_START_REQUEST,
+	MD_STA_EV_ENTER_FLIGHT_REQUEST,
+	MD_STA_EV_LEAVE_FLIGHT_REQUEST,
+	MD_STA_EV_ENTER_FLIGHT_E_REQUEST,
+	MD_STA_EV_LEAVE_FLIGHT_E_REQUEST,
+	MD_STA_EV_HS1,
+	MD_STA_EV_READY,
+};
+
+void inject_md_status_event(int md_id, int event_type, char reason[]);
+int get_lock_rst_user_cnt(int md_id);
+
 enum {
 	SCP_CCCI_STATE_INVALID = 0,
 	SCP_CCCI_STATE_BOOTING = 1,
@@ -294,6 +311,7 @@ typedef enum {
 	OTHER_MD_NONE,
 	OTHER_MD_STOP,
 	OTHER_MD_RESET,
+	OTHER_MD_ENTER_FLIGHT_MODE,
 } OTHER_MD_OPS;
 
 struct ccci_force_assert_shm_fmt {
@@ -436,6 +454,7 @@ enum {
 	MD_CFG_MDLOG_MODE,
 	MD_CFG_SBP_CODE,
 	MD_CFG_DUMP_FLAG,
+	MD_CFG_SBP_SUB_CODE,
 };
 
 enum {
@@ -547,6 +566,10 @@ int swtp_init(int md_id);
 #define CCCI_IOC_SET_HEADER				_IO(CCCI_IOC_MAGIC,  112) /* emcs_va */
 #define CCCI_IOC_CLR_HEADER				_IO(CCCI_IOC_MAGIC,  113) /* emcs_va */
 #define CCCI_IOC_DL_TRAFFIC_CONTROL		_IOW(CCCI_IOC_MAGIC, 119, unsigned int) /* mdlogger */
+
+#define CCCI_IOC_ENTER_DEEP_FLIGHT_ENHANCED     _IO(CCCI_IOC_MAGIC,  123) /* RILD  factory */
+#define CCCI_IOC_LEAVE_DEEP_FLIGHT_ENHANCED     _IO(CCCI_IOC_MAGIC,  124) /* RILD  factory */
+
 
 #define CCCI_IPC_MAGIC 'P' /* only for IPC user */
 /* CCCI == EEMCS */

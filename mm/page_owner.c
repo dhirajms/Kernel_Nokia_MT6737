@@ -24,8 +24,8 @@ static void init_early_allocated_pages(void);
 
 unsigned long bitmap[BITS_TO_LONGS(BOOT_ENTRIES)];
 
-BtTable gBtTable;
-static BtEntry memory_base[BOOT_ENTRIES];
+struct BtTable gBtTable;
+static struct BtEntry memory_base[BOOT_ENTRIES];
 
 static DEFINE_SPINLOCK(page_owner_spin_lock);
 
@@ -43,7 +43,7 @@ static inline size_t get_hash(unsigned long *backtrace, size_t nr_entries)
 	return hash;
 }
 
-BtEntry *alloc_entry(void)
+struct BtEntry *alloc_entry(void)
 {
 	int index;
 
@@ -66,10 +66,10 @@ static int backtrace_cmp(unsigned long *b1, unsigned long *b2, size_t n)
 	return 0;
 }
 
-static BtEntry *find_entry(BtTable *table, int slot,
+static struct BtEntry *find_entry(struct BtTable *table, int slot,
 		unsigned long *backtrace, size_t nr_entry)
 {
-	BtEntry *entry;
+	struct BtEntry *entry;
 
 	list_for_each_entry(entry, &table->list[slot], list) {
 		/*
@@ -84,7 +84,7 @@ static BtEntry *find_entry(BtTable *table, int slot,
 	return NULL;
 }
 
-static void free_entry(BtEntry *entry)
+static void free_entry(struct BtEntry *entry)
 {
 	int index;
 
@@ -95,7 +95,7 @@ static void free_entry(BtEntry *entry)
 	bitmap_clear(bitmap, index, 1);
 }
 
-void release_backtrace(BtEntry *entry, int nr_pages)
+void release_backtrace(struct BtEntry *entry, int nr_pages)
 {
 	unsigned long flags;
 
@@ -108,11 +108,11 @@ void release_backtrace(BtEntry *entry, int nr_pages)
 	spin_unlock_irqrestore(&page_owner_spin_lock, flags);
 }
 
-BtEntry *record_backtrace(unsigned long *backtrace, int nr_pages, size_t nr_entry)
+struct BtEntry *record_backtrace(unsigned long *backtrace, int nr_pages, size_t nr_entry)
 {
 	size_t hash = get_hash(backtrace, nr_entry);
 	size_t slot = hash % BT_HASH_TABLE_SIZE;
-	BtEntry *entry = NULL;
+	struct BtEntry *entry = NULL;
 	unsigned long flags;
 
 	spin_lock_irqsave(&page_owner_spin_lock, flags);
@@ -151,7 +151,7 @@ BtEntry *record_backtrace(unsigned long *backtrace, int nr_pages, size_t nr_entr
 static ssize_t
 read_page_owner_slim(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
-	BtEntry *entry;
+	struct BtEntry *entry;
 	unsigned long flags;
 	int ret = 0;
 	int index;
@@ -279,7 +279,7 @@ void __set_page_owner(struct page *page, unsigned int order, gfp_t gfp_mask)
 {
 	struct page_ext *page_ext = lookup_page_ext(page);
 #ifdef CONFIG_PAGE_OWNER_SLIM
-	BtEntry *entry;
+	struct BtEntry *entry;
 	unsigned long trace_entries[8];
 	struct stack_trace trace = {
 		.nr_entries = 0,
@@ -310,59 +310,11 @@ void __set_page_owner(struct page *page, unsigned int order, gfp_t gfp_mask)
 	__set_bit(PAGE_EXT_OWNER, &page_ext->flags);
 }
 
-int __dump_pfn_backtrace(unsigned long pfn)
+gfp_t __get_page_owner_gfp(struct page *page)
 {
-	struct page *page = pfn_to_page(pfn);
 	struct page_ext *page_ext = lookup_page_ext(page);
-	int pageblock_mt, page_mt;
-#ifdef CONFIG_PAGE_OWNER_SLIM
-	BtEntry *entry = page_ext->entry;
-	struct stack_trace trace = {
-		.nr_entries = entry->nr_entries,
-		.entries = &entry->backtrace[0],
-	};
-#else
-	struct stack_trace trace = {
-		.nr_entries = page_ext->nr_entries,
-		.entries = &page_ext->trace_entries[0],
-	};
-#endif
 
-	/* Check for holes within a MAX_ORDER area */
-	if (!pfn_valid_within(pfn))
-		return -2;
-
-	if (!test_bit(PAGE_EXT_OWNER, &page_ext->flags))
-		return -3;
-
-
-	pr_info("Page allocated via order %u, mask 0x%x, (%d:%d)\n",
-			page_ext->order, page_ext->gfp_mask,
-			atomic_read(&page->_count), atomic_read(&page->_mapcount));
-
-	pageblock_mt = get_pfnblock_migratetype(page, pfn);
-	page_mt  = gfpflags_to_migratetype(page_ext->gfp_mask);
-	pr_info("PFN %lu Block %lu type %d %s Flags %s%s%s%s%s%s%s%s%s%s%s%s\n",
-			pfn,
-			pfn >> pageblock_order,
-			pageblock_mt,
-			pageblock_mt != page_mt ? "Fallback" : "        ",
-			PageLocked(page)	? "K" : " ",
-			PageError(page)		? "E" : " ",
-			PageReferenced(page)	? "R" : " ",
-			PageUptodate(page)	? "U" : " ",
-			PageDirty(page)		? "D" : " ",
-			PageLRU(page)		? "L" : " ",
-			PageActive(page)	? "A" : " ",
-			PageSlab(page)		? "S" : " ",
-			PageWriteback(page)	? "W" : " ",
-			PageCompound(page)	? "C" : " ",
-			PageSwapCache(page)	? "B" : " ",
-			PageMappedToDisk(page)	? "M" : " ");
-
-	print_stack_trace(&trace, 0);
-
-	return 0;
+	return page_ext->gfp_mask;
 }
 
 static ssize_t
@@ -373,7 +325,7 @@ print_page_owner(char __user *buf, size_t count, unsigned long pfn,
 	int pageblock_mt, page_mt;
 	char *kbuf;
 #ifdef CONFIG_PAGE_OWNER_SLIM
-	BtEntry *entry = page_ext->entry;
+	struct BtEntry *entry = page_ext->entry;
 	struct stack_trace trace = {
 		.nr_entries = entry->nr_entries,
 		.entries = &entry->backtrace[0],

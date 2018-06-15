@@ -1178,12 +1178,14 @@ BOOLEAN kalP2pFuncGetChannelType(IN ENUM_CHNL_EXT_T rChnlSco, OUT enum nl80211_c
 struct ieee80211_channel *kalP2pFuncGetChannelEntry(IN P_GL_P2P_INFO_T prP2pInfo, IN P_RF_CHANNEL_INFO_T prChannelInfo)
 {
 	struct ieee80211_channel *prTargetChannelEntry = (struct ieee80211_channel *)NULL;
+	struct wiphy *wiphy = (struct wiphy *)NULL;
 	UINT_32 u4TblSize = 0, u4Idx = 0;
-	struct wiphy *wiphy = prP2pInfo->prWdev->wiphy;
 
 	do {
-		if ((prP2pInfo == NULL) || (prChannelInfo == NULL))
+		if ((prP2pInfo == NULL) || (prP2pInfo->prWdev == NULL) || (prChannelInfo == NULL))
 			break;
+
+		wiphy = prP2pInfo->prWdev->wiphy;
 
 		switch (prChannelInfo->eBand) {
 		case BAND_2G4:
@@ -1191,6 +1193,12 @@ struct ieee80211_channel *kalP2pFuncGetChannelEntry(IN P_GL_P2P_INFO_T prP2pInfo
 			u4TblSize = wiphy->bands[IEEE80211_BAND_2GHZ]->n_channels;
 			break;
 		case BAND_5G:
+#ifdef CONFIG_MTK_TC1_FEATURE
+			if (wiphy->bands[IEEE80211_BAND_5GHZ] == NULL) {
+				DBGLOG(P2P, ERROR, "NULL Bands!\n");
+				break;
+			}
+#endif
 			prTargetChannelEntry = wiphy->bands[IEEE80211_BAND_5GHZ]->channels;
 			u4TblSize = wiphy->bands[IEEE80211_BAND_5GHZ]->n_channels;
 			break;

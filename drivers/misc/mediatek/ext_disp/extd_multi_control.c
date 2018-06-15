@@ -21,7 +21,7 @@
 #include "extd_log.h"
 #include "mtk_ovl.h"
 
-static const struct EXTD_DRIVER  *extd_driver[DEV_MAX_NUM-1];
+static const struct EXTD_DRIVER  *extd_driver[DEV_MAX_NUM];
 static struct SWITCH_MODE_INFO_STRUCT path_info;
 
 struct task_struct *disp_switch_mode_task = NULL;
@@ -209,7 +209,7 @@ static int disp_switch_mode_kthread(void *data)
 		MULTI_COTRL_LOG("switch mode, create or change path, mode:%d, session:0x%x\n",
 				path_info.cur_mode, path_info.ext_sid);
 		ret = create_external_display_path(path_info.ext_sid, path_info.cur_mode);
-		if (ret == 0) {
+		if (ret == 0 && path_info.switching < DEV_MAX_NUM) {
 			path_info.old_session[path_info.switching] = DISP_SESSION_TYPE(path_info.ext_sid);
 			path_info.old_mode[path_info.switching]    = path_info.cur_mode;
 		}

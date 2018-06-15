@@ -41,6 +41,8 @@
 */
 #define OID_SET_GET_STRUCT_LENGTH		4096	/* For SET_STRUCT/GET_STRUCT */
 
+#define MAX_P2P_IE_SIZE	5
+
 /*******************************************************************************
 *                             D A T A   T Y P E S
 ********************************************************************************
@@ -109,7 +111,12 @@ struct _GL_P2P_INFO_T {
 	UINT_8 aucWSCIE[3][400];	/* 0 for beacon, 1 for probe req, 2 for probe response */
 	UINT_16 u2WSCIELen[3];
 
+	UINT_8 aucP2PIE[MAX_P2P_IE_SIZE][400];
+	UINT_16 u2P2PIELen[MAX_P2P_IE_SIZE];
+
 #if CFG_SUPPORT_WFD
+	UINT_8 aucWFDIE[400];
+	UINT_16 u2WFDIELen;
 	UINT_8 aucVenderIE[1024];	/* Save the other IE for prove resp */
 	UINT_16 u2VenderIELen;
 #endif
@@ -164,6 +171,13 @@ typedef struct _NL80211_DRIVER_HOTSPOT_BLOCK_PARAMS {
 	UINT_8 ucblocked;
 	UINT_8 aucBssid[MAC_ADDR_LEN];
 } NL80211_DRIVER_HOTSPOT_BLOCK_PARAMS, *P_NL80211_DRIVER_HOTSPOT_BLOCK_PARAMS;
+
+/* Hotspot Management set config */
+struct NL80211_DRIVER_HOTSPOT_CONFIG_PARAMS {
+	NL80211_DRIVER_TEST_PARAMS hdr;
+	UINT_32 idx;
+	UINT_32 value;
+};
 
 #if CFG_SUPPORT_WFD
 typedef struct _NL80211_DRIVER_WFD_PARAMS {
@@ -238,8 +252,12 @@ BOOLEAN p2PFreeInfo(P_GLUE_INFO_T prGlueInfo);
 
 BOOLEAN glP2pCreateWirelessDevice(P_GLUE_INFO_T prGlueInfo);
 
+
 VOID glP2pDestroyWirelessDevice(VOID);
 
 VOID p2pSetMulticastListWorkQueueWrapper(P_GLUE_INFO_T prGlueInfo);
+
+
+int p2pHardStartXmit(IN struct sk_buff *prSkb, IN struct net_device *prDev);
 
 #endif

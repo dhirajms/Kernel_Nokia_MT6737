@@ -20,9 +20,12 @@ ccflags-y += -DMTK_ALPS_BOX_SUPPORT
 endif
 
 #QMU Flags
-ccflags-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += -DMUSB_QMU_SUPPORT
-ccflags-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += -DMUSB_QMU_SUPPORT_HOST
+subdir-ccflags-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += -DMUSB_QMU_SUPPORT
+subdir-ccflags-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += -DMUSB_QMU_SUPPORT_HOST
 ##ccflags-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += -DQMU_TASKLET
+ifeq ($(CONFIG_MTK_MUSB_QMU_SUPPORT),y)
+subdir-ccflags-$(CONFIG_ARCH_MT8163) += -DMUSB_QMU_LIMIT_SUPPORT -DMUSB_QMU_LIMIT_RXQ_NUM=4 -DMUSB_QMU_LIMIT_TXQ_NUM=4
+endif
 
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 
@@ -49,7 +52,6 @@ musb_hdrc-$(CONFIG_USB_MTK_HDRC) := musb_core.o
 musb_hdrc-$(CONFIG_USB_MTK_HDRC) += musb_gadget_ep0.o musb_gadget.o
 musb_hdrc-$(CONFIG_USB_MTK_HDRC) += musb_virthub.o musb_host.o
 musb_hdrc-$(CONFIG_USB_MTK_HDRC) += musbhsdma.o
-musb_hdrc-$(CONFIG_USB_MTK_HDRC) += musb_debugfs.o
 
 # QMU Realted
 obj-$(CONFIG_MTK_MUSB_QMU_SUPPORT) += mtk_qmu.o musb_qmu.o

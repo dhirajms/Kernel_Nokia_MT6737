@@ -35,7 +35,7 @@
 #include <mach/mtk_rtc_hal.h>
 #include <mtk_rtc_hal_common.h>
 #include <mt_pmic_wrap.h>
-#include <mt-plat/aee.h>
+/*#include <mt-plat/aee.h>*/
 
 #define hal_rtc_xinfo(fmt, args...)		\
 		pr_notice(fmt, ##args)
@@ -174,6 +174,11 @@ u16 hal_rtc_get_spare_register(rtc_spare_enum cmd)
 
 static void rtc_get_tick(struct rtc_time *tm)
 {
+#ifdef RTC_INT_CNT
+	tm->tm_cnt = rtc_read(RTC_INT_CNT);
+#else
+	tm->tm_cnt = 0;
+#endif
 	tm->tm_sec = rtc_read(RTC_TC_SEC);
 	tm->tm_min = rtc_read(RTC_TC_MIN);
 	tm->tm_hour = rtc_read(RTC_TC_HOU);
@@ -190,7 +195,13 @@ void hal_rtc_get_tick_time(struct rtc_time *tm)
 	rtc_write(RTC_BBPU, bbpu);
 	rtc_write_trigger();
 	rtc_get_tick(tm);
+#ifdef RTC_INT_CNT
+	bbpu = rtc_read(RTC_BBPU) | RTC_BBPU_KEY | RTC_BBPU_RELOAD;
+	rtc_write(RTC_BBPU, bbpu);
+	if (rtc_read(RTC_INT_CNT) < tm->tm_cnt) {	/* SEC has carried */
+#else
 	if (rtc_read(RTC_TC_SEC) < tm->tm_sec) {	/* SEC has carried */
+#endif
 		rtc_get_tick(tm);
 	}
 }
@@ -340,7 +351,7 @@ void rtc_lp_exception(void)
 		       "RTC_TC_SEC    = %02d\n"
 		       "RTC_TC_SEC    = %02d\n",
 		       bbpu, irqsta, irqen, osc32, pwrkey1, pwrkey2, prot, con, sec1, sec2);
-	aee_kernel_warning("mtk_rtc_hal", "Need to check 32k @%s():%d\n", __func__, __LINE__);
+	/*aee_kernel_warning("mtk_rtc_hal", "Need to check 32k @%s():%d\n", __func__, __LINE__);*/
 
 }
 #endif

@@ -234,40 +234,6 @@ static long ion_sys_cache_sync(struct ion_client *client,
 			}
 		}
 
-#if 0
-		unsigned long end, page_num, page_start;
-
-		/* Cache line align */
-		end = start + size;
-		start = (start / L1_CACHE_BYTES * L1_CACHE_BYTES);
-		size = (end - start + L1_CACHE_BYTES - 1) / L1_CACHE_BYTES * L1_CACHE_BYTES;
-		page_num = ((start&(~PAGE_MASK))+size+(~PAGE_MASK))>>PAGE_ORDER;
-		page_start = start & PAGE_MASK;
-
-		/* L2 cache sync */
-		/* printk("[ion_sys_cache_sync]: page_start=0x%08X, page_num=%d\n", page_start, page_num); */
-		for (i = 0; i < page_num; i++, page_start += DEFAULT_PAGE_SIZE) {
-			phys_addr_t phys_addr;
-
-			if (page_start >= VMALLOC_START && page_start <= VMALLOC_END) {
-				ppage = vmalloc_to_page((void *)page_start);
-				if (!ppage) {
-					IONMSG("[ion_sys_cache_sync]: Cannot get vmalloc page. addr=0x%08X\n",
-							page_start);
-					ion_unmap_kernel(client, pParam->handle);
-					return -EFAULT;
-				}
-				phys_addr = page_to_phys(ppage);
-			} else
-				phys_addr = virt_to_phys((void *)page_start);
-			if (pParam->sync_type == ION_CACHE_CLEAN_BY_RANGE)
-				outer_clean_range(phys_addr, phys_addr+DEFAULT_PAGE_SIZE);
-			else if (pParam->sync_type == ION_CACHE_INVALID_BY_RANGE)
-				outer_inv_range(phys_addr, phys_addr+DEFAULT_PAGE_SIZE);
-			else if (pParam->sync_type == ION_CACHE_FLUSH_BY_RANGE)
-				outer_flush_range(phys_addr, phys_addr+DEFAULT_PAGE_SIZE);
-		}
-#endif
 
 		ion_drv_put_kernel_handle(kernel_handle);
 	} else {
@@ -522,29 +488,8 @@ static long ion_sys_ioctl(struct ion_client *client, unsigned int cmd,
 	case ION_SYS_DMA_OP:
 		ion_sys_dma_op(client, &Param.dma_param, from_kernel);
 		break;
-	case ION_SYS_SET_HANDLE_BACKTRACE: {
-#if  ION_RUNTIME_DEBUGGER
-		unsigned int i;
-		struct ion_handle *kernel_handle;
-
-		kernel_handle = ion_drv_get_handle(client,
-				-1, Param.record_param.handle, from_kernel);
-		if (IS_ERR(kernel_handle)) {
-			IONMSG("ion_set_handle_bt fail!\n");
-			ret = -EINVAL;
-			break;
-		}
-
-		kernel_handle->dbg.pid = (unsigned int) current->pid;
-		kernel_handle->dbg.tgid = (unsigned int)current->tgid;
-		kernel_handle->dbg.backtrace_num = Param.record_param.backtrace_num;
-
-		for (i = 0; i < Param.record_param.backtrace_num; i++)
-			kernel_handle->dbg.backtrace[i] = Param.record_param.backtrace[i];
-		ion_drv_put_kernel_handle(kernel_handle);
-
-#endif
-	}
+	case ION_SYS_SET_HANDLE_BACKTRACE:
+		IONMSG("[ion_dbg][ion_sys_ioctl]: Error. ION_SYS_SET_HANDLE_BACKTRACE not support.\n");
 		break;
 	default:
 		IONMSG("[ion_dbg][ion_sys_ioctl]: Error. Invalid command.\n");
@@ -623,7 +568,7 @@ static int ion_fb_event(struct notifier_block *notifier, unsigned long event, vo
 	case FB_BLANK_HSYNC_SUSPEND:
 	case FB_BLANK_POWERDOWN:
 		IONMSG("%s: + screen-off +\n", __func__);
-		shrink_ion_by_scenario();
+		shrink_ion_by_scenario(1);
 		IONMSG("%s: - screen-off -\n", __func__);
 		break;
 	default:
@@ -722,6 +667,60 @@ int ion_device_destroy_heaps(struct ion_device *dev)
 	return 0;
 }
 
+/*for clients ion mm heap summary size*/
+static int ion_clients_summary_show(struct seq_file *s, void *unused)
+{
+	struct ion_device *dev = g_ion_device;
+	struct rb_node *n, *m;
+	int buffer_size = 0;
+
+	if (!down_read_trylock(&dev->lock))
+		return 0;
+	seq_printf(s, "%-16.s %-8.s %-8.s\n", "client_name", "pid", "size");
+	seq_puts(s, "------------------------------------------\n");
+	for (n = rb_first(&dev->clients); n; n = rb_next(n)) {
+		struct ion_client *client = rb_entry(n, struct ion_client, node);
+		{
+			 {
+				mutex_lock(&client->lock);
+				for (m = rb_first(&client->handles); m; m = rb_next(m)) {
+					struct ion_handle *handle = rb_entry(m, struct ion_handle, node);
+
+					if ((handle->buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA ||
+					     handle->buffer->heap->id == ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA) &&
+						(handle->buffer->handle_count) != 0)
+						buffer_size +=
+						(int)(handle->buffer->size)/(handle->buffer->handle_count);
+				}
+				if (!buffer_size) {
+					mutex_unlock(&client->lock);
+					continue;
+				}
+				seq_printf(s, "%-16s %-8d %-8d\n", client->name, client->pid, buffer_size);
+				buffer_size = 0;
+			mutex_unlock(&client->lock);
+			}
+		}
+	}
+
+	seq_puts(s, "-------------------------------------------\n");
+	up_read(&dev->lock);
+
+	return 0;
+}
+
+static int ion_debug_client_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ion_clients_summary_show, inode->i_private);
+}
+
+static const struct file_operations debug_client_fops = {
+	.open = ion_debug_client_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 static int ion_drv_probe(struct platform_device *pdev)
 {
 	int i;
@@ -758,6 +757,8 @@ static int ion_drv_probe(struct platform_device *pdev)
 
 	/* debugfs_create_file("ion_profile", 0644, g_ion_device->debug_root, NULL, */
 	/* &debug_profile_fops); */
+	debugfs_create_file("clients_summary", 0644, g_ion_device->clients_debug_root, NULL,
+			    &debug_client_fops);
 	debugfs_create_symlink("ion_mm_heap", g_ion_device->debug_root, "./heaps/ion_mm_heap");
 
 	ion_history_init();
@@ -779,15 +780,6 @@ int ion_drv_remove(struct platform_device *pdev)
 }
 
 static struct ion_platform_heap ion_drv_platform_heaps[] = {
-		{
-				.type = ION_HEAP_TYPE_SYSTEM_CONTIG,
-				.id = ION_HEAP_TYPE_SYSTEM_CONTIG,
-				.name = "ion_system_contig_heap",
-				.base = 0,
-				.size = 0,
-				.align = 0,
-				.priv = NULL,
-		},
 		{
 				.type = ION_HEAP_TYPE_MULTIMEDIA,
 				.id = ION_HEAP_TYPE_MULTIMEDIA,

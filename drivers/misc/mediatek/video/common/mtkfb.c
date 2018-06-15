@@ -144,7 +144,7 @@ uint32_t dbg_backup = 0;
 uint32_t dbb_backup = 0;
 bool fblayer_dither_needed = false;
 bool is_ipoh_bootup = false;
-struct fb_info *mtkfb_fbi;
+struct fb_info *mtkfb_fbi = NULL;
 struct fb_overlay_layer fb_layer_context;
 mtk_dispif_info_t dispif_info[MTKFB_MAX_DISPLAY_COUNT];
 unsigned int FB_LAYER = 2;
@@ -226,51 +226,6 @@ static int mtkfb_release(struct fb_info *info, int user)
 	MSG_FUNC_ENTER();
 	MSG_FUNC_LEAVE();
 	return 0;
-}
-
-/* Store a single color palette entry into a pseudo palette or the hardware
- * palette if one is available. For now we support only 16bpp and thus store
- * the entry only to the pseudo palette.
- */
-static int mtkfb_setcolreg(u_int regno, u_int red, u_int green,
-			   u_int blue, u_int transp, struct fb_info *info)
-{
-	int r = 0;
-	unsigned bpp, m;
-
-	/* NOT_REFERENCED(transp); */
-
-	MSG_FUNC_ENTER();
-
-	bpp = info->var.bits_per_pixel;
-	m = 1 << bpp;
-	if (regno >= m) {
-		r = -EINVAL;
-		goto exit;
-	}
-
-	switch (bpp) {
-	case 16:
-		/* RGB 565 */
-		((u32 *) (info->pseudo_palette))[regno] =
-		    ((red & 0xF800) | ((green & 0xFC00) >> 5) | ((blue & 0xF800) >> 11));
-		break;
-	case 32:
-		/* ARGB8888 */
-		((u32 *) (info->pseudo_palette))[regno] =
-		    (0xff000000) |
-		    ((red & 0xFF00) << 8) | ((green & 0xFF00)) | ((blue & 0xFF00) >> 8);
-		break;
-
-		/* TODO: RGB888, BGR888, ABGR8888 */
-
-	default:
-		ASSERT(0);
-	}
-
-exit:
-	MSG_FUNC_LEAVE();
-	return r;
 }
 
 int mtkfb_set_backlight_level(unsigned int level)
@@ -874,11 +829,6 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 			return -EFAULT;
 		}
 
-		if (displayid > MTKFB_MAX_DISPLAY_COUNT) {
-			DISPERR("[FB]: invalid display id:%d\n", displayid);
-			return -EFAULT;
-		}
-
 		if (displayid == 0) {
 			dispif_info[displayid].displayWidth = primary_display_get_width();
 			dispif_info[displayid].displayHeight = primary_display_get_height();
@@ -892,7 +842,7 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 		} else {
 			DISPERR("information for displayid: %d is not available now\n",
 				displayid);
-			return -EFAULT;
+			return -ENODEV;
 		}
 
 		if (copy_to_user((void __user *)arg, &(dispif_info[displayid]), sizeof(mtk_dispif_info_t))) {
@@ -968,6 +918,10 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 
 	case MTKFB_CAPTURE_FRAMEBUFFER:
 	{
+#if defined(MTKFB_NOT_SUPPORT_CAPTURE_FB)
+		DISPERR("[FB] not support capture_framebuffer\n");
+		return 0;
+#else
 		unsigned long dst_pbuf = 0;
 		unsigned long *src_pbuf = 0;
 		unsigned int pixel_bpp = info->var.bits_per_pixel / 8;
@@ -995,6 +949,7 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 		}
 
 		return r;
+#endif
 	}
 
 	case MTKFB_SLT_AUTO_CAPTURE:
@@ -1015,6 +970,10 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 				r = -EFAULT;
 			} else {
 				capConfig.outputBuffer = vmalloc(fb_size);
+				if (!capConfig.outputBuffer) {
+					DISPERR("[FB]: allocate memory fail:%d\n", __LINE__);
+					return -ENOMEM;
+				}
 				primary_display_capture_framebuffer_ovl((unsigned long)capConfig.outputBuffer,
 					capConfig.format);
 				if (copy_to_user(dst_buffer, (char *)capConfig.outputBuffer, fb_size)) {
@@ -1076,8 +1035,14 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 				kfree(layerInfo);
 				return -EFAULT;
 			} else {
+				int ret;
+
 				input = &session_input.config[session_input.config_layer_num++];
-				_convert_fb_layer_to_disp_input(layerInfo, input);
+				ret = _convert_fb_layer_to_disp_input(layerInfo, input);
+				if (ret < 0) {
+					kfree(layerInfo);
+					return -EINVAL;
+				}
 			}
 
 
@@ -1171,7 +1136,7 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 
 	case MTKFB_GET_DEFAULT_UPDATESPEED:
 	{
-		unsigned int speed;
+		unsigned int speed = 0;
 
 		MTKFB_LOG("[MTKFB] get default update speed\n");
 		/* DISP_Get_Default_UpdateSpeed(&speed); */
@@ -1182,7 +1147,7 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 
 	case MTKFB_GET_CURR_UPDATESPEED:
 	{
-		unsigned int speed;
+		unsigned int speed = 0;
 
 		MTKFB_LOG("[MTKFB] get current update speed\n");
 		/* DISP_Get_Current_UpdateSpeed(&speed); */
@@ -1349,10 +1314,7 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned l
 			pr_err("COMPAT_MTKFB_GET_DISPLAY_IF_INFORMATION failed\n");
 			return -EFAULT;
 		}
-		if (displayid > MTKFB_MAX_DISPLAY_COUNT) {
-			pr_err("[FB]: invalid display id:%d\n", displayid);
-			return -EFAULT;
-		}
+
 		if (displayid == 0) {
 			dispif_info[displayid].displayWidth = primary_display_get_width();
 			dispif_info[displayid].displayHeight = primary_display_get_height();
@@ -1366,6 +1328,7 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned l
 		} else {
 			DISPERR("information for displayid: %d is not available now\n",
 			displayid);
+			return -ENODEV;
 		}
 
 		if (copy_to_user((void __user *)arg,
@@ -1404,6 +1367,10 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned l
 	}
 	case COMPAT_MTKFB_CAPTURE_FRAMEBUFFER:
 	{
+#if defined(MTKFB_NOT_SUPPORT_CAPTURE_FB)
+		DISPERR("[FB] not support capture_framebuffer\n");
+		return 0;
+#else
 		compat_ulong_t __user *data32;
 		unsigned long *pbuf;
 		unsigned int pixel_bpp = info->var.bits_per_pixel / 8;
@@ -1427,6 +1394,7 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned l
 			}
 		}
 		break;
+#endif
 	}
 	case COMPAT_MTKFB_TRIG_OVERLAY_OUT:
 	{
@@ -1471,8 +1439,14 @@ static int mtkfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned l
 					("COMPAT_MTKFB_SET_OVERLAY_LAYER, layer_id invalid=%d\n",
 					 layerInfo.layer_id);
 			} else {
+				int ret;
+
 				input = &session_input.config[session_input.config_layer_num++];
-				_convert_fb_layer_to_disp_input(&layerInfo, input);
+				ret = _convert_fb_layer_to_disp_input(&layerInfo, input);
+				if (ret < 0) {
+					kfree(compat_layerInfo);
+					return -EINVAL;
+				}
 			}
 			primary_display_config_input_multiple(&session_input);
 			/* primary_display_trigger(1, NULL, 0); */
@@ -1608,7 +1582,6 @@ static struct fb_ops mtkfb_ops = {
 	.owner = THIS_MODULE,
 	.fb_open = mtkfb_open,
 	.fb_release = mtkfb_release,
-	.fb_setcolreg = mtkfb_setcolreg,
 	.fb_pan_display = mtkfb_pan_display_proxy,
 	.fb_fillrect = cfb_fillrect,
 	.fb_copyarea = cfb_copyarea,
@@ -1830,62 +1803,53 @@ unsigned int vramsize = 0;
 phys_addr_t fb_base = 0;
 static int is_videofb_parse_done;
 
-static int fb_early_init_dt_get_chosen(unsigned long node, const char *uname, int depth, void *data)
-{
-	if (depth != 1 || (strcmp(uname, "chosen") != 0 && strcmp(uname, "chosen@0") != 0))
-		return 0;
-
-	*(unsigned long *)data = node;
-	return 1;
-}
-
-static int __parse_tag_videolfb_extra(unsigned long node)
+static int __parse_tag_videolfb_extra(struct device_node *node)
 {
 	void *prop;
 	unsigned long size = 0;
 	u32 fb_base_h, fb_base_l;
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-fb_base_h", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-fb_base_h", NULL);
 	if (!prop)
 		return -1;
 	fb_base_h = of_read_number(prop, 1);
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-fb_base_l", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-fb_base_l", NULL);
 	if (!prop)
 		return -1;
 	fb_base_l = of_read_number(prop, 1);
 
 	fb_base = ((u64) fb_base_h << 32) | (u64) fb_base_l;
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-islcmfound", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-islcmfound", NULL);
 	if (!prop)
 		return -1;
 	islcmconnected = of_read_number(prop, 1);
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-islcm_inited", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-islcm_inited", NULL);
 	if (!prop)
 		is_lcm_inited = 1;
 	else
 		is_lcm_inited = of_read_number(prop, 1);
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-fps", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-fps", NULL);
 	if (!prop)
 		return -1;
 	lcd_fps = of_read_number(prop, 1);
 	if (0 == lcd_fps)
 		lcd_fps = 6000;
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-vramSize", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-vramSize", NULL);
 	if (!prop)
 		return -1;
 	vramsize = of_read_number(prop, 1);
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-fb_base_l", NULL);
+	prop = (void *)of_get_property(node, "atag,videolfb-fb_base_l", NULL);
 	if (!prop)
 		return -1;
 	fb_base_l = of_read_number(prop, 1);
 
-	prop = (void *)of_get_flat_dt_prop(node, "atag,videolfb-lcmname", (int *)&size);
+	prop = (void *)of_get_property(node, "atag,videolfb-lcmname", (int *)&size);
 	if (!prop)
 		return -1;
 	if (size >= sizeof(mtkfb_lcm_name)) {
@@ -1899,15 +1863,15 @@ static int __parse_tag_videolfb_extra(unsigned long node)
 	return 0;
 }
 
-static int __parse_tag_videolfb(unsigned long node)
+static int __parse_tag_videolfb(struct device_node *node)
 {
 	struct tag_videolfb *videolfb_tag = NULL;
 	unsigned long size = 0;
 
-	videolfb_tag = (struct tag_videolfb *)of_get_flat_dt_prop(node, "atag,videolfb", (int *)&size);
+	videolfb_tag = (struct tag_videolfb *)of_get_property(node, "atag,videolfb", (int *)&size);
 	if (videolfb_tag) {
-		memset((void *)mtkfb_lcm_name, 0, sizeof(mtkfb_lcm_name));
-		strcpy((char *)mtkfb_lcm_name, videolfb_tag->lcmname);
+		strncpy(mtkfb_lcm_name, videolfb_tag->lcmname, sizeof(mtkfb_lcm_name) - 1);
+		mtkfb_lcm_name[sizeof(mtkfb_lcm_name) - 1] = '\0';
 		mtkfb_lcm_name[strlen(videolfb_tag->lcmname)] = '\0';
 
 		lcd_fps = videolfb_tag->fps;
@@ -1929,7 +1893,7 @@ static int __parse_tag_videolfb(unsigned long node)
 int _parse_tag_videolfb(void)
 {
 	int ret;
-	unsigned long node = 0;
+	struct device_node *chosen_node;
 
 	if (is_videofb_parse_done)
 		return 0;
@@ -1938,10 +1902,14 @@ int _parse_tag_videolfb(void)
 	return 1;
 #endif
 
-	if (of_scan_flat_dt(fb_early_init_dt_get_chosen, &node) > 0) {
-		ret = __parse_tag_videolfb(node);
+	chosen_node = of_find_node_by_path("/chosen");
+	if (!chosen_node)
+		chosen_node = of_find_node_by_path("/chosen@0");
+
+	if (chosen_node) {
+		ret = __parse_tag_videolfb(chosen_node);
 		if (ret)
-			__parse_tag_videolfb_extra(node);
+			__parse_tag_videolfb_extra(chosen_node);
 
 		if (!ret) {
 			is_videofb_parse_done = 1;
@@ -1973,6 +1941,7 @@ size_t mtkfb_get_fb_size(void)
 }
 EXPORT_SYMBOL(mtkfb_get_fb_size);
 #endif
+
 
 char *mtkfb_find_lcm_driver(void)
 {
@@ -2006,7 +1975,7 @@ char *mtkfb_find_lcm_driver(void)
 	}
 #endif
 
-    printk("%s, %s\n", __func__, mtkfb_lcm_name);
+	//printk("%s, %s\n", __func__, mtkfb_lcm_name);
 
 	return mtkfb_lcm_name;
 }

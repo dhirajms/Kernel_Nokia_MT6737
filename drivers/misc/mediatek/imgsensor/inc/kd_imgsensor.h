@@ -15,15 +15,9 @@
 #define _KD_IMGSENSOR_H
 
 #include <linux/ioctl.h>
-/* #define CONFIG_COMPAT */
-#ifdef CONFIG_COMPAT
-/* 64 bit */
-#include <linux/fs.h>
-#include <linux/compat.h>
-#endif
 
 #ifndef ASSERT
-#define ASSERT(expr)        BUG_ON(!(expr))
+#define ASSERT(expr)        WARN_ON(!(expr))
 #endif
 
 #define IMGSENSORMAGIC 'i'
@@ -39,25 +33,26 @@
 *
 ********************************************************************************/
 #define YUV_INFO(_id, name, getCalData)\
-	{ \
-		_id, name, \
-NSFeature :  : YUVSensorInfo < _id >  :  : createInstance(name, #name), \
-		(NSFeature :  : SensorInfoBase*(*)()) \
-NSFeature :  : YUVSensorInfo < _id >  :  : getInstance, \
-NSFeature :  : YUVSensorInfo < _id >  :  : getDefaultData, \
-		getCalData, \
-NSFeature :  : YUVSensorInfo < _id >  :  : getNullFlickerPara \
-	}
+{ \
+	_id, name, \
+	NSFeature::YUVSensorInfo<_id>::createInstance(name, #name), \
+	(NSFeature::SensorInfoBase*(*)()) \
+	NSFeature::YUVSensorInfo<_id>::getInstance, \
+	NSFeature::YUVSensorInfo<_id>::getDefaultData, \
+	getCalData, \
+	NSFeature::YUVSensorInfo<_id>::getNullFlickerPara \
+}
 #define RAW_INFO(_id, name, getCalData)\
-	{ \
-		_id, name, \
-NSFeature :  : RAWSensorInfo < _id >  :  : createInstance(name, #name), \
-		(NSFeature :  : SensorInfoBase*(*)()) \
-NSFeature :  : RAWSensorInfo < _id >  :  : getInstance, \
-NSFeature :  : RAWSensorInfo < _id >  :  : getDefaultData, \
-		getCalData, \
-NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
-	}
+{ \
+	_id, name, \
+	NSFeature::RAWSensorInfo<_id>::createInstance(name, #name), \
+	(NSFeature::SensorInfoBase*(*)()) \
+	NSFeature::RAWSensorInfo<_id>::getInstance, \
+	NSFeature::RAWSensorInfo<_id>::getDefaultData, \
+	getCalData, \
+	NSFeature::RAWSensorInfo<_id>::getFlickerPara \
+}
+
 /*******************************************************************************
 *
 ********************************************************************************/
@@ -65,7 +60,9 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 /* sensorOpen */
 #define KDIMGSENSORIOC_T_OPEN                       _IO(IMGSENSORMAGIC, 0)
 /* sensorGetInfo */
-#define KDIMGSENSORIOC_X_GETINFO                    _IOWR(IMGSENSORMAGIC, 5, ACDK_SENSOR_GETINFO_STRUCT)
+#define KDIMGSENSORIOC_X_GET_CONFIG_INFO            _IOWR(IMGSENSORMAGIC, 5, IMGSENSOR_GET_CONFIG_INFO_STRUCT)
+
+#define KDIMGSENSORIOC_X_GETINFO                    _IOWR(IMGSENSORMAGIC, 5,  ACDK_SENSOR_GETINFO_STRUCT)
 /* sensorGetResolution */
 #define KDIMGSENSORIOC_X_GETRESOLUTION              _IOWR(IMGSENSORMAGIC, 10, ACDK_SENSOR_RESOLUTION_INFO_STRUCT)
 /* For kernel 64-bit */
@@ -101,7 +98,9 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 #define KDIMGSENSORIOC_X_GET_CSI_CLK                _IOWR(IMGSENSORMAGIC, 85, u32)
 
 #ifdef CONFIG_COMPAT
-#define COMPAT_KDIMGSENSORIOC_X_GETINFO            _IOWR(IMGSENSORMAGIC, 5, COMPAT_ACDK_SENSOR_GETINFO_STRUCT)
+#define COMPAT_KDIMGSENSORIOC_X_GET_CONFIG_INFO    _IOWR(IMGSENSORMAGIC, 5, COMPAT_IMGSENSOR_GET_CONFIG_INFO_STRUCT)
+
+#define COMPAT_KDIMGSENSORIOC_X_GETINFO            _IOWR(IMGSENSORMAGIC, 5,  COMPAT_ACDK_SENSOR_GETINFO_STRUCT)
 #define COMPAT_KDIMGSENSORIOC_X_FEATURECONCTROL    _IOWR(IMGSENSORMAGIC, 15, COMPAT_ACDK_SENSOR_FEATURECONTROL_STRUCT)
 #define COMPAT_KDIMGSENSORIOC_X_CONTROL            _IOWR(IMGSENSORMAGIC, 20, COMPAT_ACDK_SENSOR_CONTROL_STRUCT)
 #define COMPAT_KDIMGSENSORIOC_X_GETINFO2           _IOWR(IMGSENSORMAGIC, 65, COMPAT_IMAGESENSOR_GETINFO_STRUCT)
@@ -113,6 +112,11 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 ********************************************************************************/
 /* SENSOR CHIP VERSION */
 /*IMX*/
+#define IMX398_SENSOR_ID                        0x0398
+#define IMX268_SENSOR_ID                        0x0268
+#define IMX386_SENSOR_ID                        0x0386
+#define IMX300_SENSOR_ID                        0x0300
+#define IMX386_MONO_SENSOR_ID                   0x0286
 #define IMX362_SENSOR_ID                        0x0362
 #define IMX338_SENSOR_ID                        0x0338
 #define IMX318_SENSOR_ID                        0x0318
@@ -151,8 +155,10 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 #define OV8825_SENSOR_ID                        0x8825
 #define OV7675_SENSOR_ID                        0x7673
 #define OV5693_SENSOR_ID                        0x5690
+#define OV5693_SENSOR_ID_2                  (0x5690+10000)
 #define OV5670MIPI_SENSOR_ID                    0x5670
 #define OV5670MIPI_SENSOR_ID_2                  (0x5670+010000)
+#define OV5675MIPI_SENSOR_ID                    0x5675
 #define OV5671MIPI_SENSOR_ID                    0x5671
 #define OV5650_SENSOR_ID                        0x5651
 #define OV5650MIPI_SENSOR_ID                    0x5651
@@ -174,12 +180,19 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 #define OV2650_SENSOR_ID_2                      0x2652
 #define OV2650_SENSOR_ID_3                      0x2655
 /*S5K*/
+#define S5K3P8SP_SENSOR_ID                      0x3108
 #define S5K2L7_SENSOR_ID                        0x20C7
 #define S5K3L8_SENSOR_ID                        0x30C8
+#define S5K3M3_SENSOR_ID                        0x30D3
 #define S5K2X8_SENSOR_ID                        0x2188
+#define S5K2P7_SENSOR_ID                        0x2107
 #define S5K2P8_SENSOR_ID                        0x2108
+#define S5K3P3_SENSOR_ID                        0x3103
 #define S5K3P3SX_SENSOR_ID                      0x3103
+#define S5K3P8_SENSOR_ID                        0x3109
+#define S5K3P8STECH_SENSOR_ID                   0xf3108
 #define S5K3M2_SENSOR_ID                        0x30D2
+#define S5K4E6_SENSOR_ID                        0x4e60
 #define S5K4H8_SENSOR_ID                        0x4088
 #define S5K4H8SUB_SENSOR_ID                     0x4089
 #define OVS5K4H8_SENSOR_ID                      0x408A
@@ -256,6 +269,7 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 /*SP*/
 #define SP0A19_YUV_SENSOR_ID                    0xA6
 #define SP2518_YUV_SENSOR_ID                    0x53
+#define SP2509_SENSOR_ID                        0x2509
 /*A*/
 #define A5141MIPI_SENSOR_ID                     0x4800
 #define A5142MIPI_SENSOR_ID                     0x4800
@@ -292,6 +306,8 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 #define CAMERA_HW_DEVNAME                       "kd_camera_hw"
 /* SENSOR DEVICE DRIVER NAME */
 /*IMX*/
+#define SENSOR_DRVNAME_IMX398_MIPI_RAW          "imx398mipiraw"
+#define SENSOR_DRVNAME_IMX386_MIPI_RAW          "imx386mipiraw"
 #define SENSOR_DRVNAME_IMX362_MIPI_RAW          "imx362mipiraw"
 #define SENSOR_DRVNAME_IMX338_MIPI_RAW          "imx338mipiraw"
 #define SENSOR_DRVNAME_IMX318_MIPI_RAW          "imx318mipiraw"
@@ -328,7 +344,8 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 #define SENSOR_DRVNAME_OV8830_RAW               "ov8830"
 #define SENSOR_DRVNAME_OV8825_MIPI_RAW          "ov8825mipiraw"
 #define SENSOR_DRVNAME_OV7675_YUV               "ov7675yuv"
-#define SENSOR_DRVNAME_OV5693_MIPI_RAW          "ov5693mipi"
+#define SENSOR_DRVNAME_OV5693_MIPI_RAW          "ov5693mipiraw"
+#define SENSOR_DRVNAME_OV5693_MIPI_RAW_2          "ov5693mipiraw2"
 #define SENSOR_DRVNAME_OV5670_MIPI_RAW          "ov5670mipiraw"
 #define SENSOR_DRVNAME_OV5670_MIPI_RAW_2        "ov5670mipiraw2"
 #define SENSOR_DRVNAME_OV5671_MIPI_RAW          "ov5671mipiraw"
@@ -356,10 +373,12 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 /*S5K*/
 #define SENSOR_DRVNAME_S5K2L7_MIPI_RAW          "s5k2l7mipiraw"
 #define SENSOR_DRVNAME_S5K3L8_MIPI_RAW          "s5k3l8mipiraw"
+#define SENSOR_DRVNAME_S5K3M3_MIPI_RAW          "s5k3m3mipiraw"
 #define SENSOR_DRVNAME_S5K2X8_MIPI_RAW          "s5k2x8mipiraw"
 #define SENSOR_DRVNAME_S5K2P8_MIPI_RAW          "s5k2p8mipiraw"
 #define SENSOR_DRVNAME_S5K3P3SX_MIPI_RAW      "s5k3p3sxmipiraw"
 #define SENSOR_DRVNAME_S5K3M2_MIPI_RAW          "s5k3m2mipiraw"
+#define SENSOR_DRVNAME_S5K4E6_MIPI_RAW          "s5k4e6mipiraw"
 #define SENSOR_DRVNAME_S5K4H8_MIPI_RAW          "s5k4h8mipiraw"
 #define SENSOR_DRVNAME_S5K4H8SUB_MIPI_RAW       "s5k4h8submipiraw"
 #define SENSOR_DRVNAME_OVS5K4H8_MIPI_RAW          "ovs5k4h8mipiraw"
@@ -434,6 +453,8 @@ NSFeature :  : RAWSensorInfo < _id >  :  : getFlickerPara \
 /*Test*/
 #define SENSOR_DRVNAME_IMX135_MIPI_RAW_5MP      "imx135mipiraw5mp"
 #define SENSOR_DRVNAME_IMX135_MIPI_RAW_8MP      "imx135mipiraw8mp"
+
+
 /*******************************************************************************
 *
 ********************************************************************************/

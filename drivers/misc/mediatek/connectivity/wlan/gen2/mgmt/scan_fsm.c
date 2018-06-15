@@ -204,8 +204,33 @@ VOID scnSendScanReqExtCh(IN P_ADAPTER_T prAdapter)
 		}
 	}
 #if CFG_ENABLE_WIFI_DIRECT
-	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
+	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
+		P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+
+		prP2pBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_P2P_INDEX]);
+		if (prP2pBssInfo == NULL) {
+			DBGLOG(P2P, ERROR, "scnSendScanReqExtCh prP2pBssInfo is NULL\n");
+			return;
+		}
+#if CFG_TC10_FEATURE
+		/*
+		 * mtk supplicant will scan 4 channels for prograssive scan
+		 * customer supplicant should have 3 channels when do social scan
+		 */
+		if (prScanParam->ucChannelListNum <= 4) {
+			DBGLOG(P2P, INFO, "scnSendScanReqExtCh Channel number %d for 70ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReq->u2ChannelDwellTime = 70;
+		} else if (prP2pBssInfo->eCurrentOPMode == OP_MODE_ACCESS_POINT) {
+			DBGLOG(P2P, INFO, "scnSendScanReqExtCh Channel number %d for 100ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReq->u2ChannelDwellTime = 100;
+		} else
+			prCmdScanReq->u2ChannelDwellTime = 30;
+#else
 		prCmdScanReq->u2ChannelDwellTime = prScanParam->u2PassiveListenInterval;
+#endif
+	}
 #endif
 
 	if (prScanParam->u2IELen <= MAX_IE_LENGTH)
@@ -280,7 +305,11 @@ VOID scnSendScanReq(IN P_ADAPTER_T prAdapter)
 		}
 		/* send command packet for scan */
 		kalMemZero(prCmdScanReq, sizeof(CMD_SCAN_REQ));
-
+		prCmdScanReq->ucStructVersion = 1;
+		COPY_MAC_ADDR(prCmdScanReq->aucBSSID, prScanParam->aucBSSID);
+		if (!EQUAL_MAC_ADDR(prCmdScanReq->aucBSSID, "\xff\xff\xff\xff\xff\xff"))
+			DBGLOG(SCN, INFO, "Include BSSID %pM in probe request, NetIdx %d\n",
+				   prCmdScanReq->aucBSSID, prScanParam->eNetTypeIndex);
 		prCmdScanReq->ucSeqNum = prScanParam->ucSeqNum;
 		prCmdScanReq->ucNetworkType = (UINT_8) prScanParam->eNetTypeIndex;
 		prCmdScanReq->ucScanType = (UINT_8) prScanParam->eScanType;
@@ -310,13 +339,43 @@ VOID scnSendScanReq(IN P_ADAPTER_T prAdapter)
 			}
 		}
 #if CFG_ENABLE_WIFI_DIRECT
-		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
+		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
+			P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+
+			prP2pBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_P2P_INDEX]);
+			if (prP2pBssInfo == NULL) {
+				DBGLOG(P2P, ERROR, "scnSendScanReq prP2pBssInfo is NULL\n");
+				return;
+			}
+#if CFG_TC10_FEATURE
+			/*
+			* mtk supplicant will scan 4 channels for prograssive scan
+			* customer supplicant should have 3 channels when do social scan
+			*/
+			if (prScanParam->ucChannelListNum <= 4) {
+				DBGLOG(P2P, INFO, "scnSendScanReq Channel number %d for 70ms, OP_MODE[%d]\n",
+					prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+				prCmdScanReq->u2ChannelDwellTime = 70;
+			} else if (prP2pBssInfo->eCurrentOPMode == OP_MODE_ACCESS_POINT) {
+				DBGLOG(P2P, INFO, "scnSendScanReq Channel number %d for 100ms, OP_MODE[%d]\n",
+					prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+				prCmdScanReq->u2ChannelDwellTime = 100;
+			} else
+				prCmdScanReq->u2ChannelDwellTime = 30;
+#else
 			prCmdScanReq->u2ChannelDwellTime = prScanParam->u2PassiveListenInterval;
+#endif
+		}
 #endif
 #if CFG_ENABLE_FAST_SCAN
 		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_AIS_INDEX)
 			prCmdScanReq->u2ChannelDwellTime = CFG_FAST_SCAN_DWELL_TIME;
 #endif
+		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_AIS_INDEX) {
+			prCmdScanReq->u2ChannelDwellTime = prScanParam->u2ChannelDwellTime;
+			prCmdScanReq->u2ChannelMinDwellTime = prScanParam->u2MinChannelDwellTime;
+		}
+
 		if (prScanParam->u2IELen <= MAX_IE_LENGTH)
 			prCmdScanReq->u2IELen = prScanParam->u2IELen;
 		else
@@ -418,8 +477,33 @@ VOID scnSendScanReqV2ExtCh(IN P_ADAPTER_T prAdapter)
 		}
 	}
 #if CFG_ENABLE_WIFI_DIRECT
-	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
+	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
+		P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+
+		prP2pBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_P2P_INDEX]);
+		if (prP2pBssInfo == NULL) {
+			DBGLOG(P2P, ERROR, "scnSendScanReqV2ExtCh prP2pBssInfo is NULL\n");
+			return;
+		}
+#if CFG_TC10_FEATURE
+		/*
+		 * mtk supplicant will scan 4 channels for prograssive scan
+		 * customer supplicant should have 3 channels when do social scan
+		 */
+		if (prScanParam->ucChannelListNum <= 4) {
+			DBGLOG(P2P, INFO, "scnSendScanReqV2ExtCh Channel number %d for 70ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReq->u2ChannelDwellTime = 70;
+		} else if (prP2pBssInfo->eCurrentOPMode == OP_MODE_ACCESS_POINT) {
+			DBGLOG(P2P, INFO, "scnSendScanReqV2ExtCh Channel number %d for 100ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReq->u2ChannelDwellTime = 100;
+		} else
+			prCmdScanReq->u2ChannelDwellTime = 30;
+#else
 		prCmdScanReq->u2ChannelDwellTime = prScanParam->u2PassiveListenInterval;
+#endif
+	}
 #endif
 
 	if (prScanParam->u2IELen <= MAX_IE_LENGTH)
@@ -520,8 +604,33 @@ VOID scnSendScanReqV3ExtCh(IN P_ADAPTER_T prAdapter)
 		}
 	}
 #if CFG_ENABLE_WIFI_DIRECT
-	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
+	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
+		P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+
+		prP2pBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_P2P_INDEX]);
+		if (prP2pBssInfo == NULL) {
+			DBGLOG(P2P, ERROR, "scnSendScanReqV3ExtCh prP2pBssInfo is NULL\n");
+			return;
+		}
+#if CFG_TC10_FEATURE
+		/*
+		 * mtk supplicant will scan 4 channels for prograssive scan
+		 * customer supplicant should have 3 channels when do social scan
+		 */
+		if (prScanParam->ucChannelListNum <= 4) {
+			DBGLOG(P2P, INFO, "scnSendScanReqV3ExtCh Channel number %d for 70ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReqV3->u2ChannelDwellTime = 70;
+		} else if (prP2pBssInfo->eCurrentOPMode == OP_MODE_ACCESS_POINT) {
+			DBGLOG(P2P, INFO, "scnSendScanReqV3ExtCh Channel number %d for 100ms, OP_MODE[%d]\n",
+				prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+			prCmdScanReqV3->u2ChannelDwellTime = 100;
+		} else
+			prCmdScanReqV3->u2ChannelDwellTime = 30;
+#else
 		prCmdScanReqV3->u2ChannelDwellTime = prScanParam->u2PassiveListenInterval;
+#endif
+	}
 #endif
 
 	if (prScanParam->u2IELen <= MAX_IE_LENGTH)
@@ -617,8 +726,33 @@ VOID scnSendScanReqV2(IN P_ADAPTER_T prAdapter)
 			}
 		}
 #if CFG_ENABLE_WIFI_DIRECT
-		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
+		if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX) {
+			P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+
+			prP2pBssInfo = &(prAdapter->rWifiVar.arBssInfo[NETWORK_TYPE_P2P_INDEX]);
+			if (prP2pBssInfo == NULL) {
+				DBGLOG(P2P, ERROR, "scnSendScanReqV2 prP2pBssInfo is NULL\n");
+				return;
+			}
+#if CFG_TC10_FEATURE
+			/*
+			* mtk supplicant will scan 4 channels for prograssive scan
+			* customer supplicant should have 3 channels when do social scan
+			*/
+			if (prScanParam->ucChannelListNum <= 4) {
+				DBGLOG(P2P, INFO, "scnSendScanReqV2 Channel number %d for 70ms, OP_MODE[%d]\n",
+					prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+				prCmdScanReqV3->u2ChannelDwellTime = 70;
+			} else if (prP2pBssInfo->eCurrentOPMode == OP_MODE_ACCESS_POINT) {
+				DBGLOG(P2P, INFO, "scnSendScanReqV2 Channel number %d for 100ms, OP_MODE[%d]\n",
+					prScanParam->ucChannelListNum, prP2pBssInfo->eCurrentOPMode);
+				prCmdScanReqV3->u2ChannelDwellTime = 100;
+			} else
+				prCmdScanReqV3->u2ChannelDwellTime = 30;
+#else
 			prCmdScanReqV3->u2ChannelDwellTime = prScanParam->u2PassiveListenInterval;
+#endif
+		}
 #endif
 		if (prScanParam->u2IELen <= MAX_IE_LENGTH)
 			prCmdScanReqV3->u2IELen = prScanParam->u2IELen;
@@ -796,7 +930,9 @@ VOID scnFsmHandleScanMsg(IN P_ADAPTER_T prAdapter, IN P_MSG_SCN_SCAN_REQ prScanR
 	prScanParam->eScanType = prScanReqMsg->eScanType;
 	prScanParam->eNetTypeIndex = (ENUM_NETWORK_TYPE_INDEX_T) prScanReqMsg->ucNetTypeIndex;
 	prScanParam->ucSSIDType = prScanReqMsg->ucSSIDType;
-	if (prScanParam->ucSSIDType & (SCAN_REQ_SSID_SPECIFIED | SCAN_REQ_SSID_P2P_WILDCARD)) {
+	kalMemCopy(prScanParam->aucBSSID, prScanReqMsg->aucBSSID, MAC_ADDR_LEN);
+	if (prScanParam->ucSSIDType & (SCAN_REQ_SSID_SPECIFIED | SCAN_REQ_SSID_P2P_WILDCARD |
+		SCAN_REQ_SSID_SPECIFIED_ONLY)) {
 		prScanParam->ucSSIDNum = 1;
 
 		COPY_SSID(prScanParam->aucSpecifiedSSID[0],
@@ -835,6 +971,10 @@ VOID scnFsmHandleScanMsg(IN P_ADAPTER_T prAdapter, IN P_MSG_SCN_SCAN_REQ prScanR
 	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_P2P_INDEX)
 		prScanParam->u2PassiveListenInterval = prScanReqMsg->u2ChannelDwellTime;
 #endif
+	if (prScanParam->eNetTypeIndex == NETWORK_TYPE_AIS_INDEX) {
+		prScanParam->u2ChannelDwellTime = prScanReqMsg->u2ChannelDwellTime;
+		prScanParam->u2MinChannelDwellTime = prScanReqMsg->u2MinChannelDwellTime;
+	}
 	prScanParam->ucSeqNum = prScanReqMsg->ucSeqNum;
 
 	if (prScanReqMsg->rMsgHdr.eMsgId == MID_RLM_SCN_SCAN_REQ)
@@ -1191,21 +1331,25 @@ VOID scnEventNloDone(IN P_ADAPTER_T prAdapter, IN P_EVENT_NLO_DONE_T prNloDone)
 */
 /*----------------------------------------------------------------------------*/
 BOOLEAN
-scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
-		       IN UINT_8 ucSsidNum,
-		       IN P_PARAM_SSID_T prSsid, IN UINT_32 u4IeLength, IN PUINT_8 pucIe, IN UINT_16 u2Interval)
+scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter)
 {
 	P_SCAN_INFO_T prScanInfo;
 	P_NLO_PARAM_T prNloParam;
 	P_SCAN_PARAM_T prScanParam;
 	P_CMD_NLO_REQ prCmdNloReq;
+	P_PARAM_SCHED_SCAN_REQUEST prSchedScanRequest;
 	UINT_32 i, j;
+	UINT_8 ucNetworkIndex;
+	BOOLEAN fgIsHiddenSSID;
 
 	ASSERT(prAdapter);
 
 	prScanInfo = &(prAdapter->rWifiVar.rScanInfo);
 	prNloParam = &prScanInfo->rNloParam;
 	prScanParam = &prNloParam->rScanParam;
+	prSchedScanRequest = &prScanInfo->rSchedScanRequest;
+	ucNetworkIndex = 0;
+	fgIsHiddenSSID = FALSE;
 
 	if (prScanInfo->fgNloScanning) {
 		DBGLOG(SCN, WARN, "prScanInfo->fgNloScanning == TRUE  already scanning\n");
@@ -1234,11 +1378,12 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 	prNloParam->fgStopAfterIndication = FALSE;
 	prNloParam->ucFastScanIteration = 1;
 
-	if (u2Interval < SCAN_NLO_DEFAULT_INTERVAL) {
-		u2Interval = SCAN_NLO_DEFAULT_INTERVAL; /* millisecond */
+	if (prSchedScanRequest->u2ScanInterval < SCAN_NLO_DEFAULT_INTERVAL) {
+		prSchedScanRequest->u2ScanInterval = SCAN_NLO_DEFAULT_INTERVAL; /* millisecond */
 		DBGLOG(SCN, TRACE, "force interval to SCAN_NLO_DEFAULT_INTERVAL\n");
 	}
 #if !CFG_SUPPORT_SCN_PSCN
+#if !CFG_SUPPORT_RLM_ACT_NETWORK
 	if (!IS_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX)) {
 		SET_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX);
 
@@ -1246,6 +1391,9 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 		/* sync with firmware */
 		nicActivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX);
 	}
+#else
+	rlmActivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX, NET_ACTIVE_SRC_SCHED_SCAN);
+#endif
 #endif
 	prNloParam->u2FastScanPeriod = SCAN_NLO_MIN_INTERVAL; /* use second instead of millisecond for UINT_16*/
 	prNloParam->u2SlowScanPeriod = SCAN_NLO_MAX_INTERVAL;
@@ -1253,22 +1401,55 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 	if (prScanParam->ucSSIDNum > CFG_SCAN_SSID_MAX_NUM)
 		prScanParam->ucSSIDNum = CFG_SCAN_SSID_MAX_NUM;
 	else
-		prScanParam->ucSSIDNum = ucSsidNum;
+		prScanParam->ucSSIDNum = prSchedScanRequest->u4SsidNum;
 
 	if (prNloParam->ucMatchSSIDNum > CFG_SCAN_SSID_MATCH_MAX_NUM)
 		prNloParam->ucMatchSSIDNum = CFG_SCAN_SSID_MATCH_MAX_NUM;
 	else
-		prNloParam->ucMatchSSIDNum = ucSsidNum;
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+		prNloParam->ucMatchSSIDNum = prSchedScanRequest->u4MatchSsidNum;
+#else
+		prNloParam->ucMatchSSIDNum = prSchedScanRequest->u4SsidNum;
+#endif
 
+	kalMemZero(prNloParam->aucSSID, sizeof(prNloParam->aucSSID));
+	kalMemZero(prNloParam->aucMatchSSID, sizeof(prNloParam->aucMatchSSID));
+
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	if (prNloParam->ucSSIDNum > CFG_SCAN_HIDDEN_SSID_MAX_NUM)
+		prNloParam->ucSSIDNum = CFG_SCAN_HIDDEN_SSID_MAX_NUM;
+	else
+		prNloParam->ucSSIDNum = prSchedScanRequest->u4SsidNum;
+
+	for (i = 0; i < prNloParam->ucSSIDNum; i++) {
+		COPY_SSID(prNloParam->aucSSID[i],
+			  prNloParam->ucSSIDLen[i], prSchedScanRequest->arSsid[i].aucSsid,
+			  (UINT_8) prSchedScanRequest->arSsid[i].u4SsidLen);
+	}
+#endif
 	for (i = 0; i < prNloParam->ucMatchSSIDNum; i++) {
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+
 		if (i < CFG_SCAN_SSID_MAX_NUM) {
 			COPY_SSID(prScanParam->aucSpecifiedSSID[i],
-				  prScanParam->ucSpecifiedSSIDLen[i], prSsid[i].aucSsid, (UINT_8) prSsid[i].u4SsidLen);
+				  prScanParam->ucSpecifiedSSIDLen[i], prSchedScanRequest->arMatchSsid[i].aucSsid,
+				  (UINT_8) prSchedScanRequest->arMatchSsid[i].u4SsidLen);
 		}
 
 		COPY_SSID(prNloParam->aucMatchSSID[i],
-			  prNloParam->ucMatchSSIDLen[i], prSsid[i].aucSsid, (UINT_8) prSsid[i].u4SsidLen);
+			  prNloParam->ucMatchSSIDLen[i], prSchedScanRequest->arMatchSsid[i].aucSsid,
+			  (UINT_8) prSchedScanRequest->arMatchSsid[i].u4SsidLen);
+#else
+		if (i < CFG_SCAN_SSID_MAX_NUM) {
+			COPY_SSID(prScanParam->aucSpecifiedSSID[i],
+				  prScanParam->ucSpecifiedSSIDLen[i], prSchedScanRequest->arSsid[i].aucSsid,
+				  (UINT_8) prSchedScanRequest->arSsid[i].u4SsidLen);
+		}
 
+		COPY_SSID(prNloParam->aucMatchSSID[i],
+			  prNloParam->ucMatchSSIDLen[i], prSchedScanRequest->arSsid[i].aucSsid,
+			  (UINT_8) prSchedScanRequest->arSsid[i].u4SsidLen);
+#endif
 		prNloParam->aucCipherAlgo[i] = 0;
 		prNloParam->au2AuthAlgo[i] = 0;
 
@@ -1276,9 +1457,7 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 			prNloParam->aucChannelHint[i][j] = 0;
 	}
 
-	DBGLOG(SCN, INFO, "ssidNum %d, %s, Iteration=%d, FastScanPeriod=%d\n",
-		prNloParam->ucMatchSSIDNum, prNloParam->aucMatchSSID[0],
-		prNloParam->ucFastScanIteration, prNloParam->u2FastScanPeriod);
+
 	/* 2. prepare command for sending */
 	prCmdNloReq = (P_CMD_NLO_REQ) cnmMemAlloc(prAdapter, RAM_TYPE_BUF, sizeof(CMD_NLO_REQ) + prScanParam->u2IELen);
 
@@ -1300,6 +1479,87 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 	prCmdNloReq->ucFastScanIteration = prNloParam->ucFastScanIteration;
 	prCmdNloReq->u2FastScanPeriod = prNloParam->u2FastScanPeriod;
 	prCmdNloReq->u2SlowScanPeriod = prNloParam->u2SlowScanPeriod;
+
+#if CFG_SUPPORT_SCHED_SCN_SSID_SETS
+	for (i = 0; i < prNloParam->ucSSIDNum; i++) {
+		COPY_SSID(prCmdNloReq->arNetworkList[ucNetworkIndex].aucSSID,
+			  prCmdNloReq->arNetworkList[ucNetworkIndex].ucSSIDLength,
+			  prNloParam->aucSSID[i], prNloParam->ucSSIDLen[i]);
+
+		DBGLOG(SCN, TRACE, "ssid set(%d) %s\n"
+			, ucNetworkIndex, prCmdNloReq->arNetworkList[ucNetworkIndex].aucSSID);
+		prCmdNloReq->arNetworkList[ucNetworkIndex].ucCipherAlgo
+			= prNloParam->aucCipherAlgo[ucNetworkIndex];
+		prCmdNloReq->arNetworkList[ucNetworkIndex].u2AuthAlgo
+			= prNloParam->au2AuthAlgo[ucNetworkIndex];
+
+		for (j = 0; j < SCN_NLO_NETWORK_CHANNEL_NUM; j++)
+			prCmdNloReq->arNetworkList[ucNetworkIndex].ucNumChannelHint[j]
+				= prNloParam->aucChannelHint[ucNetworkIndex][j];
+
+		ucNetworkIndex++;
+	}
+
+
+	/*prSchedScanRequest->u4SsidNum +1 ~ prNloParam->ucMatchSSIDNum*/
+	for (i = 0 ; i < prNloParam->ucMatchSSIDNum; i++) {
+		fgIsHiddenSSID = FALSE;
+		for (j = 0; j < prNloParam->ucSSIDNum; j++) {
+				if (EQUAL_SSID(prCmdNloReq->arNetworkList[j].aucSSID,
+				prCmdNloReq->arNetworkList[j].ucSSIDLength,
+				prNloParam->aucMatchSSID[i], prNloParam->ucMatchSSIDLen[i])) {
+						fgIsHiddenSSID = TRUE;
+						break;
+					}
+		}
+		if (ucNetworkIndex >= CFG_SCAN_SSID_MATCH_MAX_NUM) {
+			DBGLOG(SCN, TRACE, "ucNetworkIndex %d out of MAX num!\n", ucNetworkIndex);
+			break;
+		}
+		if (!fgIsHiddenSSID && prNloParam->ucMatchSSIDLen[i] != 0) {
+			COPY_SSID(prCmdNloReq->arNetworkList[ucNetworkIndex].aucSSID,
+				  prCmdNloReq->arNetworkList[ucNetworkIndex].ucSSIDLength,
+				  prNloParam->aucMatchSSID[i], prNloParam->ucMatchSSIDLen[i]);
+
+			DBGLOG(SCN, TRACE, "Match set(%d) %s\n"
+				, i, prCmdNloReq->arNetworkList[ucNetworkIndex].aucSSID);
+
+			prCmdNloReq->arNetworkList[ucNetworkIndex].ucCipherAlgo
+				= prNloParam->aucCipherAlgo[ucNetworkIndex];
+			prCmdNloReq->arNetworkList[ucNetworkIndex].u2AuthAlgo
+				= prNloParam->au2AuthAlgo[ucNetworkIndex];
+
+			for (j = 0; j < SCN_NLO_NETWORK_CHANNEL_NUM; j++)
+				prCmdNloReq->arNetworkList[ucNetworkIndex].ucNumChannelHint[j]
+					= prNloParam->aucChannelHint[ucNetworkIndex][j];
+
+			ucNetworkIndex++;
+		} else
+			DBGLOG(SCN, TRACE, "ignore Match set(%d)%s,beacue it existed in NetworkList.\n"
+			, i, prNloParam->aucMatchSSID[i]);
+
+	}
+
+	/*Set uc Entry Num*/
+	prCmdNloReq->ucEntryNum = ucNetworkIndex;
+	/*ucEntryNum[7] enable FW's support*/
+	prCmdNloReq->ucReserved |= 0x80;
+	/*ucEntryNum[4:6]: set SSID sets */
+	prCmdNloReq->ucReserved |= (prNloParam->ucSSIDNum & 0x07) << 4;
+
+	DBGLOG(SCN, INFO, "ucEntryNum=%d,ucMatchSSIDNum=%d,ucSSIDNum=%d,ucReserved=0x%x,Iteration=%d,Period=%d\n"
+		, prCmdNloReq->ucEntryNum
+		, prNloParam->ucMatchSSIDNum
+		, prNloParam->ucSSIDNum
+		, prCmdNloReq->ucReserved
+		, prNloParam->ucFastScanIteration
+		, prNloParam->u2FastScanPeriod);
+#else
+
+	DBGLOG(SCN, INFO, "ucMatchSSIDNum %d, %s, Iteration=%d, FastScanPeriod=%d\n",
+		prNloParam->ucMatchSSIDNum, prNloParam->aucMatchSSID[0],
+		prNloParam->ucFastScanIteration, prNloParam->u2FastScanPeriod);
+
 	prCmdNloReq->ucEntryNum = prNloParam->ucMatchSSIDNum;
 	for (i = 0; i < prNloParam->ucMatchSSIDNum; i++) {
 		COPY_SSID(prCmdNloReq->arNetworkList[i].aucSSID,
@@ -1312,6 +1572,7 @@ scnFsmSchedScanRequest(IN P_ADAPTER_T prAdapter,
 		for (j = 0; j < SCN_NLO_NETWORK_CHANNEL_NUM; j++)
 			prCmdNloReq->arNetworkList[i].ucNumChannelHint[j] = prNloParam->aucChannelHint[i][j];
 	}
+#endif
 
 	if (prScanParam->u2IELen <= MAX_IE_LENGTH)
 		prCmdNloReq->u2IELen = prScanParam->u2IELen;
@@ -1366,11 +1627,15 @@ BOOLEAN scnFsmSchedScanStopRequest(IN P_ADAPTER_T prAdapter)
 	prScanParam = &prNloParam->rScanParam;
 
 #if !CFG_SUPPORT_SCN_PSCN
+#if !CFG_SUPPORT_RLM_ACT_NETWORK
 		if (IS_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX)) {
 			UNSET_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX);
 
 			DBGLOG(SCN, TRACE, "DEACTIVATE AIS to disable PNO\n");
 		}
+#else
+		rlmDeactivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX, NET_ACTIVE_SRC_SCHED_SCAN);
+#endif
 #endif
 
 	/*check if normal scanning is true, driver start to postpone sched scan stop request*/
@@ -1850,12 +2115,18 @@ VOID scnPSCNFsm(IN P_ADAPTER_T prAdapter, IN ENUM_PSCAN_STATE_T eNextPSCNState)
 		switch (prScanInfo->eCurrentPSCNState) {
 		case PSCN_IDLE:
 			DBGLOG(SCN, TRACE, "PSCN_IDLE.... PSCAN_ACT_DISABLE\n");
+#if CFG_SUPPORT_RLM_ACT_NETWORK
+			rlmDeactivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX, NET_ACTIVE_SRC_SCHED_SCAN);
+#endif
 			scnFsmPSCNAction(prAdapter, PSCAN_ACT_DISABLE);
 			eNextPSCNState = PSCN_IDLE;
 			break;
 
 		case PSCN_RESET:
 			DBGLOG(SCN, TRACE, "PSCN_RESET.... PSCAN_ACT_DISABLE\n");
+#if CFG_SUPPORT_RLM_ACT_NETWORK
+			rlmDeactivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX, NET_ACTIVE_SRC_SCHED_SCAN);
+#endif
 			scnFsmPSCNAction(prAdapter, PSCAN_ACT_DISABLE);
 			scnFsmPSCNSetParam(prAdapter, prScanInfo->prPscnParam);
 
@@ -1876,12 +2147,17 @@ VOID scnPSCNFsm(IN P_ADAPTER_T prAdapter, IN ENUM_PSCAN_STATE_T eNextPSCNState)
 			DBGLOG(SCN, TRACE, "PSCN_SCANNING.... PSCAN_ACT_ENABLE\n");
 			if (prScanInfo->fgPscnOngoing)
 				break;
+#if !CFG_SUPPORT_RLM_ACT_NETWORK
 			if (!IS_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX)) {
 				SET_NET_ACTIVE(prAdapter, NETWORK_TYPE_AIS_INDEX);
 				DBGLOG(SCN, TRACE, "ACTIVATE AIS to enable PSCN\n");
 				/* sync with firmware */
 				nicActivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX);
 			}
+#else
+			rlmActivateNetwork(prAdapter, NETWORK_TYPE_AIS_INDEX, NET_ACTIVE_SRC_SCHED_SCAN);
+#endif
+
 			scnFsmPSCNAction(prAdapter, PSCAN_ACT_ENABLE);
 			prScanInfo->fgPscnOngoing = TRUE;
 			eNextPSCNState = PSCN_SCANNING;

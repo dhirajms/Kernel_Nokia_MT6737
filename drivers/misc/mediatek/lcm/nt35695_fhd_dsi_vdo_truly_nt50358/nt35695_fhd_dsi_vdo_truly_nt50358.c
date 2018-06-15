@@ -219,7 +219,7 @@ static const unsigned char LCD_MODULE_ID = 0x01;
 
 #define LCM_PHYSICAL_WIDTH									(74520)
 #define LCM_PHYSICAL_HEIGHT									(132480)
-
+#define LCM_DENSITY											(480)
 
 #ifndef CONFIG_FPGA_EARLY_PORTING
 #define GPIO_65132_EN GPIO_LCD_BIAS_ENP_PIN
@@ -1485,7 +1485,7 @@ static void lcm_get_params(LCM_PARAMS *params)
 	params->physical_height = LCM_PHYSICAL_HEIGHT/1000;
 	params->physical_width_um = LCM_PHYSICAL_WIDTH;
 	params->physical_height_um = LCM_PHYSICAL_HEIGHT;
-
+	params->density = LCM_DENSITY;
 
 #if (LCM_DSI_CMD_MODE)
 	params->dsi.mode = CMD_MODE;
@@ -1750,7 +1750,7 @@ static void lcm_update(unsigned int x, unsigned int y, unsigned int width, unsig
 
 static unsigned int lcm_compare_id(void)
 {
-	unsigned int id = 0;
+	unsigned int id = 0, version_id = 0;
 	unsigned char buffer[2];
 	unsigned int array[16];
 
@@ -1767,9 +1767,12 @@ static unsigned int lcm_compare_id(void)
 	read_reg_v2(0xF4, buffer, 2);
 	id = buffer[0];		/* we only need ID */
 
-	LCM_LOGI("%s,nt35695 debug: nt35695 id = 0x%08x\n", __func__, id);
+	read_reg_v2(0xDB, buffer, 1);
+	version_id = buffer[0];
 
-	if (id == LCM_ID_NT35695)
+	LCM_LOGI("%s,nt35695 id = 0x%08x,version_id = 0x%x\n", __func__, id, version_id);
+
+	if (id == LCM_ID_NT35695 && version_id == 0x80)
 		return 1;
 	else
 		return 0;

@@ -61,7 +61,11 @@
 
 #define SPM_PWAKE_EN            1
 #define SPM_PCMWDT_EN           1
+#if defined(CONFIG_ARCH_MT6755)
+#define SPM_BYPASS_SYSPWREQ     1
+#else
 #define SPM_BYPASS_SYSPWREQ     0
+#endif
 
 #define WAKE_SRC_FOR_MD32  0
 
@@ -604,6 +608,12 @@ static wake_reason_t spm_output_wake_reason(struct wake_status *wakesta, struct 
 
 	if (dump_log == DEEPIDLE_LOG_FULL) {
 		wr = __spm_output_wake_reason(wakesta, pcmdesc, false);
+
+#ifdef CONFIG_MTK_ECCCI_DRIVER
+		if (wakesta->r12 & WAKE_SRC_R12_CLDMA_EVENT_B)
+			exec_ccci_kern_func_by_md_id(0, ID_GET_MD_WAKEUP_SRC, NULL, 0);
+#endif
+
 	} else if (dump_log == DEEPIDLE_LOG_REDUCED) {
 		/* Determine print SPM log or not */
 		dpidle_log_print_curr_time = spm_get_current_time_ms();
@@ -633,17 +643,17 @@ static wake_reason_t spm_output_wake_reason(struct wake_status *wakesta, struct 
 			dpidle_log_print_prev_time = dpidle_log_print_curr_time;
 			dpidle_log_discard_cnt = 0;
 			timer_out_too_short = false;
+
+#ifdef CONFIG_MTK_ECCCI_DRIVER
+			if (wakesta->r12 & WAKE_SRC_R12_CLDMA_EVENT_B)
+				exec_ccci_kern_func_by_md_id(0, ID_GET_MD_WAKEUP_SRC, NULL, 0);
+#endif
 		} else {
 			dpidle_log_discard_cnt++;
 
 			wr = WR_NONE;
 		}
 	}
-
-#ifdef CONFIG_MTK_ECCCI_DRIVER
-	if (wakesta->r12 & WAKE_SRC_R12_CLDMA_EVENT_B)
-		exec_ccci_kern_func_by_md_id(0, ID_GET_MD_WAKEUP_SRC, NULL, 0);
-#endif
 
 	return wr;
 }
@@ -688,15 +698,31 @@ wake_reason_t spm_go_to_dpidle(u32 spm_flags, u32 spm_data, u32 dump_log)
 	struct pcm_desc *pcmdesc;
 	struct pwr_ctrl *pwrctrl = __spm_dpidle.pwrctrl;
 	u32 cpu = spm_data;
+	int pcm_index;
+
+	memset(&wakesta, 0, sizeof(struct wake_status));
 
 #if SPM_AEE_RR_REC
 	aee_rr_rec_deepidle_val(SPM_DEEPIDLE_ENTER);
 #endif
 
-	if (dyna_load_pcm[DYNA_LOAD_PCM_DEEPIDLE + cpu / 4].ready)
-		pcmdesc = &(dyna_load_pcm[DYNA_LOAD_PCM_DEEPIDLE + cpu / 4].desc);
+#if defined(CONFIG_MTK_PMIC_CHIP_MT6353) && defined(CONFIG_ARCH_MT6755)
+	if (use_new_spmfw)
+		pcm_index = DYNA_LOAD_PCM_DEEPIDLE_R + cpu / 4;
+	else
+		pcm_index = DYNA_LOAD_PCM_DEEPIDLE + cpu / 4;
+#else
+	pcm_index = DYNA_LOAD_PCM_DEEPIDLE + cpu / 4;
+#endif
+
+	if (dyna_load_pcm[pcm_index].ready)
+		pcmdesc = &(dyna_load_pcm[pcm_index].desc);
 	else
 		BUG();
+
+#if defined(CONFIG_ARCH_MT6755) && defined(CONFIG_MTK_PMIC_CHIP_MT6353)
+	spm_flags |= spm_use_mt6311() ? SPM_FLAG_EN_CONN_CLOCK_BUF_CTRL : 0;
+#endif
 
 	update_pwrctrl_pcm_flags(&spm_flags);
 	set_pwrctrl_pcm_flags(pwrctrl, spm_flags);
@@ -823,15 +849,31 @@ wake_reason_t spm_go_to_sleep_dpidle(u32 spm_flags, u32 spm_data)
 	struct pcm_desc *pcmdesc;
 	struct pwr_ctrl *pwrctrl = __spm_dpidle.pwrctrl;
 	int cpu = smp_processor_id();
+	int pcm_index;
 
-	if (dyna_load_pcm[DYNA_LOAD_PCM_DEEPIDLE + cpu / 4].ready)
-		pcmdesc = &(dyna_load_pcm[DYNA_LOAD_PCM_DEEPIDLE + cpu / 4].desc);
+	memset(&wakesta, 0, sizeof(struct wake_status));
+
+#if defined(CONFIG_MTK_PMIC_CHIP_MT6353) && defined(CONFIG_ARCH_MT6755)
+	if (use_new_spmfw)
+		pcm_index = DYNA_LOAD_PCM_DEEPIDLE_R + cpu / 4;
+	else
+		pcm_index = DYNA_LOAD_PCM_DEEPIDLE + cpu / 4;
+#else
+	pcm_index = DYNA_LOAD_PCM_DEEPIDLE + cpu / 4;
+#endif
+
+	if (dyna_load_pcm[pcm_index].ready)
+		pcmdesc = &(dyna_load_pcm[pcm_index].desc);
 	else
 		BUG();
 
 	/* backup original dpidle setting */
 	dpidle_timer_val = pwrctrl->timer_val;
 	dpidle_wake_src = pwrctrl->wake_src;
+
+#if defined(CONFIG_ARCH_MT6755) && defined(CONFIG_MTK_PMIC_CHIP_MT6353)
+	spm_flags |= spm_use_mt6311() ? SPM_FLAG_EN_CONN_CLOCK_BUF_CTRL : 0;
+#endif
 
 	update_pwrctrl_pcm_flags(&spm_flags);
 	set_pwrctrl_pcm_flags(pwrctrl, spm_flags);
@@ -940,7 +982,7 @@ RESTORE_IRQ:
 	return last_wr;
 }
 
-void spm_deepidle_init(void)
+void __init spm_deepidle_init(void)
 {
 #if defined(CONFIG_OF)
 	struct device_node *node;

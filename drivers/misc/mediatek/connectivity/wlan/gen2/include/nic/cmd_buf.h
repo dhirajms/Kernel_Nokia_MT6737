@@ -39,6 +39,7 @@ typedef enum _COMMAND_TYPE {
 	COMMAND_TYPE_NETWORK_IOCTL,
 	COMMAND_TYPE_SECURITY_FRAME,
 	COMMAND_TYPE_MANAGEMENT_FRAME,
+	COMMAND_TYPE_KEY_IOCTL,
 	COMMAND_TYPE_NUM
 } COMMAND_TYPE, *P_COMMAND_TYPE;
 
@@ -77,6 +78,8 @@ struct _CMD_INFO_T {
 	/* private data */
 	UINT_32 u4PrivateData;
 	UINT_32 u4InqueTime;
+	UINT_32 u4SendToFwTime;
+	UINT_32 u4FwResponseTime;
 };
 
 /*******************************************************************************

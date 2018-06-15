@@ -12,6 +12,7 @@
  */
 
 #include <stdarg.h>
+#include <linux/crc32.h>
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -31,7 +32,7 @@
 #include <asm/processor.h>
 #include <mach/wd_api.h>
 #if defined(CONFIG_FIQ_GLUE)
-#include <mt-plat/fiq_smp_call.h>
+#include <asm/fiq_smp_call.h>
 #endif
 #include <smp.h>
 #include <mrdump.h>
@@ -52,11 +53,7 @@ static int crashing_cpu;
 static note_buf_t __percpu *crash_notes;
 
 static bool mrdump_enable = 1;
-static int mrdump_output_device;
-static int mrdump_output_fstype;
 static unsigned long mrdump_output_lbaooo;
-
-static struct mrdump_control_block mrdump_cblock __attribute__((section (".mrdump")));
 
 static const struct mrdump_platform *mrdump_plat;
 
@@ -98,7 +95,8 @@ static void crash_save_cpu(struct pt_regs *regs, int cpu)
 
 	if ((cpu < 0) || (cpu >= nr_cpu_ids))
 		return;
-
+	if (!crash_notes)
+		return;
 	buf = (u32 *)per_cpu_ptr(crash_notes, cpu);
 	if (!buf)
 		return;
@@ -152,7 +150,6 @@ static void aee_kdump_cpu_stop(void *arg, void *regs, void *svc_sp)
 		     : "r" (svc_sp), "r" (ptregs->ARM_fp)
 		);
 	cpu = get_HW_cpuid();
-
 	elf_core_copy_kernel_regs((elf_gregset_t *)&crash_record->cpu_regs[cpu], ptregs);
 	crash_save_cpu((struct pt_regs *)regs, cpu);
 	local_fiq_disable();
@@ -303,11 +300,14 @@ void __mrdump_create_oops_dump(AEE_REBOOT_MODE reboot_mode, struct pt_regs *regs
 
 int __init mrdump_platform_init(const struct mrdump_platform *plat)
 {
-	struct mrdump_machdesc *machdesc_p;
-
-	memset(&mrdump_cblock, 0, sizeof(struct mrdump_control_block));
-
 	mrdump_plat = plat;
+
+	crash_notes = alloc_percpu(note_buf_t);
+	if (!crash_notes) {
+		pr_err("MT-RAMDUMP: Memory allocation for saving cpu register failed\n");
+		return -ENOMEM;
+	}
+
 	if (mrdump_plat == NULL) {
 		mrdump_enable = 0;
 		pr_err("%s: MT-RAMDUMP platform no init\n", __func__);
@@ -320,48 +320,17 @@ int __init mrdump_platform_init(const struct mrdump_platform *plat)
 		return -EINVAL;
 	}
 
-	memcpy(&mrdump_cblock.sig, MRDUMP_GO_DUMP, 8);
-
 	/* move default enable MT-RAMDUMP to late_init (this function) */
 	if (mrdump_enable) {
 		mrdump_plat->hw_enable(mrdump_enable);
+		mrdump_cblock.enabled = MRDUMP_ENABLE_COOKIE;
 		__inner_flush_dcache_all();
 	}
 
-	machdesc_p = &mrdump_cblock.machdesc;
-	machdesc_p->output_device = MRDUMP_DEV_EMMC;
-	machdesc_p->output_fstype = MRDUMP_FS_EXT4;
-	machdesc_p->nr_cpus = mrdump_enable ? NR_CPUS : 0;
-	machdesc_p->page_offset = (uint64_t)PAGE_OFFSET;
-	machdesc_p->high_memory = (uintptr_t)high_memory;
-
-	machdesc_p->vmalloc_start = (uint64_t)VMALLOC_START;
-	machdesc_p->vmalloc_end = (uint64_t)VMALLOC_END;
-
-	machdesc_p->modules_start = (uint64_t)MODULES_VADDR;
-	machdesc_p->modules_end = (uint64_t)MODULES_END;
-
-	machdesc_p->phys_offset = (uint64_t)PHYS_OFFSET;
-	machdesc_p->master_page_table = (uintptr_t)&swapper_pg_dir;
-
-	/* Allocate memory for saving cpu registers. */
-	crash_notes = alloc_percpu(note_buf_t);
-	if (!crash_notes) {
-		pr_err("MT-RAMDUMP: Memory allocation for saving cpu register failed\n");
-		return -ENOMEM;
-	}
-
-	pr_info("%s: init_done.\n", __func__);
 	return 0;
 }
 
 #if CONFIG_SYSFS
-
-static ssize_t dump_status_show(struct kobject *kobj, struct kobj_attribute *attr,
-			   char *page)
-{
-	return 0;
-}
 
 static ssize_t mrdump_version_show(struct kobject *kobj, struct kobj_attribute *attr,
 				  char *buf)
@@ -369,33 +338,11 @@ static ssize_t mrdump_version_show(struct kobject *kobj, struct kobj_attribute *
 	return snprintf(buf, PAGE_SIZE, "%s\n", MRDUMP_GO_DUMP);
 }
 
-static ssize_t manual_dump_show(struct kobject *kobj, struct kobj_attribute *attr,
-				char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%s\n", "Trigger manual dump with message, format \"manualdump:HelloWorld\"");
-}
-
-static ssize_t manual_dump_store(struct kobject *kobj, struct kobj_attribute *attr,
-			 const char *buf, size_t count)
-{
-	if (strncmp(buf, "manualdump:", 11) == 0)
-		aee_kdump_reboot(AEE_REBOOT_MODE_MANUAL_KDUMP, buf + 11);
-	return count;
-}
-
-static struct kobj_attribute dump_status_attribute =
-	__ATTR(dump_status, 0400, dump_status_show, NULL);
-
 static struct kobj_attribute mrdump_version_attribute =
 	__ATTR(version, 0600, mrdump_version_show, NULL);
 
-static struct kobj_attribute manual_dump_attribute =
-	__ATTR(manualdump, 0600, manual_dump_show, manual_dump_store);
-
 static struct attribute *attrs[] = {
-	&dump_status_attribute.attr,
 	&mrdump_version_attribute.attr,
-	&manual_dump_attribute.attr,
 	NULL,
 };
 
@@ -426,50 +373,6 @@ module_init(mrdump_sysfs_init);
 
 #endif
 
-static int param_set_mrdump_device(const char *val, const struct kernel_param *kp)
-{
-	char strval[16], *strp;
-	int eval;
-
-	strlcpy(strval, val, sizeof(strval));
-	strp = strstrip(strval);
-
-	if (strcmp(strp, "null") == 0)
-		eval = MRDUMP_DEV_NULL;
-	else if (strcmp(strp, "sdcard") == 0)
-		eval = MRDUMP_DEV_SDCARD;
-	else if (strcmp(strp, "emmc") == 0)
-		eval = MRDUMP_DEV_EMMC;
-	else
-		eval = MRDUMP_DEV_NULL;
-	*(int *)kp->arg = eval;
-	mrdump_cblock.machdesc.output_device = eval;
-	__inner_flush_dcache_all();
-	return 0;
-}
-
-static int param_get_mrdump_device(char *buffer, const struct kernel_param *kp)
-{
-	char *dev;
-	switch (mrdump_cblock.machdesc.output_device) {
-	case MRDUMP_DEV_NULL:
-		dev = "null";
-		break;
-	case MRDUMP_DEV_SDCARD:
-		dev = "sdcard";
-		break;
-	case MRDUMP_DEV_EMMC:
-		dev = "emmc";
-		break;
-	default:
-		dev = "none(unknown)";
-		break;
-	}
-
-	strlcpy(buffer, dev, PAGE_SIZE);
-	return strlen(dev);
-}
-
 static int param_set_mrdump_enable(const char *val, const struct kernel_param *kp)
 {
 	int res, retval = 0;
@@ -486,62 +389,18 @@ static int param_set_mrdump_enable(const char *val, const struct kernel_param *k
 		retval = param_set_bool(val, kp);
 		if (retval == 0) {
 			mrdump_plat->hw_enable(mrdump_enable);
-			mrdump_cblock.machdesc.nr_cpus = mrdump_enable ? NR_CPUS : 0;
+			mrdump_cblock.enabled = MRDUMP_ENABLE_COOKIE;
 			__inner_flush_dcache_all();
 		}
 	}
 	return retval;
 }
 
-static int param_set_mrdump_fstype(const char *val, const struct kernel_param *kp)
-{
-	char strval[16], *strp;
-	int eval;
-
-	strlcpy(strval, val, sizeof(strval));
-	strp = strstrip(strval);
-
-	if (strcmp(strp, "null") == 0)
-		eval = MRDUMP_FS_NULL;
-	else if (strcmp(strp, "vfat") == 0)
-		eval = MRDUMP_FS_VFAT;
-	else if (strcmp(strp, "ext4") == 0)
-		eval = MRDUMP_FS_EXT4;
-	else
-		eval = MRDUMP_FS_NULL;
-
-	*(int *)kp->arg = eval;
-	mrdump_cblock.machdesc.output_fstype = eval;
-	__inner_flush_dcache_all();
-	return 0;
-}
-
-static int param_get_mrdump_fstype(char *buffer, const struct kernel_param *kp)
-{
-	char *dev;
-	switch (mrdump_cblock.machdesc.output_fstype) {
-	case MRDUMP_FS_NULL:
-		dev = "null";
-		break;
-	case MRDUMP_FS_VFAT:
-		dev = "vfat";
-		break;
-	case MRDUMP_FS_EXT4:
-		dev = "ext4";
-		break;
-	default:
-		dev = "none(unknown)";
-		break;
-	}
-	strlcpy(buffer, dev, PAGE_SIZE);
-	return strlen(dev);
-}
-
 static int param_set_mrdump_lbaooo(const char *val, const struct kernel_param *kp)
 {
 	int retval = param_set_ulong(val, kp);
-	if ((retval == 0) && (mrdump_cblock.machdesc.output_fstype == MRDUMP_FS_EXT4)) {
-		mrdump_cblock.machdesc.output_lbaooo = mrdump_output_lbaooo;
+	if (retval == 0) {
+		mrdump_cblock.output_fs_lbaooo = mrdump_output_lbaooo;
 		__inner_flush_dcache_all();
 	}
 	return retval;
@@ -560,16 +419,6 @@ param_check_ulong(lbaooo, &mrdump_output_lbaooo);
 module_param_cb(lbaooo, &param_ops_mrdump_lbaooo, &mrdump_output_lbaooo, S_IRUGO | S_IWUSR);
 __MODULE_PARM_TYPE(lbaooo, unsigned long);
 
-/* sys/modules/mrdump/parameter/fstype */
-struct kernel_param_ops param_ops_mrdump_fstype = {
-	.set = param_set_mrdump_fstype,
-	.get = param_get_mrdump_fstype,
-};
-
-param_check_int(fstype, &mrdump_output_fstype);
-module_param_cb(fstype, &param_ops_mrdump_fstype, &mrdump_output_fstype, S_IRUGO | S_IWUSR);
-__MODULE_PARM_TYPE(fstype, int);
-
 /* sys/modules/mrdump/parameter/enable */
 struct kernel_param_ops param_ops_mrdump_enable = {
 	.set = param_set_mrdump_enable,
@@ -579,18 +428,6 @@ param_check_bool(enable, &mrdump_enable);
 module_param_cb(enable, &param_ops_mrdump_enable, &mrdump_enable, S_IRUGO | S_IWUSR);
 __MODULE_PARM_TYPE(enable, bool);
 
-/* sys/modules/mrdump/parameter/device */
-struct kernel_param_ops param_ops_mrdump_device = {
-	.set = param_set_mrdump_device,
-	.get = param_get_mrdump_device,
-};
-
-param_check_int(device, &mrdump_output_device);
-module_param_cb(device, &param_ops_mrdump_device, &mrdump_output_device, S_IRUGO | S_IWUSR);
-__MODULE_PARM_TYPE(device, int);
-
-
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("MediaTek MRDUMP module");
 MODULE_AUTHOR("MediaTek Inc.");
-

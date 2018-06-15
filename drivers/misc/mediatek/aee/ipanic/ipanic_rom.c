@@ -18,25 +18,23 @@
 #include <asm/cacheflush.h>
 #include <linux/kdebug.h>
 #include <linux/module.h>
+#include <linux/sizes.h>
 #include <mrdump.h>
 #include <mt-plat/mtk_ram_console.h>
 #include <mach/wd_api.h>
 #include <linux/reboot.h>
 #include "ipanic.h"
+#include "../mrdump/mrdump_private.h"
 #include <asm/system_misc.h>
 
 static u32 ipanic_iv = 0xaabbccdd;
 static spinlock_t ipanic_lock;
 struct ipanic_ops *ipanic_ops;
 typedef int (*fn_next) (void *data, unsigned char *buffer, size_t sz_buf);
+static int ipanic_mrdump_flag = 1;
 static bool ipanic_enable = 1;
 
 int __weak ipanic_atflog_buffer(void *data, unsigned char *buffer, size_t sz_buf)
-{
-	return 0;
-}
-
-int __weak panic_dump_android_log(char *buffer, size_t sz_buf, int type)
 {
 	return 0;
 }
@@ -101,11 +99,14 @@ void ipanic_oops_free(struct aee_oops *oops, int erase)
 }
 EXPORT_SYMBOL(ipanic_oops_free);
 
-static int ipanic_alog_buffer(void *data, unsigned char *buffer, size_t sz_buf);
-
 static int ipanic_current_task_info(void *data, unsigned char *buffer, size_t sz_buf)
 {
 	return mrdump_task_info(buffer, sz_buf);
+}
+
+static int ipanic_save_modules_info(void *data, unsigned char *buffer, size_t sz_buf)
+{
+	return mrdump_modules_info(buffer, sz_buf);
 }
 
 /*#ifdef CONFIG_MTK_MMPROFILE_SUPPORT*/
@@ -156,13 +157,15 @@ const struct ipanic_dt_op ipanic_dt_ops[] = {
 #else
 	{"SYS_MMPROFILE", 0, NULL},
 #endif
-	{"SYS_MAIN_LOG_RAW", __MAIN_BUF_SIZE, ipanic_alog_buffer},
-	{"SYS_SYSTEM_LOG_RAW", __SYSTEM_BUF_SIZE, ipanic_alog_buffer},
-	{"SYS_EVENTS_LOG_RAW", __EVENTS_BUF_SIZE, ipanic_alog_buffer},
-	{"SYS_RADIO_LOG_RAW", __RADIO_BUF_SIZE, ipanic_alog_buffer},
+	{"reserved", 0, NULL},
+	{"reserved", 0, NULL},
+	{"reserved", 0, NULL},
+	{"reserved", 0, NULL},
 	{"SYS_LAST_LOG", LAST_LOG_LEN, ipanic_klog_buffer},
 	{"SYS_ATF_LOG", ATF_LOG_SIZE, ipanic_atflog_buffer},
 	{"SYS_DISP_LOG", DISP_LOG_SIZE, panic_dump_disp_log},	/* 16 */
+	{"SYS_MODULES_INFO", MODULES_INFO_BUF_SIZE, ipanic_save_modules_info},	/* 17 */
+	{"SYS_HANG_DETECT_RAW", SZ_1M, NULL},
 	{"reserved", 0, NULL},
 	{"reserved", 0, NULL},
 	{"reserved", 0, NULL},
@@ -204,28 +207,28 @@ static int ipanic_memory_buffer(void *data, unsigned char *buffer, size_t sz_buf
 	return sz_real;
 }
 
-static int ipanic_alog_buffer(void *data, unsigned char *buffer, size_t sz_buf)
-{
-	int rc;
-
-	rc = panic_dump_android_log(buffer, sz_buf, (unsigned long)data);
-	if (rc < 0)
-		rc = -1;
-	return rc;
-}
-
 inline int ipanic_func_write(fn_next next, void *data, int off, int total, int encrypt)
 {
 	int errno = 0;
 	size_t size;
 	int start = off;
 	struct ipanic_header *iheader = ipanic_header();
-	unsigned char *ipanic_buffer = (unsigned char *)(unsigned long)iheader->buf;
-	size_t sz_ipanic_buffer = iheader->bufsize;
-	size_t blksize = iheader->blksize;
-	int many = total > iheader->bufsize;
+	unsigned char *ipanic_buffer = NULL;
+	size_t sz_ipanic_buffer = (size_t)0;
+	size_t blksize = (size_t)0;
+	int many = 0;
 
 	LOGV("off[%x], encrypt[%d]\n", off, encrypt);
+
+	if (iheader == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return -5;
+	}
+
+	ipanic_buffer = (unsigned char *)(unsigned long)iheader->buf;
+	sz_ipanic_buffer = iheader->bufsize;
+	blksize = iheader->blksize;
+	many = total > iheader->bufsize;
 
 	if (off & (blksize - 1))
 		return -2;	/*invalid offset, not block aligned */
@@ -282,6 +285,11 @@ static int ipanic_header_to_sd(struct ipanic_data_header *header)
 	int first_write = 0;
 	struct ipanic_header *ipanic_hdr = ipanic_header();
 
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return -5;
+	}
+
 	if (!ipanic_hdr->datas)
 		first_write = 1;
 	if (header) {
@@ -303,8 +311,14 @@ static int ipanic_header_to_sd(struct ipanic_data_header *header)
 static int ipanic_data_is_valid(int dt)
 {
 	struct ipanic_header *ipanic_hdr = ipanic_header();
-	struct ipanic_data_header *dheader = &ipanic_hdr->data_hdr[dt];
+	struct ipanic_data_header *dheader = NULL;
 
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return 0;
+	}
+
+	dheader = &ipanic_hdr->data_hdr[dt];
 	return (dheader->valid == 1);
 }
 
@@ -313,7 +327,14 @@ int ipanic_data_to_sd(int dt, void *data)
 	int errno = 0;
 	int (*next)(void *data, unsigned char *buffer, size_t sz_buf);
 	struct ipanic_header *ipanic_hdr = ipanic_header();
-	struct ipanic_data_header *dheader = &ipanic_hdr->data_hdr[dt];
+	struct ipanic_data_header *dheader = NULL;
+
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return -5;
+	}
+
+	dheader = &ipanic_hdr->data_hdr[dt];
 
 	if (!ipanic_dt_active(dt) || dheader->valid == 1)
 		return -4;
@@ -350,8 +371,12 @@ void ipanic_mrdump_mini(AEE_REBOOT_MODE reboot_mode, const char *msg, ...)
 	if (ipanic_data_is_valid(IPANIC_DT_MINI_RDUMP))
 		return;
 
-	va_start(ap, msg);
 	ipanic_hdr = ipanic_header();
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return;
+	}
+	va_start(ap, msg);
 	sd_offset = ipanic_hdr->data_hdr[IPANIC_DT_MINI_RDUMP].offset;
 	dheader = &ipanic_hdr->data_hdr[IPANIC_DT_MINI_RDUMP];
 	ret = mrdump_mini_create_oops_dump(reboot_mode, ipanic_mem_write, sd_offset, msg, ap);
@@ -362,12 +387,45 @@ void ipanic_mrdump_mini(AEE_REBOOT_MODE reboot_mode, const char *msg, ...)
 	}
 }
 
+static int ipanic_hang_detect(void)
+{
+	int ret;
+	struct ipanic_header *ipanic_hdr = NULL;
+	loff_t sd_offset = 0;
+	struct ipanic_data_header *dheader;
+	unsigned long bufferaddr = 0;
+	unsigned long hang_size = 0;
+	unsigned long dummystart = 0;
+
+	if (ipanic_data_is_valid(IPANIC_DT_HANG_DETECT))
+		return 0;
+
+	ipanic_hdr = ipanic_header();
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return -1;
+	}
+
+	sd_offset = ipanic_hdr->data_hdr[IPANIC_DT_HANG_DETECT].offset;
+	dheader = &ipanic_hdr->data_hdr[IPANIC_DT_HANG_DETECT];
+
+	get_hang_detect_buffer(&bufferaddr, &hang_size, &dummystart);
+	LOGW("%s: addr:%lx, size:%lx\n", __func__, bufferaddr, hang_size);
+	if (bufferaddr == 0 || hang_size == 0 || hang_size > SZ_1M)
+		return -1;
+	ret = ipanic_mem_write((void *)bufferaddr, sd_offset, hang_size, 1);
+	if (!IS_ERR(ERR_PTR(ret))) {
+		dheader->used = ret;
+		ipanic_header_to_sd(dheader);
+	}
+	return ret;
+}
+
 void *ipanic_data_from_sd(struct ipanic_data_header *dheader, int encrypt)
 {
 	void *data;
 
-	data = expdb_read_size(dheader->offset, dheader->used);
-	/* data = ipanic_read_size(dheader->offset, dheader->used); */
+	data = ipanic_read_size(dheader->offset, dheader->used);
 	if (data != 0 && encrypt != 0)
 		ipanic_block_scramble((unsigned char *)data, dheader->used);
 	return data;
@@ -473,6 +531,14 @@ struct aee_oops *ipanic_oops_from_sd(void)
 	return oops;
 }
 
+static void ipanic_mrdump_once_control(AEE_REBOOT_MODE reboot_mode, struct pt_regs *regs , const char *msg)
+{
+	if (ipanic_mrdump_flag) {
+		ipanic_mrdump_flag = 0;
+		__mrdump_create_oops_dump(reboot_mode, regs, msg);
+	}
+}
+
 int ipanic(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	struct ipanic_data_header *dheader;
@@ -482,15 +548,18 @@ int ipanic(struct notifier_block *this, unsigned long event, void *ptr)
 	int dt;
 	int errno;
 	struct ipanic_header *ipanic_hdr;
+	struct pt_regs saved_regs;
 
 	memset(&dumper, 0x0, sizeof(struct kmsg_dumper));
 	aee_rr_rec_fiq_step(AEE_FIQ_STEP_KE_IPANIC_START);
 	aee_rr_rec_exp_type(2);
 	bust_spinlocks(1);
+	mrdump_mini_save_regs(&saved_regs);
+	ipanic_mrdump_once_control(AEE_REBOOT_MODE_KERNEL_PANIC, &saved_regs, "Kernel Panic");
 	spin_lock_irq(&ipanic_lock);
 	aee_disable_api();
 	mrdump_mini_ke_cpu_regs(NULL);
-	flush_cache_all();
+	__inner_flush_dcache_all();
 	if (!has_mt_dump_support())
 		emergency_restart();
 	ipanic_mrdump_mini(AEE_REBOOT_MODE_KERNEL_PANIC, "kernel PANIC");
@@ -505,23 +574,22 @@ int ipanic(struct notifier_block *this, unsigned long event, void *ptr)
 	if (errno == -1)
 		aee_nested_printf("$");
 	ipanic_data_to_sd(IPANIC_DT_CURRENT_TSK, 0);
+	ipanic_data_to_sd(IPANIC_DT_MODULES_INFO, NULL);
 	/* kick wdt after save the most critical infos */
 	ipanic_kick_wdt();
-	ipanic_data_to_sd(IPANIC_DT_MAIN_LOG, (void *)1);
-	ipanic_data_to_sd(IPANIC_DT_SYSTEM_LOG, (void *)4);
-	ipanic_data_to_sd(IPANIC_DT_EVENTS_LOG, (void *)2);
-	ipanic_data_to_sd(IPANIC_DT_RADIO_LOG, (void *)3);
 	aee_wdt_dump_info();
 	ipanic_klog_region(&dumper);
 	ipanic_data_to_sd(IPANIC_DT_WDT_LOG, &dumper);
 #ifdef CONFIG_MTK_WQ_DEBUG
-	wq_debug_dump();
+	if (aee_rr_curr_exp_type() != 1)
+		wq_debug_dump();
 #endif
 	ipanic_klog_region(&dumper);
 	ipanic_data_to_sd(IPANIC_DT_WQ_LOG, &dumper);
 	ipanic_data_to_sd(IPANIC_DT_MMPROFILE, 0);
 	ipanic_data_to_sd(IPANIC_DT_ATF_LOG, &atf_log);
 	ipanic_data_to_sd(IPANIC_DT_DISP_LOG, data);
+	ipanic_hang_detect();
 	errno = ipanic_header_to_sd(0);
 	if (!IS_ERR(ERR_PTR(errno)))
 		mrdump_mini_ipanic_done();
@@ -529,6 +597,10 @@ int ipanic(struct notifier_block *this, unsigned long event, void *ptr)
 	ipanic_data_to_sd(IPANIC_DT_LAST_LOG, &dumper);
 	LOGD("ipanic done^_^");
 	ipanic_hdr = ipanic_header();
+	if (ipanic_hdr == NULL) {
+		LOGW("%s: unexpected ipanic header null\n", __func__);
+		return NOTIFY_DONE;
+	}
 	for (dt = IPANIC_DT_HEADER + 1; dt < IPANIC_DT_RESERVED31; dt++) {
 		dheader = &ipanic_hdr->data_hdr[dt];
 		if (dheader->valid)
@@ -544,19 +616,30 @@ void ipanic_recursive_ke(struct pt_regs *regs, struct pt_regs *excp_regs, int cp
 {
 	int errno;
 	struct kmsg_dumper dumper;
+	struct pt_regs saved_regs;
 
 	aee_nested_printf("minidump\n");
 	aee_rr_rec_exp_type(3);
 	bust_spinlocks(1);
-	flush_cache_all();
+	if (excp_regs != NULL) {
+		ipanic_mrdump_once_control(AEE_REBOOT_MODE_NESTED_EXCEPTION, excp_regs, "Kernel NestedPanic");
+	} else if (regs != NULL) {
+		aee_nested_printf("previous excp_regs NULL\n");
+		ipanic_mrdump_once_control(AEE_REBOOT_MODE_NESTED_EXCEPTION, regs, "Kernel NestedPanic");
+	} else {
+		aee_nested_printf("both NULL\n");
+		mrdump_mini_save_regs(&saved_regs);
+		ipanic_mrdump_once_control(AEE_REBOOT_MODE_NESTED_EXCEPTION, &saved_regs, "Kernel NestedPanic");
+	}
+	__inner_flush_dcache_all();
 #ifdef __aarch64__
-	cpu_cache_off();
+	__disable_dcache();
 #else
 	cpu_proc_fin();
 #endif
 	mrdump_mini_ke_cpu_regs(excp_regs);
 	mrdump_mini_per_cpu_regs(cpu, regs);
-	flush_cache_all();
+	__inner_flush_dcache_all();
 	if (!has_mt_dump_support())
 		emergency_restart();
 	ipanic_mrdump_mini(AEE_REBOOT_MODE_NESTED_EXCEPTION, "Nested Panic");
@@ -566,6 +649,8 @@ void ipanic_recursive_ke(struct pt_regs *regs, struct pt_regs *excp_regs, int cp
 	memset(&dumper, 0x0, sizeof(struct kmsg_dumper));
 	ipanic_klog_region(&dumper);
 	ipanic_data_to_sd(IPANIC_DT_KERNEL_LOG, &dumper);
+	ipanic_data_to_sd(IPANIC_DT_MODULES_INFO, NULL);
+	ipanic_hang_detect();
 	errno = ipanic_header_to_sd(0);
 	if (!IS_ERR(ERR_PTR(errno)))
 		mrdump_mini_ipanic_done();
@@ -637,14 +722,15 @@ static int ipanic_die(struct notifier_block *self, unsigned long cmd, void *ptr)
 	struct kmsg_dumper dumper;
 	struct die_args *dargs = (struct die_args *)ptr;
 
+	print_modules();
 	aee_rr_rec_exp_type(2);
 	aee_rr_rec_fiq_step(AEE_FIQ_STEP_KE_IPANIC_DIE);
 	aee_disable_api();
 
 	if (aee_rr_curr_exp_type() == 1)
-		__mrdump_create_oops_dump(AEE_REBOOT_MODE_WDT, dargs->regs, "WDT/HWT");
+		ipanic_mrdump_once_control(AEE_REBOOT_MODE_WDT, dargs->regs, "WDT/HWT");
 	else
-		__mrdump_create_oops_dump(AEE_REBOOT_MODE_KERNEL_OOPS, dargs->regs, "Kernel Oops");
+		ipanic_mrdump_once_control(AEE_REBOOT_MODE_KERNEL_OOPS, dargs->regs, "Kernel Oops");
 
 	__show_regs(dargs->regs);
 	dump_stack();
@@ -654,7 +740,8 @@ static int ipanic_die(struct notifier_block *self, unsigned long cmd, void *ptr)
 		sysrq_sched_debug_show_at_AEE();
 #endif
 #ifdef CONFIG_MTK_WQ_DEBUG
-	wq_debug_dump();
+	if (aee_rr_curr_exp_type() != 1)
+		wq_debug_dump();
 #endif
 
 	mrdump_mini_ke_cpu_regs(dargs->regs);
@@ -673,6 +760,8 @@ static int ipanic_die(struct notifier_block *self, unsigned long cmd, void *ptr)
 	ipanic_klog_region(&dumper);
 	ipanic_data_to_sd(IPANIC_DT_KERNEL_LOG, &dumper);
 	ipanic_data_to_sd(IPANIC_DT_CURRENT_TSK, dargs->regs);
+	ipanic_data_to_sd(IPANIC_DT_MODULES_INFO, NULL);
+	ipanic_hang_detect();
 	return NOTIFY_DONE;
 }
 

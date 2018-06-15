@@ -47,12 +47,7 @@ struct hps_ctxt_struct hps_ctxt = {
 	.state = STATE_LATE_RESUME,
 
 	/* enabled */
-	//ALPS03166419
-#ifdef CONFIG_SYSTEM_BOOTUP_CPU_BOOST
-	.enabled = 0,
-#else
 	.enabled = 1,
-#endif
 	.suspend_enabled = 1,
 	.cur_dump_enabled = 0,
 	.stats_dump_enabled = 0,
@@ -363,7 +358,7 @@ static int hps_resume(struct device *dev)
 	/* In order to fast screen on, power on extra little
 	   CPU to serve system resume. */
 	little_cpu_num_resume = 4;
-	for (cpu = hps_ctxt.little_cpu_id_min; cpu < little_cpu_num_resume; cpu++) {
+	for (cpu = hps_ctxt.little_cpu_id_min; cpu <= little_cpu_num_resume; cpu++) {
 		if (!cpu_online(cpu)) {
 			cpu_up(cpu);
 		}
@@ -465,7 +460,9 @@ static int __init hps_init(void)
 	r = platform_driver_register(&hps_ctxt.pdrv);
 	if (r)
 		hps_error("platform_driver_register fail(%d)\n", r);
-
+#ifdef CONFIG_MT_BOOT_TIME_CPU_BOOST
+	hps_ctxt.little_num_base_perf_serv = 4,
+#endif
 	hps_ctxt.init_state = INIT_STATE_DONE;
 
 	return r;

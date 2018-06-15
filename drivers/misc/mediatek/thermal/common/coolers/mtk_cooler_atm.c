@@ -229,7 +229,9 @@ static int CATMP_STEADY_TTJ_DELTA = 10000; /* magic number decided by experience
 #ifdef FAST_RESPONSE_ATM
 #define TS_MS_TO_NS(x) (x * 1000 * 1000)
 static struct hrtimer atm_hrtimer;
-static int atm_hrtimer_polling_delay = TS_MS_TO_NS(20); /* default 20ms*/
+
+static unsigned long atm_hrtimer_polling_delay = TS_MS_TO_NS(20); /* default 20ms*/
+
 static int atm_curr_maxtj;
 static int atm_prev_maxtj;
 static int krtatm_curr_maxtj;
@@ -449,9 +451,11 @@ static int _get_current_gpu_power(void)
 	unsigned int cur_gpu_power = 0;
 	int i = 0;
 
-	for (; i < Num_of_GPU_OPP; i++)
-		if (mtk_gpu_power[i].gpufreq_khz == cur_gpu_freq)
-			cur_gpu_power = mtk_gpu_power[i].gpufreq_power;
+	if (mtk_gpu_power != NULL) {
+		for (; i < Num_of_GPU_OPP; i++)
+			if (mtk_gpu_power[i].gpufreq_khz == cur_gpu_freq)
+				cur_gpu_power = mtk_gpu_power[i].gpufreq_power;
+	}
 
 	return (int) cur_gpu_power;
 }
@@ -548,25 +552,27 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 		cpu_power = MAXIMUM_CPU_POWER;
 		gpu_power = MAXIMUM_GPU_POWER;
 	} else {
-		int max_allowed_gpu_power =
-		    MIN((total_power - MINIMUM_CPU_POWER), MAXIMUM_GPU_POWER);
-		int max_gpu_power = (int) mt_gpufreq_get_max_power();
-		int highest_possible_gpu_power = (max_allowed_gpu_power > max_gpu_power) ?  (max_gpu_power+1) : -1;
-		/* int highest_possible_gpu_power_idx = 0; */
-		int i = 0;
+		if (mtk_gpu_power != NULL) {
+			int max_allowed_gpu_power =
+			MIN((total_power - MINIMUM_CPU_POWER), MAXIMUM_GPU_POWER);
+			int max_gpu_power = (int) mt_gpufreq_get_max_power();
+			int highest_possible_gpu_power = (max_allowed_gpu_power > max_gpu_power) ?
+			(max_gpu_power+1) : -1;
+			/* int highest_possible_gpu_power_idx = 0; */
+			int i = 0;
 
-		unsigned int cur_gpu_freq = mt_gpufreq_get_cur_freq();
-		/* int cur_idx = 0; */
-		unsigned int cur_gpu_power = 0;
-		unsigned int next_lower_gpu_power = 0;
+			unsigned int cur_gpu_freq = mt_gpufreq_get_cur_freq();
+			/* int cur_idx = 0; */
+			unsigned int cur_gpu_power = 0;
+			unsigned int next_lower_gpu_power = 0;
 
-		/* get GPU highest possible power and index and current power and index and next lower power */
-		for (; i < Num_of_GPU_OPP; i++) {
-			if ((mtk_gpu_power[i].gpufreq_power <= max_allowed_gpu_power) &&
+			/* get GPU highest possible power and index and current power and index and next lower power */
+			for (; i < Num_of_GPU_OPP; i++) {
+				if ((mtk_gpu_power[i].gpufreq_power <= max_allowed_gpu_power) &&
 				(-1 == highest_possible_gpu_power)) {
-				/* choose OPP with power "<=" limit */
-				highest_possible_gpu_power = mtk_gpu_power[i].gpufreq_power + 1;
-				/* highest_possible_gpu_power_idx = i; */
+					/* choose OPP with power "<=" limit */
+					highest_possible_gpu_power = mtk_gpu_power[i].gpufreq_power + 1;
+					/* highest_possible_gpu_power_idx = i; */
 			}
 
 			if (mtk_gpu_power[i].gpufreq_khz == cur_gpu_freq) {
@@ -592,6 +598,9 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 			gpu_power = MIN(highest_possible_gpu_power, cur_gpu_power);
 			gpu_power = MAX(gpu_power, MINIMUM_GPU_POWER);
 		}
+		}  else {
+			gpu_power = 0;
+		}
 
 		cpu_power = MIN((total_power - gpu_power), MAXIMUM_CPU_POWER);
 	}
@@ -609,7 +618,7 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 	if (cpu_power != last_cpu_power)
 		set_adaptive_cpu_power_limit(cpu_power);
 
-	if (gpu_power != last_gpu_power) {
+	if ((gpu_power != last_gpu_power) && (mtk_gpu_power != NULL)) {
 		/* Work-around for unsync GPU power table problem 1. */
 		if (gpu_power > mtk_gpu_power[0].gpufreq_power)
 			set_adaptive_gpu_power_limit(0);
@@ -617,7 +626,12 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 			set_adaptive_gpu_power_limit(gpu_power);
 	}
 
-	tscpu_dprintk("%s cpu %d, gpu %d\n", __func__, cpu_power, gpu_power);
+#ifdef FAST_RESPONSE_ATM
+	if (atm_curr_maxtj >= 100000 || (atm_curr_maxtj - atm_prev_maxtj >= 15000))
+		tscpu_warn("%s total %d, cpu %d, gpu %d\n", __func__, total_power, cpu_power, gpu_power);
+	else
+#endif
+		tscpu_dprintk("%s cpu %d, gpu %d\n", __func__, cpu_power, gpu_power);
 
 #if (CONFIG_THERMAL_AEE_RR_REC == 1)
 	aee_rr_rec_thermal_ATM_status(ATM_DONE);
@@ -700,9 +714,20 @@ static int get_total_curr_power(void)
 	if (cpu_power < MINIMUM_CPU_POWER)
 		cpu_power = MINIMUM_CPU_POWER;
 
+	if (cpu_power > MAXIMUM_CPU_POWER) {
+		tscpu_warn("%s cpu_power %d > MAXIMUM_CPU_POWER %d\n",
+						__func__, cpu_power, MAXIMUM_CPU_POWER);
+		cpu_power = MAXIMUM_CPU_POWER;
+	}
 	gpu_power = _get_current_gpu_power() + 1; /* choose OPP with power "<=" limit */
 	if (gpu_power < MINIMUM_GPU_POWER)
 		gpu_power = MINIMUM_GPU_POWER;
+
+	if (gpu_power > MAXIMUM_GPU_POWER) {
+		tscpu_warn("%s gpu_power %d > MAXIMUM_GPU_POWER %d\n",
+						__func__, gpu_power, MAXIMUM_GPU_POWER);
+		gpu_power = MAXIMUM_GPU_POWER;
+	}
 
 	return cpu_power + gpu_power;
 }
@@ -755,16 +780,24 @@ static int _adaptive_power_ppb(long prev_temp, long curr_temp, unsigned int gpu_
 		if (!triggered) {
 			triggered = 1;
 			total_power = phpb_calc_total(get_total_curr_power(), curr_temp, prev_temp);
-			tscpu_dprintk("%s triggered:0->1 Tp %ld, Tc %ld, TARGET_TJ %d, Pt %d\n",
-							__func__, prev_temp, curr_temp, TARGET_TJ, total_power);
+			if (curr_temp >= 100000)
+				tscpu_warn("%s triggered:0->1 Tp %ld, Tc %ld, TARGET_TJ %d, Pt %d\n",
+								__func__, prev_temp, curr_temp, TARGET_TJ, total_power);
+			else
+				tscpu_dprintk("%s triggered:0->1 Tp %ld, Tc %ld, TARGET_TJ %d, Pt %d\n",
+								__func__, prev_temp, curr_temp, TARGET_TJ, total_power);
 			return P_adaptive(total_power, gpu_loading);
 		}
 
 		/* Adjust total power budget if necessary */
 		total_power = phpb_calc_total(total_power, curr_temp, prev_temp);
 		/*	TODO: delta_power is not changed but printed. */
-		tscpu_dprintk("%s TARGET_TJ %d, delta_power %d, total_power %d\n",
-						__func__, TARGET_TJ, delta_power, total_power);
+		if (curr_temp >= 100000)
+			tscpu_warn("%s TARGET_TJ %d, delta_power %d, total_power %d\n",
+							__func__, TARGET_TJ, delta_power, total_power);
+		else
+			tscpu_dprintk("%s TARGET_TJ %d, delta_power %d, total_power %d\n",
+							__func__, TARGET_TJ, delta_power, total_power);
 		tscpu_dprintk("%s Tp %ld, Tc %ld, Pt %d\n", __func__, prev_temp, curr_temp, total_power);
 		return P_adaptive(total_power, gpu_loading);
 		/* end of cl_dev_adp_cpu_state_active == 1 */
@@ -1596,23 +1629,23 @@ static int tscpu_read_phpb(struct seq_file *m, void *v)
 static ssize_t tscpu_write_phpb(struct file *file, const char __user *buffer,
 		size_t count, loff_t *data)
 {
-	char *buf, *ori_buf;
+	char desc[128];
+	char *buf = NULL;
+	int len = 0;
 	int i, tt, tp;
 	int __theta;
 	int ret = -EINVAL;
 	struct phpb_param *p;
 
-	buf = kmalloc(count + 1, GFP_KERNEL);
-	if (buf == NULL)
-		return -EFAULT;
-	ori_buf = buf;
+	len = (count < (sizeof(desc) - 1)) ? count : (sizeof(desc) - 1);
 
-	if (copy_from_user(buf, buffer, count)) {
+	if (copy_from_user(desc, buffer, len)) {
 		ret = -EFAULT;
 		goto exit;
 	}
 
-	buf[count] = '\0';
+	desc[len] = '\0';
+	buf = desc;
 
 	for (i = 0; i < NR_PHPB_PARAMS; i++) {
 		p = &phpb_params[i];
@@ -1638,10 +1671,9 @@ static ssize_t tscpu_write_phpb(struct file *file, const char __user *buffer,
 			goto exit;
 		phpb_theta_max = __theta;
 	}
-	ret = count;
+	ret = len;
 
 exit:
-	kfree(ori_buf);
 	return ret;
 }
 
@@ -1654,7 +1686,8 @@ static void phpb_params_init(void)
 	phpb_params[PHPB_PARAM_CPU].tt = 20;
 	phpb_params[PHPB_PARAM_CPU].tp = 20;
 #endif
-	strcpy(phpb_params[PHPB_PARAM_CPU].type, "cpu");
+	strncpy(phpb_params[PHPB_PARAM_CPU].type, "cpu", 3);
+	phpb_params[PHPB_PARAM_CPU].type[3] = '\0';
 
 #if defined(CLATM_SET_INIT_CFG)
 	phpb_params[PHPB_PARAM_GPU].tt = CLATM_INIT_CFG_PHPB_GPU_TT;
@@ -1663,7 +1696,8 @@ static void phpb_params_init(void)
 	phpb_params[PHPB_PARAM_GPU].tt = 80;
 	phpb_params[PHPB_PARAM_GPU].tp = 80;
 #endif
-	strcpy(phpb_params[PHPB_PARAM_GPU].type, "gpu");
+	strncpy(phpb_params[PHPB_PARAM_GPU].type, "gpu", 3);
+	phpb_params[PHPB_PARAM_GPU].type[3] = '\0';
 }
 #endif	/* PRECISE_HYBRID_POWER_BUDGET */
 
@@ -1838,8 +1872,14 @@ void atm_restart_hrtimer(void)
 	hrtimer_start(&atm_hrtimer, ktime, HRTIMER_MODE_REL);
 }
 
-static int atm_get_timeout_time(int curr_temp)
+static unsigned long atm_get_timeout_time(int curr_temp)
 {
+
+	/*
+	* curr_temp can't smaller than -30'C
+	*/
+	curr_temp = (curr_temp < -30000) ? -30000 : curr_temp;
+
 	if (curr_temp >= 65000)
 		return atm_hrtimer_polling_delay;
 	else
@@ -1851,6 +1891,12 @@ static enum hrtimer_restart atm_loop(struct hrtimer *timer)
 	ktime_t ktime;
 	int temp;
 	static int hasDisabled;
+
+
+	unsigned long polling_time;
+	unsigned long polling_time_s;
+	unsigned long polling_time_ns;
+
 
 	tscpu_workqueue_start_timer();
 
@@ -1894,7 +1940,18 @@ static enum hrtimer_restart atm_loop(struct hrtimer *timer)
 
 	wake_up_process(krtatm_thread_handle);
 
-	ktime = ktime_set(0, atm_get_timeout_time(atm_curr_maxtj));
+	polling_time = atm_get_timeout_time(atm_curr_maxtj);
+
+	/*avoid overflow*/
+	if (polling_time > (1000000000-1)) {
+		polling_time_s = polling_time / 1000000000;
+		polling_time_ns = polling_time % 1000000000;
+		ktime = ktime_set(polling_time_s, polling_time_ns);
+		/*tscpu_warn("%s polling_time_s=%ld  polling_time_ns=%ld\n", __func__,polling_time_s,polling_time_ns);*/
+	} else {
+		ktime = ktime_set(0, polling_time);
+	}
+
 	hrtimer_forward_now(timer, ktime);
 
 	return HRTIMER_RESTART;
@@ -1905,6 +1962,10 @@ static void atm_hrtimer_init(void)
 	ktime_t ktime;
 
 	tscpu_dprintk("%s\n", __func__);
+
+	/*100000000 = 100 ms,polling delay can't larger than 100ms*/
+	atm_hrtimer_polling_delay = (atm_hrtimer_polling_delay < 100000000) ?
+		atm_hrtimer_polling_delay : 100000000;
 
 	ktime = ktime_set(0, atm_hrtimer_polling_delay);
 
@@ -1953,6 +2014,13 @@ static int krtatm_thread(void *arg)
 			if (krtatm_prev_maxtj == 0)
 				krtatm_prev_maxtj = atm_prev_maxtj;
 			_adaptive_power_calc(krtatm_prev_maxtj, krtatm_curr_maxtj, (unsigned int) gpu_loading);
+
+			/* To confirm if krtatm kthread is really running. */
+			if (krtatm_curr_maxtj >= 100000 || (krtatm_curr_maxtj - krtatm_prev_maxtj >= 20000))
+				tscpu_warn("%s c %d p %d cl %d gl %d s %d\n", __func__,
+					krtatm_curr_maxtj, krtatm_prev_maxtj,
+					adaptive_cpu_power_limit, adaptive_gpu_power_limit,
+					cl_dev_adp_cpu_state_active);
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();

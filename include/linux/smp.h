@@ -19,10 +19,6 @@ struct call_single_data {
 	smp_call_func_t func;
 	void *info;
 	u16 flags;
-#ifdef CONFIG_MTPROF
-	unsigned long long start_ts;
-	unsigned long long end_ts;
-#endif
 };
 
 /* total number of cpus in this system (may exceed NR_CPUS) */

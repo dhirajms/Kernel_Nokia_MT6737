@@ -403,7 +403,7 @@ static const struct file_operations fs_fops = {
 	.release = ccci_fs_release,
 };
 
-int __init ccci_fs_init(int md_id)
+int ccci_fs_init(int md_id)
 {
 	int ret;
 	int major, minor;
@@ -475,7 +475,7 @@ int __init ccci_fs_init(int md_id)
 	return ret;
 }
 
-void __exit ccci_fs_exit(int md_id)
+void ccci_fs_exit(int md_id)
 {
 	struct fs_ctl_block_t *ctl_b = fs_ctl_block[md_id];
 

@@ -67,8 +67,13 @@ definition for AP selection algrithm
 #define WEIGHT_IDX_5G_BAND		2
 #define WEIGHT_IDX_BAND_WIDTH	1
 #define WEIGHT_IDX_STBC			1
-#define WEIGHT_IDX_DEAUTH_LAST	1
+#define WEIGHT_IDX_DEAUTH_LAST	4
 #define WEIGHT_IDX_BLACK_LIST	2
+#if CFG_SUPPORT_RSN_SCORE
+#define WEIGHT_IDX_RSN			2
+#endif
+#define WEIGHT_IDX_SAA	2
+#define P2P_INDICATE_COMPLETE_BSS_INFO	1
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -84,7 +89,11 @@ definition for AP selection algrithm
 *                           P R I V A T E   D A T A
 ********************************************************************************
 */
-
+struct REF_TSF {
+	UINT_32 au4Tsf[2];
+	OS_SYSTIME rTime;
+};
+static struct REF_TSF rTsf;
 /*******************************************************************************
 *                                 M A C R O S
 ********************************************************************************
@@ -94,7 +103,8 @@ definition for AP selection algrithm
 *                   F U N C T I O N   D E C L A R A T I O N S
 ********************************************************************************
 */
-
+static WLAN_STATUS
+	__scanProcessBeaconAndProbeResp(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb);
 /*******************************************************************************
 *                              F U N C T I O N S
 ********************************************************************************
@@ -159,7 +169,7 @@ VOID scnInit(IN P_ADAPTER_T prAdapter)
 
 		pucRoamBSSBuff += ALIGN_4(sizeof(ROAM_BSS_DESC_T));
 	}
-	ASSERT(((ULONG) pucRoamBSSBuff - (ULONG) & prScanInfo->aucScanRoamBuffer[0]) == SCN_ROAM_MAX_BUFFER_SIZE);
+	ASSERT(((ULONG) pucRoamBSSBuff - (ULONG)&prScanInfo->aucScanRoamBuffer[0]) == SCN_ROAM_MAX_BUFFER_SIZE);
 
 	/* reset freest channel information */
 	prScanInfo->fgIsSparseChannelValid = FALSE;
@@ -901,7 +911,6 @@ VOID scanRemoveBssDescByBssid(IN P_ADAPTER_T prAdapter, IN UINT_8 aucBSSID[])
 			/* Remove this BSS Desc from the Ess Desc List */
 			if (LINK_ENTRY_IS_VALID(&prBssDesc->rLinkEntryEss))
 				LINK_REMOVE_KNOWN_ENTRY(prEssList, &prBssDesc->rLinkEntryEss);
-
 			/* Return this BSS Desc to the free BSS Desc list. */
 			LINK_INSERT_TAIL(prFreeBSSDescList, &prBssDesc->rLinkEntry);
 
@@ -1106,6 +1115,7 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 	UINT_8 ucHwChannelNum = 0;
 	UINT_8 ucIeDsChannelNum = 0;
 	UINT_8 ucIeHtChannelNum = 0;
+	ENUM_CHNL_EXT_T eSco = CHNL_EXT_SCN;
 	BOOLEAN fgIsValidSsid = FALSE, fgEscape = FALSE;
 	PARAM_SSID_T rSsid;
 	UINT_64 u8Timestamp;
@@ -1116,6 +1126,8 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 
 	UINT_8 ucOuiType;
 	UINT_16 u2SubTypeVersion;
+	UINT_8 ucPowerConstraint = 0;
+	P_IE_COUNTRY_T prCountryIE = NULL;
 
 	ASSERT(prAdapter);
 	ASSERT(prSwRfb);
@@ -1213,7 +1225,7 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 			/* check if it is a beacon frame */
 			if (((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_BEACON) &&
 				!fgIsValidSsid) {
-				DBGLOG(SCN, INFO, "scanAddToBssDescssid is NULL Beacon, don't add hidden BSS(%pM)\n",
+				DBGLOG(SCN, TRACE, "scanAddToBssDescssid is NULL Beacon, don't add hidden BSS(%pM)\n",
 					(PUINT_8)prWlanBeaconFrame->aucBSSID);
 				return NULL;
 			}
@@ -1305,7 +1317,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 	prBssDesc->u2RawLength = prSwRfb->u2PacketLen;
 	if (prBssDesc->u2RawLength > CFG_RAW_BUFFER_SIZE)
 		prBssDesc->u2RawLength = CFG_RAW_BUFFER_SIZE;
-	kalMemCopy(prBssDesc->aucRawBuf, prWlanBeaconFrame, prBssDesc->u2RawLength);
+	if (fgIsValidSsid ||
+		((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_PROBE_RSP))
+		kalMemCopy(prBssDesc->aucRawBuf, prWlanBeaconFrame, prBssDesc->u2RawLength);
+
 #endif
 
 	/* NOTE: Keep consistency of Scan Record during JOIN process */
@@ -1339,7 +1354,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 	}
 	prBssDesc->u2IELength = u2IELength;
 
-	kalMemCopy(prBssDesc->aucIEBuf, prWlanBeaconFrame->aucInfoElem, u2IELength);
+	if (fgIsValidSsid ||
+		((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_PROBE_RSP))
+		kalMemCopy(prBssDesc->aucIEBuf, prWlanBeaconFrame->aucInfoElem, u2IELength);
+
 
 	/* 4 <2.2> reset prBssDesc variables in case that AP has been reconfigured */
 	prBssDesc->fgIsERPPresent = FALSE;
@@ -1352,9 +1370,14 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 #if CFG_PRIVACY_MIGRATION
 	prBssDesc->fgIEWPA = FALSE;
 #endif
+#if CFG_SUPPORT_DETECT_ATHEROS_AP
+	prBssDesc->fgIsAtherosAP = FALSE;
+#endif
 	prBssDesc->fgExsitBssLoadIE = FALSE;
 	prBssDesc->fgMultiAnttenaAndSTBC = FALSE;
-
+#if CFG_SUPPORT_ROAMING_RETRY
+	prBssDesc->fgIsRoamFail = FALSE;
+#endif
 	/* 4 <3.1> Full IE parsing on SW_RFB_T */
 	pucIE = prWlanBeaconFrame->aucInfoElem;
 
@@ -1436,12 +1459,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 			if (IE_LEN(pucIE) == ELEM_MAX_LEN_IBSS_PARAMETER_SET)
 				prBssDesc->u2ATIMWindow = IBSS_PARAM_IE(pucIE)->u2ATIMWindow;
 			break;
-
-#if 0				/* CFG_SUPPORT_802_11D */
+				/* CFG_SUPPORT_802_11D */
 		case ELEM_ID_COUNTRY_INFO:
-			prBssDesc->prIECountry = (P_IE_COUNTRY_T) pucIE;
+			prCountryIE = (P_IE_COUNTRY_T) pucIE;
 			break;
-#endif
 
 		case ELEM_ID_ERP_INFO:
 			if (IE_LEN(pucIE) == ELEM_MAX_LEN_ERP)
@@ -1485,12 +1506,9 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 			if (IE_LEN(pucIE) != (sizeof(IE_HT_OP_T) - 2))
 				break;
 
-			if ((((P_IE_HT_OP_T) pucIE)->ucInfo1 & HT_OP_INFO1_SCO) != CHNL_EXT_RES) {
-				prBssDesc->eSco = (ENUM_CHNL_EXT_T)
+			eSco = (ENUM_CHNL_EXT_T)
 				    (((P_IE_HT_OP_T) pucIE)->ucInfo1 & HT_OP_INFO1_SCO);
-			}
 			ucIeHtChannelNum = ((P_IE_HT_OP_T) pucIE)->ucPrimaryChannel;
-
 			break;
 
 #if CFG_SUPPORT_WAPI
@@ -1533,8 +1551,23 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 				}
 			}
 #endif /* CFG_ENABLE_WIFI_DIRECT */
+#if CFG_SUPPORT_DETECT_ATHEROS_AP
+			if (IE_LEN(pucIE) <= ELEM_MIN_LEN_WFA_OUI_TYPE_SUBTYPE)
+				break;
+			else if (pucIE[2] == 0x00 &&
+					pucIE[3] == 0x03 && pucIE[4] == 0x7F)
+				prBssDesc->fgIsAtherosAP = TRUE;
+#endif
 			break;
+		case ELEM_ID_PWR_CONSTRAINT:
+		{
+			P_IE_POWER_CONSTRAINT_T prPwrConstraint = (P_IE_POWER_CONSTRAINT_T)pucIE;
 
+			if (IE_LEN(pucIE) != 1)
+				break;
+			ucPowerConstraint = prPwrConstraint->ucLocalPowerConstraint;
+			break;
+		}
 			/* no default */
 		}
 	}
@@ -1575,7 +1608,10 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		ucHwChannelNum = HIF_RX_HDR_GET_CHNL_NUM(prHifRxHdr);
 
 		if (BAND_2G4 == prBssDesc->eBand) {
-
+#if (CFG_FORCE_USE_20BW == 0)
+			if (eSco != CHNL_EXT_RES)
+				prBssDesc->eSco = eSco;
+#endif
 			/* Update RCPI if in right channel */
 			if (ucIeDsChannelNum >= 1 && ucIeDsChannelNum <= 14) {
 
@@ -1598,6 +1634,8 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		}
 		/* 5G Band */
 		else {
+			if (eSco != CHNL_EXT_RES)
+				prBssDesc->eSco = eSco;
 			if (ucIeHtChannelNum >= 1 && ucIeHtChannelNum < 200) {
 				/* Receive Beacon/ProbeResp frame from adjacent channel. */
 				if ((ucIeHtChannelNum == ucHwChannelNum) || (prHifRxHdr->ucRcpi > prBssDesc->ucRCPI))
@@ -1612,6 +1650,48 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 			}
 		}
 	}
+
+#if CFG_SUPPORT_802_11K
+	if (prCountryIE) {
+		UINT_8 ucRemainLen = prCountryIE->ucLength - 3;
+		P_COUNTRY_INFO_SUBBAND_TRIPLET_T prSubBand = &prCountryIE->arCountryStr[0];
+		const UINT_8 ucSubBandSize = (UINT_8)sizeof(COUNTRY_INFO_SUBBAND_TRIPLET_T);
+		INT_8 cNewPwrLimit = RLM_INVALID_POWER_LIMIT;
+
+		/* Try to find a country subband base on our channel */
+		while (ucRemainLen >= ucSubBandSize) {
+			if (prSubBand->ucFirstChnlNum < 201 &&
+				prBssDesc->ucChannelNum >= prSubBand->ucFirstChnlNum &&
+				prBssDesc->ucChannelNum <= (prSubBand->ucFirstChnlNum + prSubBand->ucNumOfChnl - 1))
+				break;
+			ucRemainLen -= ucSubBandSize;
+			prSubBand++;
+		}
+		/* Found a right country band */
+		if (ucRemainLen >= ucSubBandSize) {
+			cNewPwrLimit = prSubBand->cMaxTxPwrLv - ucPowerConstraint;
+			/* Limit Tx power changed */
+			if (prBssDesc->cPowerLimit != cNewPwrLimit) {
+				prBssDesc->cPowerLimit = cNewPwrLimit;
+				DBGLOG(SCN, TRACE, "Old: TxPwrLimit %d,New: CountryMax %d, Constraint %d\n",
+					prBssDesc->cPowerLimit, prSubBand->cMaxTxPwrLv, ucPowerConstraint);
+				/* should tell firmware to restrict tx power if connected a BSS */
+				if (prBssDesc->fgIsConnected) {
+					if (prBssDesc->cPowerLimit != RLM_INVALID_POWER_LIMIT)
+						rlmSetMaxTxPwrLimit(prAdapter, prBssDesc->cPowerLimit, 1);
+					else
+						rlmSetMaxTxPwrLimit(prAdapter, 0, 0);
+				}
+			}
+		} else if (prBssDesc->cPowerLimit != RLM_INVALID_POWER_LIMIT) {
+			prBssDesc->cPowerLimit = RLM_INVALID_POWER_LIMIT;
+			rlmSetMaxTxPwrLimit(prAdapter, 0, 0);
+		}
+	} else if (prBssDesc->cPowerLimit != RLM_INVALID_POWER_LIMIT) {
+		prBssDesc->cPowerLimit = RLM_INVALID_POWER_LIMIT;
+		rlmSetMaxTxPwrLimit(prAdapter, 0, 0);
+	}
+#endif
 
 	/* 4 <5> PHY type setting */
 	prBssDesc->ucPhyTypeSet = 0;
@@ -1658,11 +1738,50 @@ P_BSS_DESC_T scanAddToBssDesc(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 		prBssDesc->fgSeenProbeResp = TRUE;
 
 	/* 4 <6> Update BSS_DESC_T's Last Update TimeStamp. */
-	GET_CURRENT_SYSTIME(&prBssDesc->rUpdateTime);
+	if (fgIsValidSsid ||
+		((prWlanBeaconFrame->u2FrameCtrl & MASK_FRAME_TYPE) == MAC_FRAME_PROBE_RSP))
+		GET_CURRENT_SYSTIME(&prBssDesc->rUpdateTime);
+
+	if (prBssDesc->fgIsConnected) {
+		rTsf.rTime = prBssDesc->rUpdateTime;
+		kalMemCopy(&rTsf.au4Tsf[0], &prBssDesc->u8TimeStamp, 8);
+	}
 
 	return prBssDesc;
 }
+BOOLEAN scanIsValidSSID(IN PUINT8 pvHeader)
+{
+	P_WLAN_BEACON_FRAME_T prWlanFrame = NULL;
+	PUINT_8 pucIE = NULL;
+	UINT_8 ucSSIDChar = '\0';
+	UINT_8 i;
 
+	if (pvHeader == NULL) {
+		DBGLOG(SCN, ERROR, "scanIsValidSSID pvHeader is NULL\n");
+		return FALSE;
+	}
+
+	prWlanFrame = (P_WLAN_BEACON_FRAME_T) pvHeader;
+	pucIE = prWlanFrame->aucInfoElem;
+
+	if (IE_ID(pucIE) == ELEM_ID_SSID && IE_LEN(pucIE) <= ELEM_MAX_LEN_SSID) {
+
+		if (IE_LEN(pucIE) == 0) {
+			DBGLOG(SCN, EVENT, "scanIsValidSSID SSID Lentgh is 0\n");
+		} else {
+			for (i = 0; i < IE_LEN(pucIE); i++)
+				ucSSIDChar |= SSID_IE(pucIE)->aucSSID[i];
+
+			if (ucSSIDChar)
+				return TRUE;
+
+			DBGLOG(SCN, EVENT, "scanIsValidSSID SSID content is all 0\n");
+		}
+	} else
+		DBGLOG(SCN, ERROR, "scanIsValidSSID SSID parse ERROR!!\n");
+
+	return FALSE;
+}
 /*----------------------------------------------------------------------------*/
 /*!
 * @brief Convert the Beacon or ProbeResp Frame in SW_RFB_T to scan result for query
@@ -1774,12 +1893,12 @@ WLAN_STATUS scanAddScanResult(IN P_ADAPTER_T prAdapter, IN P_BSS_DESC_T prBssDes
 			}
 	}
 
-	if (prBssDesc->fgIsValidSSID)
+	if (scanIsValidSSID((PUINT_8) prSwRfb->pvHeader)) {
 		kalIndicateBssInfo(prAdapter->prGlueInfo,
-			(PUINT_8) prSwRfb->pvHeader,
-			prSwRfb->u2PacketLen, prBssDesc->ucChannelNum, RCPI_TO_dBm(prBssDesc->ucRCPI));
+		(PUINT_8) prSwRfb->pvHeader,
+		prSwRfb->u2PacketLen, prBssDesc->ucChannelNum, RCPI_TO_dBm(prBssDesc->ucRCPI));
 
-	nicAddScanResult(prAdapter,
+		nicAddScanResult(prAdapter,
 			 rMacAddr,
 			 &rSsid,
 			 prWlanBeaconFrame->u2CapInfo,
@@ -1790,6 +1909,7 @@ WLAN_STATUS scanAddScanResult(IN P_ADAPTER_T prAdapter, IN P_BSS_DESC_T prBssDes
 			 aucRatesEx,
 			 prSwRfb->u2PacketLen - prSwRfb->u2HeaderLen,
 			 (PUINT_8) ((ULONG) (prSwRfb->pvHeader) + WLAN_MAC_MGMT_HEADER_LEN));
+		}
 
 	return WLAN_STATUS_SUCCESS;
 
@@ -1815,7 +1935,6 @@ BOOLEAN scanCheckBssIsLegal(IN P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc)
 	return fgAddToScanResult;
 
 }
-
 VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSType, IN P_BSS_DESC_T prSpecificBssDesc)
 {
 	P_LINK_T prBSSDescList = (P_LINK_T) NULL;
@@ -1839,20 +1958,25 @@ VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSTyp
 			prSpecificBssDesc->aucSSID, prSpecificBssDesc->fgIsValidSSID);
 
 		if (eBSSType == BSS_TYPE_INFRASTRUCTURE) {
-			if (prSpecificBssDesc->fgIsValidSSID)
+			if (scanIsValidSSID((PUINT_8)prSpecificBssDesc->aucRawBuf))
 				kalIndicateBssInfo(prAdapter->prGlueInfo,
 					(PUINT_8) prSpecificBssDesc->aucRawBuf,
 					prSpecificBssDesc->u2RawLength,
 					prSpecificBssDesc->ucChannelNum,
 					RCPI_TO_dBm(prSpecificBssDesc->ucRCPI));
 		} else {
+
+#if P2P_INDICATE_COMPLETE_BSS_INFO
+			kalP2PIndicateCompleteBssInfo(prAdapter->prGlueInfo, prSpecificBssDesc);
+#else
 			rChannelInfo.ucChannelNum = prSpecificBssDesc->ucChannelNum;
 			rChannelInfo.eBand = prSpecificBssDesc->eBand;
 			kalP2PIndicateBssInfo(prAdapter->prGlueInfo,
-					      (PUINT_8) prSpecificBssDesc->aucRawBuf,
-					      prSpecificBssDesc->u2RawLength,
-					      &rChannelInfo,
-					      RCPI_TO_dBm(prSpecificBssDesc->ucRCPI));
+				(PUINT_8) prSpecificBssDesc->aucRawBuf,
+				prSpecificBssDesc->u2RawLength,
+				&rChannelInfo,
+				RCPI_TO_dBm(prSpecificBssDesc->ucRCPI));
+#endif
 		}
 
 #if CFG_ENABLE_WIFI_DIRECT
@@ -1902,7 +2026,8 @@ VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSTyp
 					prBssDesc->aucSSID, prBssDesc->fgIsValidSSID);
 
 				if (eBSSType == BSS_TYPE_INFRASTRUCTURE) {
-					if (prBssDesc->u2RawLength != 0 && prBssDesc->fgIsValidSSID) {
+					if (prBssDesc->u2RawLength != 0 &&
+						scanIsValidSSID((PUINT_8) prBssDesc->aucRawBuf)) {
 						kalIndicateBssInfo(prAdapter->prGlueInfo,
 								   (PUINT_8) prBssDesc->aucRawBuf,
 								   prBssDesc->u2RawLength,
@@ -1921,13 +2046,11 @@ VOID scanReportBss2Cfg80211(IN P_ADAPTER_T prAdapter, IN ENUM_BSS_TYPE_T eBSSTyp
 #endif
 						rChannelInfo.ucChannelNum = prBssDesc->ucChannelNum;
 						rChannelInfo.eBand = prBssDesc->eBand;
-
 						kalP2PIndicateBssInfo(prAdapter->prGlueInfo,
 								      (PUINT_8) prBssDesc->aucRawBuf,
 								      prBssDesc->u2RawLength,
 								      &rChannelInfo,
 								      RCPI_TO_dBm(prBssDesc->ucRCPI));
-
 						/* Do not clear it then we can pass the bss in Specific report */
 						/* kalMemZero(prBssDesc->aucRawBuf,CFG_RAW_BUFFER_SIZE); */
 
@@ -1981,7 +2104,36 @@ UINT_8 nicChannelNum2Index(IN UINT_8 ucChannelNum)
 	} else
 		ucindex = 0;
 
-		return ucindex;
+	return ucindex;
+}
+
+static UINT_8 scanGetChannel(P_HIF_RX_HEADER_T prHifRxHdr, PUINT_8 pucIE, UINT_16 u2IELen)
+{
+	UINT_8 ucDsChannel = 0;
+	UINT_8 ucHtChannel = 0;
+	UINT_8 ucHwChannel = HIF_RX_HDR_GET_CHNL_NUM(prHifRxHdr);
+	UINT_16 u2Offset = 0;
+	ENUM_BAND_T eBand = HIF_RX_HDR_GET_RF_BAND(prHifRxHdr);
+
+	IE_FOR_EACH(pucIE, u2IELen, u2Offset) {
+		switch (IE_ID(pucIE)) {
+		case ELEM_ID_DS_PARAM_SET:
+			if (IE_LEN(pucIE) == ELEM_MAX_LEN_DS_PARAMETER_SET)
+				ucDsChannel = DS_PARAM_IE(pucIE)->ucCurrChnl;
+			break;
+		case ELEM_ID_HT_OP:
+			if (IE_LEN(pucIE) == (sizeof(IE_HT_OP_T) - 2))
+				ucHtChannel = ((P_IE_HT_OP_T) pucIE)->ucPrimaryChannel;
+			break;
+		}
+	}
+	DBGLOG(SCN, INFO, "band %d, hw channel %d, ds %d, ht %d\n", eBand, ucHwChannel, ucDsChannel, ucHtChannel);
+	if (eBand == BAND_2G4) {
+		if (ucDsChannel >= 1 && ucDsChannel <= 14)
+			return ucDsChannel;
+		return (ucHtChannel >= 1 && ucHtChannel <= 14) ? ucHtChannel:ucHwChannel;
+	}
+	return (ucHtChannel >= 1 && ucHtChannel < 200) ? ucHtChannel:ucHwChannel;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1995,6 +2147,289 @@ UINT_8 nicChannelNum2Index(IN UINT_8 ucChannelNum)
 */
 /*----------------------------------------------------------------------------*/
 WLAN_STATUS scanProcessBeaconAndProbeResp(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
+{
+	struct RADIO_MEASUREMENT_REQ_PARAMS *prRmReq = &prAdapter->rWifiVar.rRmReqParams;
+
+	/* if beacon request measurement is on-going,  collect Beacon Report */
+	if (prRmReq->rBcnRmParam.eState == RM_ON_GOING) {
+		struct RM_BEACON_REPORT_PARAMS rRepParams;
+		P_WLAN_BEACON_FRAME_T prWlanBeacon = (P_WLAN_BEACON_FRAME_T)prSwRfb->pvHeader;
+		P_WLAN_BEACON_FRAME_BODY_T prRepBeaconBody = (P_WLAN_BEACON_FRAME_BODY_T)&rRepParams.aucBcnFixedField;
+		UINT_16 u2IELen = prSwRfb->u2PacketLen - OFFSET_OF(WLAN_BEACON_FRAME_T, aucInfoElem);
+
+		kalMemZero(&rRepParams, sizeof(rRepParams));
+		if (u2IELen > CFG_IE_BUFFER_SIZE)
+			u2IELen = CFG_IE_BUFFER_SIZE;
+
+		/* if this is a one antenna only device, the antenna id is always 1. 7.3.2.40 */
+		rRepParams.ucAntennaID = 1;
+		rRepParams.ucChannel = scanGetChannel(prSwRfb->prHifRxHdr, prWlanBeacon->aucInfoElem, u2IELen);
+		rRepParams.ucRCPI = prSwRfb->prHifRxHdr->ucRcpi;
+		rRepParams.ucRSNI = 255; /* 255 means RSNI not available. see 7.3.2.41 */
+		rRepParams.ucFrameInfo = 0;
+		kalMemCopy(prRepBeaconBody->au4Timestamp, prWlanBeacon->au4Timestamp,
+			   sizeof(prWlanBeacon->au4Timestamp));
+		prRepBeaconBody->u2BeaconInterval = prWlanBeacon->u2BeaconInterval;
+		prRepBeaconBody->u2CapInfo = prWlanBeacon->u2CapInfo;
+
+		scanCollectBeaconReport(prAdapter, prWlanBeacon->aucInfoElem, u2IELen,
+			prWlanBeacon->aucBSSID, &rRepParams);
+		return WLAN_STATUS_SUCCESS;
+	}
+	return __scanProcessBeaconAndProbeResp(prAdapter, prSwRfb);
+}
+
+/*static BOOLEAN
+	scanBeaconReportCheckChannel(P_RM_BCN_REQ_T prBcnReq, UINT_8 ucBcnReqLen, UINT_8 ucChannel)
+{
+	PUINT_8 pucSubIE = &prBcnReq->aucSubElements[0];
+
+	if (prBcnReq->ucChannel == ucChannel)
+		return TRUE;
+	ucBcnReqLen -= OFFSET_OF(RM_BCN_REQ_T, aucSubElements);
+	while (ucBcnReqLen > 0) {
+		UINT_8 ucNumChannels = 0;
+		UINT_8 ucIeSize = IE_SIZE(pucSubIE);
+
+		if (pucSubIE[0] != ELEM_ID_AP_CHANNEL_REPORT) {
+			ucBcnReqLen -= ucIeSize;
+			pucSubIE += ucIeSize;
+			continue;
+		}
+		ucNumChannels = ucIeSize - 1;
+		while (ucNumChannels >= 3) {
+			if (ucChannel == pucSubIE[ucNumChannels])
+				return TRUE;
+		}
+		ucBcnReqLen -= ucIeSize;
+		pucSubIE += ucIeSize;
+	}
+	return FALSE;
+}*/
+
+VOID scanCollectBeaconReport(IN P_ADAPTER_T prAdapter, PUINT_8 pucIEBuf,
+	UINT_16 u2IELength, PUINT_8 pucBssid, struct RM_BEACON_REPORT_PARAMS *prRepParams)
+{
+#define BEACON_FIXED_FIELD_LENGTH 12
+	struct RADIO_MEASUREMENT_REQ_PARAMS *prRmReq = &prAdapter->rWifiVar.rRmReqParams;
+	struct RADIO_MEASUREMENT_REPORT_PARAMS *prRmRep = &prAdapter->rWifiVar.rRmRepParams;
+	P_RM_BCN_REQ_T prBcnReq = (P_RM_BCN_REQ_T)&prRmReq->prCurrMeasElem->aucRequestFields[0];
+	P_IE_MEASUREMENT_REPORT_T prMeasReport = NULL;
+	/* Variables to process Beacon IE */
+	PUINT_8 pucIE;
+	UINT_16 u2Offset = 0;
+
+	/* Variables to collect report */
+	UINT_8 ucRSSI = 0;
+	PUINT_8 pucSubIE = NULL;
+	UINT_8 ucCondition = 0;
+	UINT_8 ucRefValue = 0;
+	UINT_8 ucReportDetail = 0;
+	PUINT_8 pucReportIeIds = NULL;
+	UINT_8 ucReportIeIdsLen = 0;
+	struct RM_BCN_REPORT *prBcnReport = NULL;
+	UINT_8 ucBcnReportLen = 0;
+	struct RM_MEASURE_REPORT_ENTRY *prReportEntry = NULL;
+	UINT_16 u2RemainLen = 0;
+	BOOLEAN fgValidChannel = FALSE;
+	UINT_16 u2IeSize = 0;
+
+	if (!EQUAL_MAC_ADDR(prBcnReq->aucBssid, "\xff\xff\xff\xff\xff\xff") &&
+		!EQUAL_MAC_ADDR(prBcnReq->aucBssid, pucBssid)) {
+		DBGLOG(SCN, INFO, "bssid mismatch, req %pM, actual %pM\n", prBcnReq->aucBssid, pucBssid);
+		return;
+	}
+
+	pucIE = pucIEBuf;
+	/* Step1: parsing Beacon Request sub element field to get Report controlling information */
+	/* if match the channel that is in fixed field, no need to check AP channel report */
+	if (prBcnReq->ucChannel == prRepParams->ucChannel)
+		fgValidChannel = TRUE;
+
+	u2RemainLen = prRmReq->prCurrMeasElem->ucLength - 3 - OFFSET_OF(RM_BCN_REQ_T, aucSubElements);
+	pucSubIE = &prBcnReq->aucSubElements[0];
+	while (u2RemainLen > 0) {
+		u2IeSize = IE_SIZE(pucSubIE);
+		if (u2IeSize > u2RemainLen)
+			break;
+		switch (pucSubIE[0]) {
+		case 0: /* checking if SSID is matched */
+			/* length of sub-element ssid is 0 or first byte is 0, means wildcard ssid matching */
+			if (!IE_LEN(pucSubIE) || !pucSubIE[2])
+				break;
+			IE_FOR_EACH(pucIE, u2IELength, u2Offset) {
+				if (IE_ID(pucIE) == ELEM_ID_SSID)
+					break;
+			}
+			if (EQUAL_SSID(&pucIE[2], pucIE[1], &pucSubIE[2], pucSubIE[1]))
+				break;
+			DBGLOG(SCN, TRACE,
+				"SSID mismatch, req(len %d, %s), bcn(id %d, len %d, %s)\n",
+				pucSubIE[1], &pucSubIE[2], pucIE[0], pucIE[1], &pucIE[2]);
+			return; /* don't match SSID, don't report it */
+		case 1: /* Beacon Reporting Information */
+			ucCondition = pucSubIE[3];
+			ucRefValue = pucSubIE[4];
+			break;
+		case 2: /* Reporting Detail Element */
+			ucReportDetail = pucSubIE[2];
+			break;
+		case 10: /* Request Elements */
+		{
+			struct IE_REQUEST_T *prIe = (struct IE_REQUEST_T *)pucSubIE;
+
+			pucReportIeIds = prIe->aucReqIds;
+			ucReportIeIdsLen = prIe->ucLength;
+			break;
+		}
+		case 51: /* AP CHANNEL REPORT Element */
+		{
+			UINT_8 ucNumChannels = 3; /* channel info is starting with the fourth byte */
+
+			if (fgValidChannel)
+				break;
+			/* try to match with AP channel report */
+			while (ucNumChannels < u2IeSize) {
+				if (prRepParams->ucChannel == pucSubIE[ucNumChannels]) {
+					fgValidChannel = TRUE;
+					break;
+				}
+				ucNumChannels++;
+			}
+		}
+		}
+		u2RemainLen -= u2IeSize;
+		pucSubIE += u2IeSize;
+	}
+	if (!fgValidChannel && prBcnReq->ucChannel > 0 && prBcnReq->ucChannel < 255) {
+		DBGLOG(SCN, INFO, "channel %d, valid %d\n", prBcnReq->ucChannel, fgValidChannel);
+		return;
+	}
+
+	/* Step2: check report condition */
+	ucRSSI = RCPI_TO_dBm(prRepParams->ucRCPI);
+	switch (ucCondition) {
+	case 1:
+		if (ucRSSI <= ucRefValue/2)
+			return;
+		break;
+	case 2:
+		if (ucRSSI >= ucRefValue/2)
+			return;
+		break;
+	case 3:
+		break;
+	}
+	/* Step3: Compose Beacon Report in a temp buffer */
+	/* search in saved reported link, check if we have saved a report for this AP */
+	LINK_FOR_EACH_ENTRY(prReportEntry, &prRmRep->rReportLink, rLinkEntry, struct RM_MEASURE_REPORT_ENTRY) {
+		P_IE_MEASUREMENT_REPORT_T prReportElem = (P_IE_MEASUREMENT_REPORT_T)prReportEntry->aucMeasReport;
+
+		prBcnReport = (struct RM_BCN_REPORT *)prReportElem->aucReportFields;
+		if (EQUAL_MAC_ADDR(prBcnReport->aucBSSID, pucBssid))
+			break;
+		prBcnReport = NULL;
+	}
+	if (!prBcnReport) {/* not found a entry in collected report link */
+		LINK_REMOVE_HEAD(&prRmRep->rFreeReportLink, prReportEntry, struct RM_MEASURE_REPORT_ENTRY *);
+		if (!prReportEntry) {/* not found a entry in free report link */
+			prReportEntry = kalMemAlloc(sizeof(*prReportEntry), VIR_MEM_TYPE);
+			if (!prReportEntry)/* no memory to allocate in OS */ {
+				DBGLOG(SCN, ERROR, "Alloc Measurement Report Entry failed, No Memory\n");
+				return;
+			}
+		}
+		DBGLOG(SCN, INFO, "allocate entry for Bss %pM, total entry %u\n",
+			pucBssid, prRmRep->rReportLink.u4NumElem);
+		LINK_INSERT_TAIL(&prRmRep->rReportLink, &prReportEntry->rLinkEntry);
+	}
+	kalMemZero(prReportEntry->aucMeasReport, sizeof(prReportEntry->aucMeasReport));
+	prMeasReport = (P_IE_MEASUREMENT_REPORT_T)prReportEntry->aucMeasReport;
+	prBcnReport = (struct RM_BCN_REPORT *)prMeasReport->aucReportFields;
+	/* Fixed length field */
+	prBcnReport->ucRegulatoryClass = prBcnReq->ucRegulatoryClass;
+	prBcnReport->ucChannel = prRepParams->ucChannel;
+	prBcnReport->u2Duration = prBcnReq->u2Duration;
+	/* ucReportInfo: Bit 0 is the type of frame, 0 means beacon/probe response, bit 1~7 means phy type */
+	prBcnReport->ucReportInfo = prRepParams->ucFrameInfo;
+	prBcnReport->ucRCPI = ucRSSI;
+	prBcnReport->ucRSNI = prRepParams->ucRSNI;/* ToDo: no RSNI is supported now */
+	COPY_MAC_ADDR(prBcnReport->aucBSSID, pucBssid);
+	prBcnReport->ucAntennaID = prRepParams->ucAntennaID; /* only one Antenna now */
+	{
+		OS_SYSTIME rCurrent;
+		UINT_64 u8Tsf = *(PUINT_64)&rTsf.au4Tsf[0];
+
+		GET_CURRENT_SYSTIME(&rCurrent);
+		if (prRmReq->rStartTime >= rTsf.rTime)
+			u8Tsf += prRmReq->rStartTime - rTsf.rTime;
+		else
+			u8Tsf += rTsf.rTime - prRmReq->rStartTime;
+		kalMemCopy(prBcnReport->aucStartTime, &u8Tsf, 8); /* ToDo: start time is not supported now */
+		u8Tsf = *(PUINT_64)&rTsf.au4Tsf[0] + rCurrent - rTsf.rTime;
+		kalMemCopy(prBcnReport->aucParentTSF, &u8Tsf, 4); /* low part of TSF */
+	}
+	ucBcnReportLen = 0;
+	/* Optional Subelement Field */
+	/* all fixed length fields and IEs in Request Sub Elements should be reported */
+	if (ucReportDetail == 1 && ucReportIeIdsLen > 0) {
+		pucSubIE = &prBcnReport->aucOptElem[2];
+		kalMemCopy(pucSubIE, prRepParams->aucBcnFixedField, BEACON_FIXED_FIELD_LENGTH);
+		pucSubIE += BEACON_FIXED_FIELD_LENGTH;
+		ucBcnReportLen += BEACON_FIXED_FIELD_LENGTH;
+		pucIE = pucIEBuf;
+		IE_FOR_EACH(pucIE, u2IELength, u2Offset) {
+			UINT_16 i = 0;
+			UINT_8 ucIncludedIESize = 0;
+
+			for (; i < ucReportIeIdsLen; i++)
+				if (pucIE[0] == pucReportIeIds[i]) {
+					ucIncludedIESize = IE_SIZE(pucIE);
+					break;
+				}
+			/* the length of sub-element should less than 225,
+			** and the included IE should be a complete one
+			*/
+			if (ucBcnReportLen + ucIncludedIESize > RM_BCN_REPORT_SUB_ELEM_MAX_LENGTH)
+				break;
+			if (ucIncludedIESize == 0)
+				continue;
+			ucBcnReportLen += ucIncludedIESize;
+			kalMemCopy(pucSubIE, pucIE, ucIncludedIESize);
+			pucSubIE += ucIncludedIESize;
+		}
+		prBcnReport->aucOptElem[0] = 1; /* sub-element id for reported frame body */
+		prBcnReport->aucOptElem[1] = ucBcnReportLen; /* length of the sub-element */
+		ucBcnReportLen += 2;
+	} else if (ucReportDetail == 2) {/* all fixed length fields and IEs should be reported */
+		ucBcnReportLen += BEACON_FIXED_FIELD_LENGTH;
+		pucIE = pucIEBuf;
+		/* the length of sub-element should less than 225, and the included IE should be a complete one */
+		IE_FOR_EACH(pucIE, u2IELength, u2Offset) {
+			if (ucBcnReportLen + IE_SIZE(pucIE) > RM_BCN_REPORT_SUB_ELEM_MAX_LENGTH)
+				break;
+			ucBcnReportLen += IE_SIZE(pucIE);
+		}
+		prBcnReport->aucOptElem[0] = 1; /* sub-element id for reported frame body */
+		prBcnReport->aucOptElem[1] = ucBcnReportLen; /* length of the sub-element */
+		pucIE = &prBcnReport->aucOptElem[2];
+		kalMemCopy(pucIE, prRepParams->aucBcnFixedField, BEACON_FIXED_FIELD_LENGTH);
+		pucIE += BEACON_FIXED_FIELD_LENGTH;
+		kalMemCopy(pucIE, pucIEBuf, ucBcnReportLen - BEACON_FIXED_FIELD_LENGTH);
+		ucBcnReportLen += 2;
+	}
+	ucBcnReportLen += OFFSET_OF(struct RM_BCN_REPORT, aucOptElem);
+	/* Step4: fill in basic content of Measurement report IE */
+	prMeasReport->ucId = ELEM_ID_MEASUREMENT_REPORT;
+	prMeasReport->ucToken = prRmReq->prCurrMeasElem->ucToken;
+	prMeasReport->ucMeasurementType = ELEM_RM_TYPE_BEACON_REPORT;
+	prMeasReport->ucReportMode = 0;
+	prMeasReport->ucLength = 3 + ucBcnReportLen;
+	DBGLOG(SCN, INFO, "Bss %pM, ReportDeail %d, IncludeIE Num %d, chnl %d\n",
+		pucBssid, ucReportDetail, ucReportIeIdsLen, prRepParams->ucChannel);
+}
+
+static WLAN_STATUS __scanProcessBeaconAndProbeResp(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb)
 {
 	P_CONNECTION_SETTINGS_T prConnSettings;
 	P_BSS_DESC_T prBssDesc = (P_BSS_DESC_T) NULL;
@@ -2235,7 +2670,9 @@ P_BSS_DESC_T scanSearchBssDescByPolicy(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK
 	BOOLEAN fgIsAbsentCandidateBss = TRUE;
 	ENUM_BAND_T eBand = 0;
 	UINT_8 ucChannel = 0;
-
+#if CFG_SUPPORT_NCHO
+	UINT_8 ucRCPIStep = ROAMING_NO_SWING_RCPI_STEP;
+#endif
 	ASSERT(prAdapter);
 
 	prConnSettings = &(prAdapter->rWifiVar.rConnSettings);
@@ -2766,7 +3203,12 @@ P_BSS_DESC_T scanSearchBssDescByPolicy(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK
 					}
 				}
 				/* NOTE: To prevent SWING,
-				 * we do roaming only if target AP has at least 5dBm larger than us. */
+				 * we do roaming only if target AP has at least 5dBm larger than us.
+				 */
+#if CFG_SUPPORT_NCHO
+				if (prAdapter->rNchoInfo.fgECHOEnabled == TRUE)
+					ucRCPIStep = 2 * prAdapter->rNchoInfo.i4RoamDelta;
+#endif
 				if (prCandidateBssDesc->fgIsConnected) {
 					if (u4CandAdjRssi < u4PrimAdjRssi &&
 						prPrimaryBssDesc->ucJoinFailureCount < SCN_BSS_JOIN_FAIL_THRESOLD) {
@@ -2887,7 +3329,15 @@ VOID scanGetCurrentEssChnlList(P_ADAPTER_T prAdapter)
 	kalMemZero(prEssChnlInfo, CFG_MAX_NUM_OF_CHNL_INFO * sizeof(struct ESS_CHNL_INFO));
 	while (!LINK_IS_EMPTY(prCurEssLink)) {
 		prBssDesc = LINK_PEEK_HEAD(prCurEssLink, BSS_DESC_T, rLinkEntryEss);
-		LINK_REMOVE_KNOWN_ENTRY(prCurEssLink, &prBssDesc->rLinkEntryEss);
+		if (LINK_ENTRY_IS_VALID(&prBssDesc->rLinkEntryEss)) {
+			LINK_REMOVE_KNOWN_ENTRY(prCurEssLink, &prBssDesc->rLinkEntryEss);
+		} else {
+			DBGLOG(SCN, WARN, "scanGetCurrentEssChnlList: Invalid prPrev[%d] prNext[%d]\n",
+				((((P_LINK_ENTRY_T)&prBssDesc->rLinkEntryEss)->prPrev == NULL) ? -1:0),
+				((((P_LINK_ENTRY_T)&prBssDesc->rLinkEntryEss)->prNext == NULL) ? -1:0));
+			LINK_INITIALIZE(prCurEssLink);
+			break;
+		}
 	}
 	LINK_FOR_EACH_ENTRY(prBssDesc, prBSSDescList, rLinkEntry, BSS_DESC_T) {
 		if (prBssDesc->ucChannelNum > 214)
@@ -2953,6 +3403,11 @@ VOID scanGetCurrentEssChnlList(P_ADAPTER_T prAdapter)
 
 #define CALCULATE_SCORE_BY_DEAUTH(prBssDesc) \
 	(WEIGHT_IDX_DEAUTH_LAST * (prBssDesc->fgDeauthLastTime ? 0:BSS_FULL_SCORE))
+
+#if CFG_SUPPORT_RSN_SCORE
+#define CALCULATE_SCORE_BY_RSN(prBssDesc) \
+	(WEIGHT_IDX_RSN * (prBssDesc->fgIsRSNSuitableBss ? BSS_FULL_SCORE:0))
+#endif
 
 #if 0/* we don't take it into account now */
 /* Channel Utilization: weight index will be */
@@ -3095,8 +3550,10 @@ static BOOLEAN scanSanityCheckBssDesc(P_ADAPTER_T prAdapter,
 			return FALSE;
 	} else
 #endif
+
 	if (!rsnPerformPolicySelection(prAdapter, prBssDesc))
 		return FALSE;
+
 	if (prAdapter->rWifiVar.rAisSpecificBssInfo.fgCounterMeasure) {
 		DBGLOG(SCN, WARN, "Skip while at counter measure period!!!\n");
 		return FALSE;
@@ -3113,13 +3570,13 @@ static UINT_16 scanCalculateScoreByRssi(P_BSS_DESC_T prBssDesc)
 	else if (cRssi >= -55)
 		u2Score = 95;
 	else if (cRssi >= -65)
-		u2Score = 90;
+		u2Score = 80;
 	else if (cRssi >= -70)
-		u2Score = 85;
+		u2Score = 50;
 	else if (cRssi >= -77)
-		u2Score = 30;
+		u2Score = 10;
 	else if (cRssi <= -88 && cRssi > -100)
-		u2Score = 20;
+		u2Score = 5;
 	else if (cRssi <= -100)
 		u2Score = 0;
 
@@ -3127,6 +3584,38 @@ static UINT_16 scanCalculateScoreByRssi(P_BSS_DESC_T prBssDesc)
 
 	return u2Score;
 }
+
+static UINT_16 scanCalculateScoreByBand(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc, INT_8 cRssi)
+{
+	UINT_16 u2Score = 0;
+	P_AIS_FSM_INFO_T prAisFsmInfo;
+	P_ROAMING_INFO_T prRoamingFsmInfo;
+
+	prAisFsmInfo = &(prAdapter->rWifiVar.rAisFsmInfo);
+	prRoamingFsmInfo = (P_ROAMING_INFO_T) &(prAdapter->rWifiVar.rRoamingInfo);
+
+	if (prBssDesc->eBand == BAND_5G && prAdapter->fgEnable5GBand && cRssi > -60
+		&& prRoamingFsmInfo->eCurrentState == ROAMING_STATE_IDLE
+		&& prAisFsmInfo->u4PostponeIndStartTime == 0)
+		u2Score = (WEIGHT_IDX_5G_BAND * BSS_FULL_SCORE);
+
+	return u2Score;
+}
+
+static UINT_16 scanCalculateScoreBySaa(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc)
+{
+	UINT_16 u2Score = 0;
+	P_STA_RECORD_T prStaRec = (P_STA_RECORD_T) NULL;
+
+	prStaRec = cnmGetStaRecByAddress(prAdapter, NETWORK_TYPE_AIS_INDEX, prBssDesc->aucSrcAddr);
+	if (prStaRec)
+		u2Score = WEIGHT_IDX_SAA * (prStaRec->ucTxAuthAssocRetryCount ? 0 : BSS_FULL_SCORE);
+	else
+		u2Score = WEIGHT_IDX_SAA * BSS_FULL_SCORE;
+
+	return u2Score;
+}
+
 /*****
 Bss Characteristics to be taken into account when calculate Score:
 Channel Loading Group:
@@ -3166,6 +3655,8 @@ P_BSS_DESC_T scanSearchBssDescByScoreForAis(P_ADAPTER_T prAdapter)
 	UINT_16 u2ScoreDeauth = 0;
 	UINT_16 u2ScoreSnrRssi = 0;
 	UINT_16 u2ScoreTotal = 0;
+	UINT_16 u2ScoreRSN = 0;
+	UINT_16 u2ScoreSaa = 0;
 	UINT_16 u2CandBssScore = 0;
 	UINT_16 u2CandBssScoreForLowRssi = 0;
 	UINT_16 u2BlackListScore = 0;
@@ -3215,6 +3706,8 @@ P_BSS_DESC_T scanSearchBssDescByScoreForAis(P_ADAPTER_T prAdapter)
 
 try_again:
 	LINK_FOR_EACH_ENTRY(prBssDesc, prEssLink, rLinkEntryEss, BSS_DESC_T) {
+		DBGLOG_MEM8_IE_ONE_LINE(SCN, INFO, "BCN_IE", &prBssDesc->aucIEBuf[0], prBssDesc->u2IELength);
+
 		if (prConnSettings->eConnectionPolicy == CONNECT_BY_BSSID &&
 			EQUAL_MAC_ADDR(prBssDesc->aucBSSID, prConnSettings->aucBSSID)) {
 			if (!scanSanityCheckBssDesc(prAdapter, prBssDesc, eBand, ucChannel, fgIsFixedChannel))
@@ -3223,15 +3716,33 @@ try_again:
 			prCandBssDesc = prBssDesc;
 			break;
 		}
+#if CFG_SUPPORT_ROAMING_RETRY
+		/*STA ingored the BSS which was fail on roamming.*/
+		if (prBssDesc->fgIsRoamFail) {
+			DBGLOG(SCN, INFO, "Roamming fail before ingoring [%pM]!\n", prBssDesc->aucBSSID);
+			continue;
+		}
+#endif
 		if (!fgSearchBlackList) {
 			prBssDesc->prBlack = aisQueryBlackList(prAdapter, prBssDesc);
-			if (prBssDesc->prBlack)
+			if (prBssDesc->prBlack) {
+				if (prBssDesc->prBlack->fgIsInFWKBlacklist == TRUE)
+					DBGLOG(SCN, INFO, "%s(%pM) is in FWK blacklist, skip it\n",
+								prBssDesc->aucSSID, prBssDesc->aucBSSID);
 				continue;
+			}
 		} else if (!prBssDesc->prBlack)
 			continue;
-		else
+		else {
+			/* never search FWK blacklist even if we are trying blacklist */
+			if (prBssDesc->prBlack->fgIsInFWKBlacklist == TRUE) {
+				DBGLOG(SCN, INFO, "Although trying blacklist, %s(%pM) is in FWK blacklist, skip it\n",
+							prBssDesc->aucSSID, prBssDesc->aucBSSID);
+				continue;
+			}
 			u2BlackListScore = WEIGHT_IDX_BLACK_LIST *
 				aisCalculateBlackListScore(prAdapter, prBssDesc);
+		}
 
 		cRssi = RCPI_TO_dBm(prBssDesc->ucRCPI);
 
@@ -3267,14 +3778,21 @@ try_again:
 		u2ScoreDeauth = CALCULATE_SCORE_BY_DEAUTH(prBssDesc);
 		u2ScoreProbeRsp = CALCULATE_SCORE_BY_PROBE_RSP(prBssDesc);
 		u2ScoreScanMiss = CALCULATE_SCORE_BY_MISS_CNT(prAdapter, prBssDesc);
-		u2ScoreBand = CALCULATE_SCORE_BY_BAND(prAdapter, prBssDesc, cRssi);
+		u2ScoreBand = scanCalculateScoreByBand(prAdapter, prBssDesc, cRssi);
+#if CFG_SUPPORT_RSN_SCORE
+		u2ScoreRSN = CALCULATE_SCORE_BY_RSN(prBssDesc);
+#endif
+		u2ScoreSaa = scanCalculateScoreBySaa(prAdapter, prBssDesc);
+
 		u2ScoreTotal = u2ScoreBandwidth + u2ScoreChnlInfo + u2ScoreDeauth + u2ScoreProbeRsp +
-			u2ScoreScanMiss + u2ScoreSnrRssi + u2ScoreStaCnt + u2ScoreSTBC + u2ScoreBand + u2BlackListScore;
+			u2ScoreScanMiss + u2ScoreSnrRssi + u2ScoreStaCnt + u2ScoreSTBC + u2ScoreBand +
+			u2BlackListScore + u2ScoreRSN + u2ScoreSaa;
 
 		DBGLOG(SCN, INFO,
-			"%pM cRSSI[%d] Score, Total %d: BW[%d], CI[%d], DE[%d], PR[%d], SM[%d], SC[%d], SR[%d], ST[%d], BD[%d]\n",
-			prBssDesc->aucBSSID, cRssi, u2ScoreTotal, u2ScoreBandwidth, u2ScoreChnlInfo, u2ScoreDeauth,
-			u2ScoreProbeRsp, u2ScoreScanMiss, u2ScoreStaCnt, u2ScoreSnrRssi, u2ScoreSTBC, u2ScoreBand);
+			"%pM cRSSI[%d] Score, Total %d: DE[%d], PR[%d], SM[%d], SR[%d], BD[%d], RSN[%d], SAA[%d]\n",
+			prBssDesc->aucBSSID, cRssi, u2ScoreTotal, u2ScoreDeauth,
+			u2ScoreProbeRsp, u2ScoreScanMiss, u2ScoreSnrRssi,
+			u2ScoreBand, u2ScoreRSN, u2ScoreSaa);
 		/*if (cRssi < HARD_TO_CONNECT_RSSI_THRESOLD) {
 			if (!prCandBssDescForLowRssi) {
 				prCandBssDescForLowRssi = prBssDesc;
@@ -3320,8 +3838,8 @@ try_again:
 		}
 		if (prConnSettings->eConnectionPolicy == CONNECT_BY_BSSID)
 			DBGLOG(SCN, INFO,
-				"Selected %pM base on bssid, when find %s, %pM in %d BSSes, fix channel %d.\n",
-				prCandBssDesc->aucBSSID, prConnSettings->aucSSID,
+				"Selected %pM (%d) base on bssid, when find %s, %pM in %d BSSes, fix channel %d.\n",
+				prCandBssDesc->aucBSSID, RCPI_TO_dBm(prCandBssDesc->ucRCPI), prConnSettings->aucSSID,
 				prConnSettings->aucBSSID, prEssLink->u4NumElem, ucChannel);
 		else
 			DBGLOG(SCN, INFO,
@@ -3348,4 +3866,29 @@ try_again:
 	return NULL;
 }
 
+VOID scanCollectNeighborBss(P_ADAPTER_T prAdapter)
+{
+	P_WIFI_VAR_T prWifiVar = &prAdapter->rWifiVar;
+	PUINT_8 pucNeighborBssBuf = &prWifiVar->rAisSpecificBssInfo.rBTMParam.aucOurNeighborBss[0];
+	P_LINK_T prBSSDescList = &prWifiVar->rScanInfo.rBSSDescList;
+	P_BSS_DESC_T prConnectedBssDesc = prWifiVar->rAisFsmInfo.prTargetBssDesc;
+	P_BSS_DESC_T prBssDesc = NULL;
+	PUINT_8 pucConnectedSSID = NULL;
+	UINT_8 ucSSIDLen = 0;
+	struct IE_NEIGHBOR_REPORT_T *prReport = (struct IE_NEIGHBOR_REPORT_T *)pucNeighborBssBuf;
+
+	if (prWifiVar->arBssInfo[NETWORK_TYPE_AIS_INDEX].eConnectionState !=
+		PARAM_MEDIA_STATE_CONNECTED || !prConnectedBssDesc)
+		return;
+	pucConnectedSSID = &prConnectedBssDesc->aucSSID[0];
+	ucSSIDLen = prConnectedBssDesc->ucSSIDLen;
+	LINK_FOR_EACH_ENTRY(prBssDesc, prBSSDescList, rLinkEntry, BSS_DESC_T) {
+		if (!EQUAL_SSID(prBssDesc->aucSSID, prBssDesc->ucSSIDLen, pucConnectedSSID, ucSSIDLen))
+			continue;
+		prReport->ucId = ELEM_ID_NEIGHBOR_REPORT;
+		COPY_MAC_ADDR(prReport->aucBSSID, prBssDesc->aucBSSID);
+		prReport->ucChnlNumber = prBssDesc->ucChannelNum;
+		prReport->ucPhyType = prBssDesc->ucPhyTypeSet;
+	}
+}
 

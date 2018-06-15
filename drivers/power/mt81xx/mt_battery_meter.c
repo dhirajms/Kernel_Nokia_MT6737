@@ -305,9 +305,25 @@ s32 fgauge_get_Q_max(s16 temperature)
 		if (temperature < low_temperature)
 			temperature = low_temperature;
 
+	} else if (p_bat_meter_data->p_battery_profile_t1_5 &&
+			temperature <= p_bat_meter_data->temperature_t1_5) {
+			low_temperature = p_bat_meter_data->tempearture_t1;
+			low_Q_max = p_bat_meter_data->q_max_pos_0;
+			high_temperature = p_bat_meter_data->temperature_t1_5;
+			high_Q_max = p_bat_meter_data->q_max_pos_10;
+
+			if (temperature < low_temperature)
+				temperature = low_temperature;
+
 	} else if (temperature <= p_bat_meter_data->temperature_t2) {
-		low_temperature = p_bat_meter_data->tempearture_t1;
-		low_Q_max = p_bat_meter_data->q_max_pos_0;
+
+		if (p_bat_meter_data->p_battery_profile_t1_5) {
+			low_temperature = p_bat_meter_data->temperature_t1_5;
+			low_Q_max = p_bat_meter_data->q_max_pos_10;
+		} else {
+			low_temperature = p_bat_meter_data->tempearture_t1;
+			low_Q_max = p_bat_meter_data->q_max_pos_0;
+		}
 		high_temperature = p_bat_meter_data->temperature_t2;
 		high_Q_max = p_bat_meter_data->q_max_pos_25;
 
@@ -350,9 +366,25 @@ s32 fgauge_get_Q_max_high_current(s16 temperature)
 		if (temperature < low_temperature)
 			temperature = low_temperature;
 
-	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+	} else if (p_bat_meter_data->p_battery_profile_t1_5 &&
+		temperature <= p_bat_meter_data->temperature_t1_5) {
 		low_temperature = p_bat_meter_data->tempearture_t1;
 		low_Q_max = p_bat_meter_data->q_max_pos_0_h_current;
+		high_temperature = p_bat_meter_data->temperature_t1_5;
+		high_Q_max = p_bat_meter_data->q_max_pos_10_h_current;
+
+		if (temperature < low_temperature)
+			temperature = low_temperature;
+
+	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+
+		if (p_bat_meter_data->p_battery_profile_t1_5) {
+			low_temperature = p_bat_meter_data->temperature_t1_5;
+			low_Q_max = p_bat_meter_data->q_max_pos_10_h_current;
+		} else {
+			low_temperature = p_bat_meter_data->tempearture_t1;
+			low_Q_max = p_bat_meter_data->q_max_pos_0_h_current;
+		}
 		high_temperature = p_bat_meter_data->temperature_t2;
 		high_Q_max = p_bat_meter_data->q_max_pos_25_h_current;
 
@@ -532,6 +564,8 @@ struct BATTERY_PROFILE_STRUCT *fgauge_get_profile(u32 temperature)
 		return p_bat_meter_data->p_battery_profile_t0;
 	else if (temperature == p_bat_meter_data->tempearture_t1)
 		return p_bat_meter_data->p_battery_profile_t1;
+	else if (temperature == p_bat_meter_data->temperature_t1_5)
+		return p_bat_meter_data->p_battery_profile_t1_5;
 	else if (temperature == p_bat_meter_data->temperature_t2)
 		return p_bat_meter_data->p_battery_profile_t2;
 	else if (temperature == p_bat_meter_data->temperature_t3)
@@ -548,6 +582,8 @@ struct R_PROFILE_STRUCT *fgauge_get_profile_r_table(u32 temperature)
 		return p_bat_meter_data->p_r_profile_t0;
 	else if (temperature == p_bat_meter_data->tempearture_t1)
 		return p_bat_meter_data->p_r_profile_t1;
+	else if (temperature == p_bat_meter_data->temperature_t1_5)
+		return p_bat_meter_data->p_r_profile_t1_5;
 	else if (temperature == p_bat_meter_data->temperature_t2)
 		return p_bat_meter_data->p_r_profile_t2;
 	else if (temperature == p_bat_meter_data->temperature_t3)
@@ -770,10 +806,27 @@ void fgauge_construct_battery_profile(s32 temperature,
 		if (temperature < low_temperature)
 			temperature = low_temperature;
 
-	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+	} else if (p_bat_meter_data->p_battery_profile_t1_5 &&
+		temperature <= p_bat_meter_data->temperature_t1_5) {
 		low_profile_p = fgauge_get_profile(p_bat_meter_data->tempearture_t1);
-		high_profile_p = fgauge_get_profile(p_bat_meter_data->temperature_t2);
+		high_profile_p = fgauge_get_profile(p_bat_meter_data->temperature_t1_5);
 		low_temperature = p_bat_meter_data->tempearture_t1;
+		high_temperature = p_bat_meter_data->temperature_t1_5;
+
+		if (temperature < low_temperature)
+			temperature = low_temperature;
+
+	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+
+		if (p_bat_meter_data->p_battery_profile_t1_5) {
+			low_profile_p = fgauge_get_profile(p_bat_meter_data->temperature_t1_5);
+			low_temperature = p_bat_meter_data->temperature_t1_5;
+		} else {
+			low_profile_p = fgauge_get_profile(p_bat_meter_data->tempearture_t1);
+			low_temperature = p_bat_meter_data->tempearture_t1;
+		}
+
+		high_profile_p = fgauge_get_profile(p_bat_meter_data->temperature_t2);
 		high_temperature = p_bat_meter_data->temperature_t2;
 
 		if (temperature < low_temperature)
@@ -846,10 +899,27 @@ void fgauge_construct_r_table_profile(s32 temperature, struct R_PROFILE_STRUCT *
 		if (temperature < low_temperature)
 			temperature = low_temperature;
 
-	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+	} else if (p_bat_meter_data->p_battery_profile_t1_5 &&
+		temperature <= p_bat_meter_data->temperature_t1_5) {
 		low_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->tempearture_t1);
-		high_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->temperature_t2);
+		high_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->temperature_t1_5);
 		low_temperature = p_bat_meter_data->tempearture_t1;
+		high_temperature = p_bat_meter_data->temperature_t1_5;
+
+		if (temperature < low_temperature)
+			temperature = low_temperature;
+
+	} else if (temperature <= p_bat_meter_data->temperature_t2) {
+
+		if (p_bat_meter_data->p_battery_profile_t1_5) {
+			low_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->temperature_t1_5);
+			low_temperature = p_bat_meter_data->temperature_t1_5;
+		} else {
+			low_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->tempearture_t1);
+			low_temperature = p_bat_meter_data->tempearture_t1;
+		}
+
+		high_profile_p = fgauge_get_profile_r_table(p_bat_meter_data->temperature_t2);
 		high_temperature = p_bat_meter_data->temperature_t2;
 
 		if (temperature < low_temperature)
@@ -2224,6 +2294,15 @@ s32 battery_meter_initial(void)
 #endif
 }
 
+s32 battery_meter_reset_aging(void)
+{
+#if defined(CONFIG_MTK_ENABLE_AGING_ALGORITHM) && !defined(CONFIG_POWER_EXT)
+	aging_ocv_1 = 0;
+	aging_ocv_2 = 0;
+#endif
+	return 0;
+}
+
 void reset_parameter_car(void)
 {
 #if defined(CONFIG_SOC_BY_HW_FG)
@@ -3023,11 +3102,6 @@ static void init_meter_global_data(struct platform_device *dev)
 static int battery_meter_probe(struct platform_device *dev)
 {
 	int ret_device_file = 0;
-#if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
-	char *temp_strptr;
-	int cmd_len;
-	char chr_mode_str[] = " androidboot.mode=charger";
-#endif
 
 	p_bat_meter_data = (struct mt_battery_meter_custom_data *)dev->dev.platform_data;
 
@@ -3041,17 +3115,6 @@ static int battery_meter_probe(struct platform_device *dev)
 	init_meter_global_data(dev);
 
 	bm_print(BM_LOG_CRTI, "[battery_meter_probe] probe\n");
-
-#if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
-	if (get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT
-	    || get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT) {
-		cmd_len = strlen(saved_command_line) + strlen(chr_mode_str) + 1;
-		temp_strptr = kzalloc(cmd_len, GFP_KERNEL);
-		strncpy(temp_strptr, saved_command_line, cmd_len);
-		strncat(temp_strptr, chr_mode_str, strlen(chr_mode_str));
-		saved_command_line = temp_strptr;
-	}
-#endif
 
 	/* select battery meter control method */
 	battery_meter_ctrl = bm_ctrl_cmd;
@@ -3313,6 +3376,40 @@ static struct platform_driver battery_meter_driver = {
 #endif
 		   },
 };
+
+#if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
+static int update_kpoc_boot_mode(void)
+{
+	struct device_node *np;
+	struct property *prop;
+	static const char prop_name[] = "mode";
+	static const char prop_value[] = "charger";
+
+	if (get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT ||
+			get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT) {
+
+		np = of_find_node_by_path("/firmware/android");
+
+		if (!np) {
+			pr_err("%s: can't find dts path!\n", __func__);
+			return 0;
+		}
+
+		prop = kzalloc(sizeof(*prop), GFP_KERNEL);
+		if (!prop)
+			return 0;
+
+		prop->name = (char *)prop_name;
+		prop->value = (void *)prop_value;
+		prop->length = strlen(prop->value);
+		of_update_property(np, prop);
+	}
+
+	return 0;
+}
+
+late_initcall(update_kpoc_boot_mode);
+#endif
 
 static int __init battery_meter_init(void)
 {

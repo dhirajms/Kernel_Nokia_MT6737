@@ -202,8 +202,10 @@ static int m4u_test_map_kernel(void)
 
 int m4u_test_ddp(unsigned int prot)
 {
-	unsigned int *pSrc, *pDst;
-	unsigned int src_pa, dst_pa;
+	unsigned int *pSrc = NULL;
+	unsigned int *pDst = NULL;
+	unsigned int src_pa = 0;
+	unsigned int dst_pa = 0;
 	unsigned int size = 64 * 64 * 3;
 	M4U_PORT_STRUCT port;
 	m4u_client_t *client = m4u_create_client();
@@ -259,8 +261,10 @@ static char *data = "ABC";
 
 int m4u_test_tf(unsigned int prot)
 {
-	unsigned int *pSrc, *pDst;
-	unsigned int src_pa, dst_pa;
+	unsigned int *pSrc = NULL;
+	unsigned int *pDst = NULL;
+	unsigned int src_pa = 0;
+	unsigned int dst_pa = 0;
 	unsigned int size = 64 * 64 * 3;
 	M4U_PORT_STRUCT port;
 	m4u_client_t *client = m4u_create_client();
@@ -544,11 +548,17 @@ static int m4u_debug_set(void *data, u64 val)
 		m4u_dump_pfh_tlb(0);
 		break;
 	case 18:
-		m4u_dump_main_tlb(1, 0);
+	{
+		if (TOTAL_M4U_NUM > 1)
+			m4u_dump_main_tlb(1, 0);
 		break;
+	}
 	case 19:
-		m4u_dump_pfh_tlb(1);
+	{
+		if (TOTAL_M4U_NUM > 1)
+			m4u_dump_pfh_tlb(1);
 		break;
+	}
 	case 20:
 	{
 		M4U_PORT_STRUCT rM4uPort;
@@ -587,6 +597,10 @@ static int m4u_debug_set(void *data, u64 val)
 		unsigned int *pSrc;
 
 		pSrc = vmalloc(128);
+		if (!pSrc) {
+			M4UMSG("vmalloc failed!\n");
+			return 0;
+		}
 		memset(pSrc, 55, 128);
 		m4u_cache_sync(NULL, 0, 0, 0, 0, M4U_CACHE_FLUSH_ALL);
 
@@ -610,9 +624,9 @@ static int m4u_debug_set(void *data, u64 val)
 	break;
 	case 24:
 	{
-		unsigned int *pSrc;
-		unsigned int mva;
-		unsigned long pa;
+		unsigned int *pSrc = NULL;
+		unsigned int mva = 0;
+		unsigned long pa = 0;
 		m4u_client_t *client = m4u_create_client();
 
 		pSrc = vmalloc(128);

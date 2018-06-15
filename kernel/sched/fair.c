@@ -4681,6 +4681,9 @@ static inline struct hmp_domain *hmp_slower_domain(int cpu)
 	struct list_head *pos;
 
 	pos = &hmp_cpu_domain(cpu)->hmp_domains;
+	if (list_is_last(pos, &hmp_domains))
+		return list_entry(pos, struct hmp_domain, hmp_domains);
+
 	return list_entry(pos->next, struct hmp_domain, hmp_domains);
 }
 
@@ -4690,6 +4693,9 @@ static inline struct hmp_domain *hmp_faster_domain(int cpu)
 	struct list_head *pos;
 
 	pos = &hmp_cpu_domain(cpu)->hmp_domains;
+	if (pos->prev == &hmp_domains)
+		return list_entry(pos, struct hmp_domain, hmp_domains);
+
 	return list_entry(pos->prev, struct hmp_domain, hmp_domains);
 }
 
@@ -6774,6 +6780,12 @@ static int detach_tasks(struct lb_env *env)
 		if (env->loop > env->loop_max)
 			break;
 
+		if (env->src_rq->nr_running <= 1) {
+			mt_sched_printf(sched_lb, "env->src_rq->nr_running=%d",
+				env->src_rq->nr_running);
+			break;
+		}
+
 		/* take a breather every nr_migrate tasks */
 		if (env->loop > env->loop_break) {
 			env->loop_break += sched_nr_migrate_break;
@@ -6919,6 +6931,12 @@ static int tgs_detach_tasks(struct lb_env *env)
 		/* We've more or less seen every task there is, call it quits */
 		if (env->loop > env->loop_max)
 			break;
+
+		if (env->src_rq->nr_running <= 1) {
+			mt_sched_printf(sched_lb, "env->src_rq->nr_running=%d",
+				env->src_rq->nr_running);
+			break;
+		}
 
 #if 0		/* TO check */
 		/* take a breather every nr_migrate tasks */

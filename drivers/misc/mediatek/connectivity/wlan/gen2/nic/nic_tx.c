@@ -21,6 +21,7 @@
 ********************************************************************************
 */
 #include "precomp.h"
+#include "tdls.h"
 
 /*******************************************************************************
 *                              C O N S T A N T S
@@ -140,12 +141,12 @@ WLAN_STATUS nicTxAcquireResource(IN P_ADAPTER_T prAdapter, IN UINT_8 ucTC, IN BO
 {
 #define TC4_NO_RESOURCE_DELAY_MS      5    /* exponential of 5s */
 #define TC4_NO_RESOURCE_DELAY_1S      1    /* exponential of 1s */
-#define AEE_STRING_LENGTH 128
 
 	P_TX_CTRL_T prTxCtrl;
 	WLAN_STATUS u4Status = WLAN_STATUS_RESOURCES;
 	P_QUE_MGT_T prQM;
 	BOOLEAN fgWmtCoreDump = FALSE;
+
 
 	KAL_SPIN_LOCK_DECLARATION();
 
@@ -312,6 +313,7 @@ BOOLEAN nicTxReleaseResource(IN P_ADAPTER_T prAdapter, IN unsigned char *aucTxRl
 	KAL_SPIN_LOCK_DECLARATION();
 
 	P_QUE_MGT_T prQM = &prAdapter->rQM;
+
 	prTxCtrl = &prAdapter->rTxCtrl;
 
 	if (pu4Tmp[0] | pu4Tmp[1]) {
@@ -1099,7 +1101,7 @@ WLAN_STATUS nicTxMsduQueue(IN P_ADAPTER_T prAdapter, UINT_8 ucPortIdx, P_QUE_T p
 
 			/* record the queue time in driver */
 			STATS_TX_TIME_TO_HIF(prMsduInfo, &rHwTxHeader);
-
+			wlanFillTimestamp(prAdapter, prMsduInfo->prPacket, PHASE_HIF_TX);
 #if CFG_SDIO_TX_AGG
 			/* attach to coalescing buffer */
 			kalMemCopy(pucOutputBuf + u4TotalLength, &rHwTxHeader, u4TxHdrSize);
@@ -1384,6 +1386,8 @@ WLAN_STATUS nicTxCmd(IN P_ADAPTER_T prAdapter, IN P_CMD_INFO_T prCmdInfo, IN UIN
 
 		}
 	}
+	prCmdInfo->u4SendToFwTime = kalGetTimeTick();
+	wlanDebugCommandRecodTime(prCmdInfo);
 
 	/* <4> Write frame to data port */
 	HAL_WRITE_TX_PORT(prAdapter,
@@ -1623,12 +1627,18 @@ BOOLEAN nicTxFillMsduInfo(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo,
 					       aucEthDestAddr,
 					       &fgIs1x, &fgIsPAL, &ucNetworkType,
 					       NULL) == FALSE) {
+		DBGLOG(TX, WARN, "%s kalQoSFrameClassifierAndPacketInfo is false!\n", __func__);
 		return FALSE;
 	}
 #if CFG_ENABLE_PKT_LIFETIME_PROFILE
 	nicTxLifetimeCheck(prAdapter, prMsduInfo, prPacket, ucPriorityParam, u4PacketLen, ucNetworkType);
 #endif
 
+#if (CFG_SUPPORT_TDLS == 1)
+	if (ucNetworkType == NETWORK_TYPE_P2P_INDEX &&
+	    MTKTdlsEnvP2P(prAdapter))
+		MTKAutoTdlsP2P(prGlueInfo, prPacket);
+#endif
 	/* Save the value of Priority Parameter */
 	GLUE_SET_PKT_TID(prPacket, ucPriorityParam);
 

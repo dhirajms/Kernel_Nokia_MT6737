@@ -553,7 +553,8 @@ static s32 pwrap_wacs2_hal(u32  write, u32  adr, u32  wdata, u32 *rdata)
 
 		if (0 == (wdata & (1<<11)) || 1 == ((wdata>>10) & 0x1)) {
 			PWRAPERR(" pwrap_wacs2_hal check 0xa err pid=%d, wdata=0x%x\n", current->pid, wdata);
-			BUG_ON(1);
+			goto FAIL;
+			/* BUG_ON(1); */
 		}
 	}
 
@@ -1330,7 +1331,7 @@ s32 pwrap_init(void)
 	WRAP_WR32(PMIC_WRAP_WDT_UNIT, 0xf);
 	WRAP_WR32(PMIC_WRAP_WDT_SRC_EN, 0xfffffbff);
 	WRAP_WR32(PMIC_WRAP_TIMER_EN, 0x1);
-	WRAP_WR32(PMIC_WRAP_INT_EN, 0xfffffbf9);
+	WRAP_WR32(PMIC_WRAP_INT_EN, 0xfffffbff);
 	PWRAPLOG("mt_pwrap_init---- debug12++\n");
 	/* no ok */
 

@@ -54,9 +54,11 @@
 
 #define IP_PRO_ICMP				0x01
 #define IP_PRO_UDP				0x11
+#define IP_PRO_TCP				0x06
 
 #define UDP_PORT_DHCPS				0x43
 #define UDP_PORT_DHCPC				0x44
+#define UDP_PORT_DNS				0x35
 
 #define ETH_P_1X                                0x888E
 #define ETH_P_PRE_1X                            0x88C7
@@ -1603,7 +1605,7 @@ typedef struct _IE_SSID_T {
 typedef struct _IE_SUPPORTED_RATE_T {
 	UINT_8 ucId;
 	UINT_8 ucLength;
-	UINT_8 aucSupportedRates[ELEM_MAX_LEN_SUP_RATES];
+	UINT_8 aucSupportedRates[0]; /* Variable size, should no more than 8 */
 } __KAL_ATTRIB_PACKED__ IE_SUPPORTED_RATE_T, *P_IE_SUPPORTED_RATE_T;
 
 /* 7.3.2.4 DS Parameter Set element */
@@ -1690,7 +1692,7 @@ typedef struct _IE_ERP_T {
 typedef struct _IE_EXT_SUPPORTED_RATE_T {
 	UINT_8 ucId;
 	UINT_8 ucLength;
-	UINT_8 aucExtSupportedRates[ELEM_MAX_LEN_EXTENDED_SUP_RATES];
+	UINT_8 aucExtSupportedRates[0]; /* Variable size */
 } __KAL_ATTRIB_PACKED__ IE_EXT_SUPPORTED_RATE_T, *P_IE_EXT_SUPPORTED_RATE_T;
 
 /* 7.3.2.15 Power Constraint element */
@@ -2105,6 +2107,23 @@ typedef struct _WLAN_ACTION_FRAME {
 	UINT_8 ucAction;	/* Action Value */
 	UINT_8 ucActionDetails[1];	/* Action details */
 } __KAL_ATTRIB_PACKED__ WLAN_ACTION_FRAME, *P_WLAN_ACTION_FRAME;
+
+/* public Action frame format */
+struct _WLAN_PUBLIC_VENDOR_ACTION_FRAME {
+	/* Action MAC header */
+	UINT_16 u2FrameCtrl;	/* Frame Control */
+	UINT_16 u2DurationID;	/* Duration */
+	UINT_8 aucDestAddr[MAC_ADDR_LEN];	/* DA */
+	UINT_8 aucSrcAddr[MAC_ADDR_LEN];	/* SA */
+	UINT_8 aucBSSID[MAC_ADDR_LEN];	/* BSSID */
+	UINT_16 u2SeqCtrl;	/* Sequence Control */
+	/* Action frame body */
+	UINT_8 ucCategory;	/* Category: should be 0x4 */
+	UINT_8 ucAction;	/* Action Value: should be 0x9 */
+	UINT_8 ucOUI[3];
+	UINT_8 ucSubType;
+	UINT_8 ucPubSubType;
+};
 
 /* 7.4.1.1 Spectrum Measurement Request frame format */
 typedef struct _ACTION_SM_REQ_FRAME {

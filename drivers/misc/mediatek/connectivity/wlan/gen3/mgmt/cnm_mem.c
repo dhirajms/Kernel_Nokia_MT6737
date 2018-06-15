@@ -129,7 +129,8 @@ P_MSDU_INFO_T cnmPktAllocWrapper(P_ADAPTER_T prAdapter, UINT_32 u4Length, PUINT_
 
 	prMsduInfo = cnmPktAlloc(prAdapter, u4Length);
 	DBGLOG(MEM, LOUD, "Alloc MSDU_INFO[0x%p] by [%s]\n", prMsduInfo, pucStr);
-
+	if (prMsduInfo)
+		prMsduInfo->pucAllocFunc = pucStr;
 	return prMsduInfo;
 }
 
@@ -145,7 +146,8 @@ P_MSDU_INFO_T cnmPktAllocWrapper(P_ADAPTER_T prAdapter, UINT_32 u4Length, PUINT_
 VOID cnmPktFreeWrapper(P_ADAPTER_T prAdapter, P_MSDU_INFO_T prMsduInfo, PUINT_8 pucStr)
 {
 	DBGLOG(MEM, LOUD, "Free MSDU_INFO[0x%p] by [%s]\n", prMsduInfo, pucStr);
-
+	if (prMsduInfo)
+		prMsduInfo->pucAllocFunc = NULL;
 	cnmPktFree(prAdapter, prMsduInfo);
 }
 
@@ -267,6 +269,13 @@ VOID cnmMemInit(P_ADAPTER_T prAdapter)
 
 }				/* end of cnmMemInit() */
 
+struct CMD_MEM_TRACE_T arMemTrace[MEM_TRACE_NUM];
+
+VOID cnmResetMemTrace(VOID)
+{
+	kalMemZero(arMemTrace, MEM_TRACE_NUM);
+}
+
 /*----------------------------------------------------------------------------*/
 /*!
 * \brief Allocate MGMT/MSG memory pool.
@@ -279,7 +288,7 @@ VOID cnmMemInit(P_ADAPTER_T prAdapter)
 * \retval NULL     Fail to allocat memory
 */
 /*----------------------------------------------------------------------------*/
-PVOID cnmMemAlloc(IN P_ADAPTER_T prAdapter, IN ENUM_RAM_TYPE_T eRamType, IN UINT_32 u4Length)
+PVOID cnmMemAllocEnh(IN P_ADAPTER_T prAdapter, IN ENUM_RAM_TYPE_T eRamType, IN UINT_32 u4Length, IN PUINT_8 pucFunc)
 {
 	P_BUF_INFO_T prBufInfo;
 	BUF_BITMAP rRequiredBitmap;
@@ -365,8 +374,16 @@ PVOID cnmMemAlloc(IN P_ADAPTER_T prAdapter, IN ENUM_RAM_TYPE_T eRamType, IN UINT
 #if CFG_DBG_MGT_BUF
 	prBufInfo->u4AllocNullCount++;
 
-	if (pvMemory)
+	if (pvMemory) {
 		prAdapter->u4MemAllocDynamicCount++;
+		for (i = 0; i < MEM_TRACE_NUM; i++) {
+			if (arMemTrace[i].u4MemAddr == 0) {
+				arMemTrace[i].u4FuncAddr = (ULONG) pucFunc;
+				arMemTrace[i].u4MemAddr = (ULONG) pvMemory;
+				break;
+			}
+		}
+	}
 #endif
 
 	return pvMemory;
@@ -388,6 +405,7 @@ VOID cnmMemFree(IN P_ADAPTER_T prAdapter, IN PVOID pvMemory)
 	UINT_32 u4BlockIndex;
 	BUF_BITMAP rAllocatedBlocksBitmap;
 	ENUM_RAM_TYPE_T eRamType;
+	UINT_32 i;
 
 	KAL_SPIN_LOCK_DECLARATION();
 
@@ -413,16 +431,24 @@ VOID cnmMemFree(IN P_ADAPTER_T prAdapter, IN PVOID pvMemory)
 		ASSERT(u4BlockIndex < MAX_NUM_OF_BUF_BLOCKS);
 		eRamType = RAM_TYPE_BUF;
 	} else {
+#if CFG_DBG_MGT_BUF
+		prAdapter->u4MemFreeDynamicCount++;
+		for (i = 0; i < MEM_TRACE_NUM; i++) {
+			if (arMemTrace[i].u4MemAddr != 0) {
+				if (arMemTrace[i].u4MemAddr == (ULONG) pvMemory) {
+					arMemTrace[i].u4FuncAddr = 0;
+					arMemTrace[i].u4MemAddr = 0;
+					break;
+				}
+			}
+		}
+#endif
 #ifdef LINUX
 		/* For Linux, it is supported because size is not needed */
 		kalMemFree(pvMemory, PHY_MEM_TYPE, 0);
 #else
 		/* For Windows, it is not supported because of no size argument */
 		ASSERT(0);
-#endif
-
-#if CFG_DBG_MGT_BUF
-		prAdapter->u4MemFreeDynamicCount++;
 #endif
 		return;
 	}
@@ -1146,22 +1172,22 @@ VOID cnmDumpMemoryStatus(IN P_ADAPTER_T prAdapter)
 	P_BUF_INFO_T prBufInfo;
 
 #if CFG_DBG_MGT_BUF
-	DBGLOG(SW4, TRACE, "============= DUMP Memory Status =============\n");
+	DBGLOG(SW4, INFO, "============= DUMP Memory Status =============\n");
 
-	DBGLOG(SW4, TRACE, "Dynamic alloc OS memory count: alloc[%u] free[%u]\n",
+	DBGLOG(SW4, INFO, "Dynamic alloc OS memory count: alloc[%u] free[%u]\n",
 			   prAdapter->u4MemAllocDynamicCount, prAdapter->u4MemFreeDynamicCount);
 
 	prBufInfo = &prAdapter->rMsgBufInfo;
-	DBGLOG(SW4, TRACE, "MSG memory count: alloc[%u] free[%u] null[%u] bitmap[0x%08x]\n",
+	DBGLOG(SW4, INFO, "MSG memory count: alloc[%u] free[%u] null[%u] bitmap[0x%08x]\n",
 			   prBufInfo->u4AllocCount, prBufInfo->u4FreeCount,
 			   prBufInfo->u4AllocNullCount, (UINT_32) prBufInfo->rFreeBlocksBitmap);
 
 	prBufInfo = &prAdapter->rMgtBufInfo;
-	DBGLOG(SW4, TRACE, "MGT memory count: alloc[%u] free[%u] null[%u] bitmap[0x%08x]\n",
+	DBGLOG(SW4, INFO, "MGT memory count: alloc[%u] free[%u] null[%u] bitmap[0x%08x]\n",
 			   prBufInfo->u4AllocCount, prBufInfo->u4FreeCount,
 			   prBufInfo->u4AllocNullCount, (UINT_32) prBufInfo->rFreeBlocksBitmap);
 
-	DBGLOG(SW4, TRACE, "============= DUMP END =============\n");
+	DBGLOG(SW4, INFO, "============= DUMP END =============\n");
 
 #endif
 }
@@ -1201,6 +1227,9 @@ cnmPeerAdd(P_ADAPTER_T prAdapter, PVOID pvSetBuffer, UINT_32 u4SetBufferLen, PUI
 	prCmd = (CMD_PEER_ADD_T *) pvSetBuffer;
 
 	prAisBssInfo = prAdapter->prAisBssInfo;	/* for AIS only test */
+	if (!prAisBssInfo)
+		return TDLS_STATUS_FAIL;
+
 	prStaRec = cnmGetStaRecByAddress(prAdapter, (UINT_8) prAdapter->prAisBssInfo->ucBssIndex, prCmd->aucPeerMac);
 
 	if (prStaRec == NULL) {
@@ -1211,10 +1240,8 @@ cnmPeerAdd(P_ADAPTER_T prAdapter, PVOID pvSetBuffer, UINT_32 u4SetBufferLen, PUI
 		if (prStaRec == NULL)
 			return TDLS_STATUS_RESOURCES;
 
-		if (prAisBssInfo) {
-			if (prAisBssInfo->ucBssIndex)
-				prStaRec->ucBssIndex = prAisBssInfo->ucBssIndex;
-		}
+		if (prAisBssInfo->ucBssIndex)
+			prStaRec->ucBssIndex = prAisBssInfo->ucBssIndex;
 
 		/* init the prStaRec */
 		/* prStaRec will be zero first in cnmStaRecAlloc() */
@@ -1314,114 +1341,106 @@ cnmPeerUpdate(P_ADAPTER_T prAdapter, PVOID pvSetBuffer, UINT_32 u4SetBufferLen, 
 	prStaRec->eStaType = prCmd->eStaType;
 
 	/* ++ support rate */
-	if (prCmd->aucSupRate) {
-		for (i = 0; i < prCmd->u2SupRateLen; i++) {
-			if (prCmd->aucSupRate[i]) {
-				ucRate = prCmd->aucSupRate[i] & RATE_MASK;
-				/* Search all valid data rates */
-				for (j = 0; j < sizeof(aucValidDataRate) / sizeof(UINT_8); j++) {
-					if (ucRate == aucValidDataRate[j]) {
-						u2OperationalRateSet |= BIT(j);
-						break;
-					}
+	for (i = 0; i < prCmd->u2SupRateLen; i++) {
+		if (prCmd->aucSupRate[i]) {
+			ucRate = prCmd->aucSupRate[i] & RATE_MASK;
+			/* Search all valid data rates */
+			for (j = 0; j < sizeof(aucValidDataRate) / sizeof(UINT_8); j++) {
+				if (ucRate == aucValidDataRate[j]) {
+					u2OperationalRateSet |= BIT(j);
+					break;
 				}
-			}
-
-		}
-
-		prStaRec->u2OperationalRateSet = u2OperationalRateSet;
-		prStaRec->u2BSSBasicRateSet = prAisBssInfo->u2BSSBasicRateSet;
-
-		/* 4     <5> PHY type setting */
-
-		prStaRec->ucPhyTypeSet = 0;
-
-		if (BAND_2G4 == prAisBssInfo->eBand) {
-			if (prCmd->rHtCap.rMCS.arRxMask)
-				prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
-
-			/* if not 11n only */
-			if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)) {
-				/* check if support 11g */
-				if ((prStaRec->u2OperationalRateSet & RATE_SET_OFDM))
-					prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_ERP;
-
-				/* if not 11g only */
-				if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_OFDM)) {
-					/* check if support 11b */
-					if ((prStaRec->u2OperationalRateSet & RATE_SET_HR_DSSS))
-						prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HR_DSSS;
-				}
-			}
-		} else {
-			if (prCmd->rVHtCap.u2CapInfo)
-				prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_VHT;
-
-			if (prCmd->rHtCap.rMCS.arRxMask)
-				prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
-
-			/* if not 11n only */
-			if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)) {
-				/* Support 11a definitely */
-				prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_OFDM;
 			}
 		}
 
-		if (IS_STA_IN_AIS(prStaRec)) {
-			if (!((prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_ENABLED)
-			      || (prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_KEY_ABSENT)
-			      || (prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION_DISABLED)
-			      || (prAdapter->prGlueInfo->u2WSCAssocInfoIELen)
+	}
+
+	prStaRec->u2OperationalRateSet = u2OperationalRateSet;
+	prStaRec->u2BSSBasicRateSet = prAisBssInfo->u2BSSBasicRateSet;
+
+	/* 4     <5> PHY type setting */
+
+	prStaRec->ucPhyTypeSet = 0;
+
+	if (BAND_2G4 == prAisBssInfo->eBand) {
+		prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
+
+		/* if not 11n only */
+		if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)) {
+			/* check if support 11g */
+			if ((prStaRec->u2OperationalRateSet & RATE_SET_OFDM))
+				prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_ERP;
+
+			/* if not 11g only */
+			if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_OFDM)) {
+				/* check if support 11b */
+				if ((prStaRec->u2OperationalRateSet & RATE_SET_HR_DSSS))
+					prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HR_DSSS;
+			}
+		}
+	} else {
+		if (prCmd->rVHtCap.u2CapInfo)
+			prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_VHT;
+
+		prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
+
+		/* if not 11n only */
+		if (!(prStaRec->u2BSSBasicRateSet & RATE_SET_BIT_HT_PHY)) {
+			/* Support 11a definitely */
+			prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_OFDM;
+		}
+	}
+
+	if (IS_STA_IN_AIS(prStaRec)) {
+		if (!((prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_ENABLED)
+		      || (prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION3_KEY_ABSENT)
+		      || (prAdapter->rWifiVar.rConnSettings.eEncStatus == ENUM_ENCRYPTION_DISABLED)
+		      || (prAdapter->prGlueInfo->u2WSCAssocInfoIELen)
 #if CFG_SUPPORT_WAPI
-			      || (prAdapter->prGlueInfo->u2WapiAssocInfoIESz)
+		      || (prAdapter->prGlueInfo->u2WapiAssocInfoIESz)
 #endif
-			    )) {
+		    )) {
 
-				prStaRec->ucPhyTypeSet &= ~PHY_TYPE_BIT_HT;
-			}
+			prStaRec->ucPhyTypeSet &= ~PHY_TYPE_BIT_HT;
+		}
+	}
+
+	prStaRec->ucDesiredPhyTypeSet = prStaRec->ucPhyTypeSet & prAdapter->rWifiVar.ucAvailablePhyTypeSet;
+	ucNonHTPhyTypeSet = prStaRec->ucDesiredPhyTypeSet & PHY_TYPE_SET_802_11ABG;
+
+	/* Check for Target BSS's non HT Phy Types */
+	if (ucNonHTPhyTypeSet) {
+		if (ucNonHTPhyTypeSet & PHY_TYPE_BIT_ERP)
+			prStaRec->ucNonHTBasicPhyType = PHY_TYPE_ERP_INDEX;
+		else if (ucNonHTPhyTypeSet & PHY_TYPE_BIT_OFDM)
+			prStaRec->ucNonHTBasicPhyType = PHY_TYPE_OFDM_INDEX;
+		else
+			prStaRec->ucNonHTBasicPhyType = PHY_TYPE_HR_DSSS_INDEX;
+
+		prStaRec->fgHasBasicPhyType = TRUE;
+	} else {
+		/* Use mandatory for 11N only BSS */
+		ASSERT(prStaRec->ucPhyTypeSet & PHY_TYPE_SET_802_11N);
+		{
+			/* TODO(Kevin): which value should we set for 11n ? ERP ? */
+			prStaRec->ucNonHTBasicPhyType = PHY_TYPE_HR_DSSS_INDEX;
 		}
 
-		prStaRec->ucDesiredPhyTypeSet = prStaRec->ucPhyTypeSet & prAdapter->rWifiVar.ucAvailablePhyTypeSet;
-		ucNonHTPhyTypeSet = prStaRec->ucDesiredPhyTypeSet & PHY_TYPE_SET_802_11ABG;
-
-		/* Check for Target BSS's non HT Phy Types */
-		if (ucNonHTPhyTypeSet) {
-			if (ucNonHTPhyTypeSet & PHY_TYPE_BIT_ERP)
-				prStaRec->ucNonHTBasicPhyType = PHY_TYPE_ERP_INDEX;
-			else if (ucNonHTPhyTypeSet & PHY_TYPE_BIT_OFDM)
-				prStaRec->ucNonHTBasicPhyType = PHY_TYPE_OFDM_INDEX;
-			else
-				prStaRec->ucNonHTBasicPhyType = PHY_TYPE_HR_DSSS_INDEX;
-
-			prStaRec->fgHasBasicPhyType = TRUE;
-		} else {
-			/* Use mandatory for 11N only BSS */
-			ASSERT(prStaRec->ucPhyTypeSet & PHY_TYPE_SET_802_11N);
-			{
-				/* TODO(Kevin): which value should we set for 11n ? ERP ? */
-				prStaRec->ucNonHTBasicPhyType = PHY_TYPE_HR_DSSS_INDEX;
-			}
-
-			prStaRec->fgHasBasicPhyType = FALSE;
-		}
-
+		prStaRec->fgHasBasicPhyType = FALSE;
 	}
 
 	/* ++HT capability */
-
-	if (prCmd->rHtCap.rMCS.arRxMask) {
-		prAdapter->rWifiVar.eRateSetting = FIXED_RATE_NONE;
-		prStaRec->ucDesiredPhyTypeSet |= PHY_TYPE_BIT_HT;
-		prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
-		prStaRec->u2HtCapInfo = prCmd->rHtCap.u2CapInfo;
-		prStaRec->ucAmpduParam = prCmd->rHtCap.ucAmpduParamsInfo;
-		prStaRec->u2HtExtendedCap = prCmd->rHtCap.u2ExtHtCapInfo;
-		prStaRec->u4TxBeamformingCap = prCmd->rHtCap.u4TxBfCapInfo;
-		prStaRec->ucAselCap = prCmd->rHtCap.ucAntennaSelInfo;
-		prStaRec->ucMcsSet = prCmd->rHtCap.rMCS.arRxMask[0];
-		prStaRec->fgSupMcs32 = (prCmd->rHtCap.rMCS.arRxMask[32 / 8] & BIT(0)) ? TRUE : FALSE;
-		kalMemCopy(prStaRec->aucRxMcsBitmask, prCmd->rHtCap.rMCS.arRxMask, sizeof(prStaRec->aucRxMcsBitmask));
-	}
+	prAdapter->rWifiVar.eRateSetting = FIXED_RATE_NONE;
+	prStaRec->ucDesiredPhyTypeSet |= PHY_TYPE_BIT_HT;
+	prStaRec->ucPhyTypeSet |= PHY_TYPE_BIT_HT;
+	prStaRec->u2HtCapInfo = prCmd->rHtCap.u2CapInfo;
+	prStaRec->ucAmpduParam = prCmd->rHtCap.ucAmpduParamsInfo;
+	prStaRec->u2HtExtendedCap = prCmd->rHtCap.u2ExtHtCapInfo;
+	prStaRec->u4TxBeamformingCap = prCmd->rHtCap.u4TxBfCapInfo;
+	prStaRec->ucAselCap = prCmd->rHtCap.ucAntennaSelInfo;
+	prStaRec->ucMcsSet = prCmd->rHtCap.rMCS.arRxMask[0];
+	prStaRec->fgSupMcs32 = (prCmd->rHtCap.rMCS.arRxMask[32 / 8] & BIT(0)) ? TRUE : FALSE;
+	kalMemCopy(prStaRec->aucRxMcsBitmask, prCmd->rHtCap.rMCS.arRxMask, sizeof(prStaRec->aucRxMcsBitmask));
 	/* TODO ++VHT */
 
 	cnmStaRecChangeState(prAdapter, prStaRec, STA_STATE_3);

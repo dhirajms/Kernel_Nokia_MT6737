@@ -25,6 +25,7 @@
 #include <mt-plat/aee.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
+#include <linux/mutex.h>
 #ifdef CONFIG_MTK_LEGACY
 #include <mach/mt_gpio.h>
 #include <cust_gpio_usage.h>
@@ -77,7 +78,7 @@ unsigned int g_enable_uart_log = 0;
 unsigned int g_mobilelog = 1;
 unsigned int g_fencelog = 0; /*Fence Log*/
 #ifdef CONFIG_ARCH_MT6570
-unsigned int g_loglevel = 5; /*DISPMSG level is DEFAULT_LEVEL==3*/
+unsigned int g_loglevel = 3; /*DISPMSG level is DEFAULT_LEVEL==3*/
 #else
 unsigned int g_loglevel = 3;
 #endif
@@ -99,7 +100,7 @@ static struct dentry *dump_debugfs;
 static struct dentry *mtkfb_debugfs;
 static int debug_init;
 static unsigned int dump_to_buffer;
-
+static struct mutex mtkfb_debug_read_lock;
 /* --------------------------------------------------------------------------- */
 /* DDP debugfs functions */
 /* --------------------------------------------------------------------------- */
@@ -434,7 +435,7 @@ static ssize_t mtkfb_debug_read(struct file *file, char __user *ubuf, size_t cou
 
 	if (*ppos != 0 || !is_buffer_init)
 		goto out;
-
+	mutex_lock(&mtkfb_debug_read_lock);
 	n = mtkfb_get_debug_state(debug_buffer + n, debug_bufmax - n);
 
 	n += primary_display_get_debug_state(debug_buffer + n, debug_bufmax - n);
@@ -456,7 +457,11 @@ static ssize_t mtkfb_debug_read(struct file *file, char __user *ubuf, size_t cou
 	n += dprec_logger_get_buf(DPREC_LOGGER_STATUS, debug_buffer + n, debug_bufmax - n);
 
 	debug_buffer[n++] = 0;
+	mutex_unlock(&mtkfb_debug_read_lock);
 out:
+	if (n > DPREC_ERROR_LOG_BUFFER_LENGTH)
+		DISPMSG("Buffer overflow, data length %d is lager than buffer size %d, offset is %lld",
+			n, DPREC_ERROR_LOG_BUFFER_LENGTH, *ppos);
 	return simple_read_from_buffer(ubuf, count, ppos, debug_buffer, n);
 }
 
@@ -512,6 +517,7 @@ void DBG_Init(void)
 			/* by Chip, sub debugfs define, and sub debugfs must be in disp folder. */
 			sub_debug_init();
 		}
+		mutex_init(&mtkfb_debug_read_lock);
 	}
 }
 

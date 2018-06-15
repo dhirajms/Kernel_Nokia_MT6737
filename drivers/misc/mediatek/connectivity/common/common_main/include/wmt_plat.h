@@ -224,18 +224,15 @@ typedef enum _ENUM_CHIP_DUMP_STATE_T {
 	STP_CHIP_DUMP_MAX
 } ENUM_CHIP_DUMP_STATE, *P_ENUM_CHIP_DUMP_STATE_T;
 
-#define CONSYS_DBG_CR_BASE		0x18070000
 #define CONSYS_BUS_CLK_STATUS_OFFSET	0x00000100
 #define CONSYS_CPU_CLK_STATUS_OFFSET	0x0000010c
 #define CONSYS_DBG_CR1_OFFSET		0x00000408
 #define CONSYS_DBG_CR2_OFFSET		0x0000040c
-#define CONSYS_DBG_CR3_OFFSET		0x00000110
 typedef enum _ENUM_CONNSYS_DEBUG_CR {
 	CONNSYS_CPU_CLK = 0,
 	CONNSYS_BUS_CLK = 1,
 	CONNSYS_DEBUG_CR1 = 2,
 	CONNSYS_DEBUG_CR2 = 3,
-	CONNSYS_DEBUG_CR3 = 4,
 	CONNSYS_CR_MAX
 } ENUM_CONNSYS_DEBUG_CR, *P_ENUM_CONNSYS_DEBUG_CR;
 
@@ -306,10 +303,7 @@ extern INT32 wmt_set_pmic_voltage(UINT32 level);
 ********************************************************************************
 */
 
-INT32 wmt_plat_init(P_PWR_SEQ_TIME pPwrSeqTime);
-
-INT32 wmt_plat_soc_init(UINT32 co_clock_type);
-
+INT32 wmt_plat_init(P_PWR_SEQ_TIME pPwrSeqTime, UINT32 co_clock_type);
 INT32 wmt_plat_deinit(VOID);
 INT32 wmt_plat_merge_if_flag_get(VOID);
 INT32 wmt_plat_set_comm_if_type(ENUM_STP_TX_IF_TYPE type);
@@ -346,9 +340,6 @@ MTK_WCN_BOOL wmt_plat_dump_BGF_irq_status(VOID);
 #endif
 P_CONSYS_EMI_ADDR_INFO wmt_plat_get_emi_phy_add(VOID);
 UINT32 wmt_plat_read_cpupcr(VOID);
-UINT32 wmt_plat_read_chipid(VOID);
-VOID wmt_plat_cpu_sw_rst(VOID);
-VOID wmt_plat_cpu_sw_rst_deassert(VOID);
 UINT32 wmt_plat_read_dmaregs(UINT32);
 INT32 wmt_plat_set_host_dump_state(ENUM_HOST_DUMP_STATE state);
 UINT32 wmt_plat_force_trigger_assert(ENUM_FORCE_TRG_ASSERT_T type);
@@ -357,7 +348,8 @@ INT32 wmt_plat_get_dump_info(UINT32 offset);
 UINT32 wmt_plat_get_soc_chipid(VOID);
 UINT32 wmt_plat_soc_co_clock_flag_get(VOID);
 INT32 wmt_plat_set_dbg_mode(UINT32 flag);
-VOID wmt_plat_set_dynamic_dumpmem(UINT32 *buf);
+INT32 wmt_plat_set_dynamic_dumpmem(PUINT32 buf);
+VOID wmt_plat_dump_power_reg(VOID);
 #if CFG_WMT_LTE_COEX_HANDLING
 INT32 wmt_plat_get_tdm_antsel_index(VOID);
 #endif

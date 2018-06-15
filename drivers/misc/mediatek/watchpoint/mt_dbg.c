@@ -1,3 +1,14 @@
+/*
+* Copyright (C) 2016 MediaTek Inc.
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License version 2 as
+* published by the Free Software Foundation.
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+* See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+*/
+
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
@@ -21,7 +32,7 @@ void dump_dbgregs(int cpuid)
 	struct wp_trace_context_t *wp_context;
 	int i;
 	int oslsr;
-#ifdef CONFIG_ARCH_MT6580
+#if defined(CONFIG_ARCH_MT6580) || defined(CONFIG_ARCH_MT6570)
 	int offset = 2;
 #else
 	int offset = 4;
@@ -311,7 +322,7 @@ void mt_copy_dbg_regs(int to, int from)
 	unsigned long args;
 	struct wp_trace_context_t *wp_context;
 	int i;
-#ifdef CONFIG_ARCH_MT6580
+#if defined(CONFIG_ARCH_MT6580) || defined(CONFIG_ARCH_MT6570)
 	int offset = 2;
 #else
 	int offset = 4;
@@ -365,7 +376,7 @@ int __cpuinit dbgregs_hotplug_callback(struct notifier_block *nfb, unsigned long
 	struct wp_trace_context_t *wp_context;
 	unsigned long base_to, base_from = 0;
 	int i, j;
-#ifdef CONFIG_ARCH_MT6580
+#if defined(CONFIG_ARCH_MT6580) || defined(CONFIG_ARCH_MT6570)
 	int offset = 2;
 #else
 	int offset = 4;

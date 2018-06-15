@@ -109,7 +109,6 @@ VOID nicpmSetFWOwn(IN P_ADAPTER_T prAdapter, IN BOOLEAN fgEnableGlobalInt)
 /*----------------------------------------------------------------------------*/
 
 UINT_32 u4OriRegValue = 0;
-#define AEE_STRING_LENGTH 128
 BOOLEAN nicpmSetDriverOwn(IN P_ADAPTER_T prAdapter)
 {
 #define LP_OWN_BACK_TOTAL_DELAY_MS      2000	/* exponential of 2 */
@@ -178,7 +177,6 @@ BOOLEAN nicpmSetDriverOwn(IN P_ADAPTER_T prAdapter)
 				DBGLOG(NIC, WARN,
 					"<WiFi> Fatal error! Driver own fail!!!! %d, fgIsBusAccessFailed: %d,OWN retry:%d,fgCoreDump:%d\n",
 					u4OwnCnt++, fgIsBusAccessFailed, i, fgWmtCoreDump);
-
 				DBGLOG(NIC, WARN, "CONNSYS FW CPUINFO:\n");
 				for (u4FwCnt = 0; u4FwCnt < 16; u4FwCnt++)
 					DBGLOG(NIC, WARN, "0x%08x ", MCU_REG_READL(HifInfo, CONN_MCU_CPUPCR));
@@ -189,6 +187,7 @@ BOOLEAN nicpmSetDriverOwn(IN P_ADAPTER_T prAdapter)
 				} else
 					DBGLOG(NIC, WARN,
 						"[Driver own fail!] WMT is code dumping !STOP AEE & chip reset\n");
+
 			}
 			break;
 		}

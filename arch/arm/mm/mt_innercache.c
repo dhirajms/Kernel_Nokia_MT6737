@@ -23,8 +23,6 @@ unsigned long raw_range;
 unsigned long raw_setway;
 #endif
 
-void __attribute__((weak)) mt_fiq_cache_flush_all(void) {}
-
 /*
  * inner_dcache_flush_all: Flush (clean + invalidate) the entire L1 data cache.
  *
@@ -84,9 +82,6 @@ int get_cluster_core_count(void)
  */
 void smp_inner_dcache_flush_all(void)
 {
-#ifdef CONFIG_MTK_FIQ_CACHE
-	mt_fiq_cache_flush_all();
-#else
 	int i, j, num_core, total_core, online_cpu;
 	struct cpumask mask;
 #ifdef PERF_MEASURE
@@ -136,7 +131,6 @@ void smp_inner_dcache_flush_all(void)
 #endif
 	preempt_enable();
 	put_online_cpus();
-#endif
 }
 EXPORT_SYMBOL(smp_inner_dcache_flush_all);
 

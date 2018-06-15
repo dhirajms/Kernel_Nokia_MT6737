@@ -47,6 +47,11 @@ extern UINT_8 aucDebugModule[];
 #define DBG_CLASS_TEMP          BIT(7)
 #define DBG_CLASS_MASK          BITS(0, 7)
 
+enum PKT_PHASE {
+	PHASE_XMIT_RCV,
+	PHASE_ENQ_QM,
+	PHASE_HIF_TX,
+};
 #if defined(LINUX)
 #define DBG_PRINTF_64BIT_DEC    "lld"
 
@@ -93,6 +98,8 @@ typedef enum _ENUM_DBG_MODULE_T {
 	DBG_TDLS_IDX,		/* TDLS *//* CFG_SUPPORT_TDLS */
 	DBG_OID_IDX,
 	DBG_NIC_IDX,
+	DBG_WNM_IDX,
+	DBG_WMM_IDX,
 
 	DBG_MODULE_NUM		/* Notice the XLOG check */
 } ENUM_DBG_MODULE_T;
@@ -107,6 +114,10 @@ typedef enum _ENUM_DBG_SCAN_T {
 	DBG_SCAN_WRITE_DONE,		/*hal write success and ScanRequest done*/
 } ENUM_DBG_SCAN_T;
 
+struct WLAN_DEBUG_INFO {
+	BOOLEAN fgVoE5_7Test:1;
+	BOOLEAN fgReserved:7;
+};
 
 /* Define debug TRAFFIC_CLASS index */
 
@@ -174,6 +185,7 @@ typedef enum _ENUM_DEBUG_TRAFFIC_CLASS_INDEX_T {
  */
 
 #define LOG_FUNC                kalPrint
+#define LOG_FUNC_LIMITED        kalPrintLimited
 
 #if defined(LINUX)
 #define DBGLOG(_Module, _Class, _Fmt, ...) \
@@ -182,8 +194,16 @@ typedef enum _ENUM_DEBUG_TRAFFIC_CLASS_INDEX_T {
 			break; \
 		LOG_FUNC("%s:(" #_Module " " #_Class ") " _Fmt, __func__, ##__VA_ARGS__); \
 	} while (0)
+
+#define DBGLOGLIMITED(_Module, _Class, _Fmt, ...) \
+	do { \
+		if ((aucDebugModule[DBG_##_Module##_IDX] & DBG_CLASS_##_Class) == 0) \
+			break; \
+		LOG_FUNC_LIMITED("%s:(" #_Module " " #_Class ") " _Fmt, __func__, ##__VA_ARGS__); \
+	} while (0)
 #else
 #define DBGLOG(_Module, _Class, _Fmt)
+#define DBGLOGLIMITED(_Module, _Class, _Fmt)
 #endif
 
 #if DBG
@@ -255,7 +275,14 @@ extern PINT_8 g_buf_p;
 #define ERRORLOG(_Fmt)
 #define WARNLOG(_Fmt)
 
-#define DBGLOG_MEM8(_Module, _Class, _StartAddr, _Length)
+#define DBGLOG_MEM8(_Module, _Class, _StartAddr, _Length) \
+	{ \
+		if (aucDebugModule[DBG_##_Module##_IDX] & DBG_CLASS_##_Class) { \
+			LOG_FUNC("%s: (" #_Module " " #_Class ")\n", __func__); \
+			dumpMemory8((PUINT_8) (_StartAddr), (UINT_32) (_Length)); \
+		} \
+	}
+
 #define DBGLOG_MEM32(_Module, _Class, _StartAddr, _Length)
 
 #undef ASSERT
@@ -356,11 +383,19 @@ extern PINT_8 g_buf_p;
 	switch (0) {case 0: case (expr): default:; } \
 }
 #endif
+#define DBGLOG_MEM8_IE_ONE_LINE(_Module, _Class, _String, _StartAddr, _Length) \
+	{ \
+		if (aucDebugModule[DBG_##_Module##_IDX] & DBG_CLASS_##_Class) { \
+			dumpMemory8IEOneLine((PUINT_8) (_String), (PUINT_8) (_StartAddr), (UINT_32) (_Length)); \
+		} \
+	}
 
 /*******************************************************************************
 *                  F U N C T I O N   D E C L A R A T I O N S
 ********************************************************************************
 */
+VOID dumpMemory8IEOneLine(IN PUINT_8 aucBSSID, IN PUINT_8 pucStartAddr, IN UINT_32 u4Length);
+
 VOID dumpMemory8(IN PUINT_8 pucStartAddr, IN UINT_32 u4Length);
 
 VOID dumpMemory32(IN PUINT_32 pu4StartAddr, IN UINT_32 u4Length);
@@ -417,14 +452,24 @@ UINT_32 wlanFWDLDebugGetPktCnt(VOID);
 
 VOID wlanDumpMcuChipId(P_ADAPTER_T prAdapter);
 
+VOID wlanPktStausDebugUpdateProcessTime(UINT_32 u4DbgTxPktStatusIndex);
 VOID wlanPktStatusDebugDumpInfo(P_ADAPTER_T prAdapter);
-VOID wlanPktStatusDebugTraceInfoARP(UINT_8 status, UINT_8 eventType, UINT_16 u2ArpOpCode, PUINT_8 pucPkt);
+
+
+
+VOID wlanPktStatusDebugTraceInfoSeq(P_ADAPTER_T prAdapter, UINT_16 u2NoSeq);
+VOID wlanPktStatusDebugTraceInfoARP(UINT_8 status, UINT_8 eventType, UINT_16 u2ArpOpCode, PUINT_8 pucPkt
+	, P_MSDU_INFO_T prMsduInfo);
 VOID wlanPktStatusDebugTraceInfoIP(UINT_8 status, UINT_8 eventType, UINT_8 ucIpProto, UINT_16 u2IpId
-	, PUINT_8 pucPkt);
-VOID wlanPktStatusDebugTraceInfo(UINT_8 status, UINT_8 eventType
-	, UINT_16 u2EtherType, UINT_8 ucIpProto, UINT_16 u2IpId, UINT_16 u2ArpOpCode, PUINT_8 pucPkt);
+	, PUINT_8 pucPkt, P_MSDU_INFO_T prMsduInfo);
+VOID wlanPktStatusDebugTraceInfo(UINT_8 status, UINT_8 eventType, UINT_16 u2EtherType
+	, UINT_8 ucIpProto, UINT_16 u2IpId, UINT_16 u2ArpOpCode, PUINT_8 pucPkt, P_MSDU_INFO_T prMsduInfo);
+VOID wlanDebugCommandRecodTime(P_CMD_INFO_T prCmdInfo);
+VOID wlanDebugCommandRecodDump(VOID);
 #if CFG_SUPPORT_EMI_DEBUG
 VOID wlanReadFwInfoFromEmi(IN PUINT_32 pAddr);
+
+VOID wlanFillTimestamp(P_ADAPTER_T prAdapter, PVOID pvPacket, UINT_8 ucPhase);
 #endif
 /*******************************************************************************
 *                              F U N C T I O N S

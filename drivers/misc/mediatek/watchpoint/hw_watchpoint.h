@@ -1,3 +1,14 @@
+/*
+* Copyright (C) 2016 MediaTek Inc.
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License version 2 as
+* published by the Free Software Foundation.
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+* See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+*/
+
 #ifndef __HW_BREAKPOINT_64_H
 #define __HW_BREAKPOINT_64_H
 #include <asm/io.h>
@@ -51,7 +62,7 @@ struct dbgreg_set {
 #define DBGBVR0		regs[1]
 #define DBGDSCRext	regs[0]
 
-#ifdef CONFIG_ARCH_MT6580 /* For armv7 */
+#if defined(CONFIG_ARCH_MT6580) || defined(CONFIG_ARCH_MT6570) /* For armv7 */
 #define DBGWVR 0x180
 #define DBGWCR 0x1C0
 #define DBGBVR 0x100

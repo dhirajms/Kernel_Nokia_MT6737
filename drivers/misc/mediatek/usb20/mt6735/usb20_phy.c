@@ -172,6 +172,43 @@ void usb_phy_switch_to_usb(void)
 #endif
 
 #else
+#include <linux/of_irq.h>
+#include <linux/of_address.h>
+#define VAL_MAX_WDITH_3		0x7
+#define OFFSET_RG_USB20_VRT_VREF_SEL 0x5
+#define SHFT_RG_USB20_VRT_VREF_SEL 4
+#define OFFSET_RG_USB20_TERM_VREF_SEL 0x5
+#define SHFT_RG_USB20_TERM_VREF_SEL 0
+static void usb_phy_tuning(void)
+{
+	static bool inited;
+	struct device_node *of_node;
+	u32 val;
+
+	if (inited)
+		return;
+
+	of_node = of_find_compatible_node(NULL, NULL, "mediatek,phy_tuning");
+	if (of_node) {
+		if (!of_property_read_u32(of_node, "u2_vrt_ref", (u32 *) &val)) {
+			if (val <= VAL_MAX_WDITH_3) {
+				USBPHY_CLR8(OFFSET_RG_USB20_VRT_VREF_SEL,
+						VAL_MAX_WDITH_3<<SHFT_RG_USB20_VRT_VREF_SEL);
+				USBPHY_SET8(OFFSET_RG_USB20_VRT_VREF_SEL,
+						val<<SHFT_RG_USB20_VRT_VREF_SEL);
+			}
+		}
+		if (!of_property_read_u32(of_node, "u2_term_ref", (u32 *) &val)) {
+			if (val <= VAL_MAX_WDITH_3) {
+				USBPHY_CLR8(OFFSET_RG_USB20_TERM_VREF_SEL,
+						VAL_MAX_WDITH_3<<SHFT_RG_USB20_TERM_VREF_SEL);
+				USBPHY_SET8(OFFSET_RG_USB20_TERM_VREF_SEL,
+						val<<SHFT_RG_USB20_TERM_VREF_SEL);
+			}
+		}
+	}
+	inited = true;
+}
 
 #ifdef CONFIG_MTK_UART_USB_SWITCH
 bool in_uart_mode = false;
@@ -312,6 +349,8 @@ bool usb_phy_check_in_uart_mode(void)
 
 	if ((usb_port_mode == 0x5C) || (usb_port_mode == 0x5E)) {
 		DBG(0, "%s:%d - IN UART MODE : 0x%x\n", __func__, __LINE__, usb_port_mode);
+		DBG(0, "Mask PMIC charger detection in UART mode.\n");
+		pmic_chrdet_int_en(0);
 		in_uart_mode = true;
 	} else {
 		DBG(0, "%s:%d - NOT IN UART MODE : 0x%x\n", __func__, __LINE__, usb_port_mode);
@@ -324,6 +363,8 @@ void usb_phy_switch_to_uart(void)
 {
 	if (usb_phy_check_in_uart_mode())
 		return;
+	DBG(0, "Mask PMIC charger detection in UART mode.\n");
+	pmic_chrdet_int_en(0);
 
 	usb_enable_clock(true);
 	udelay(50);
@@ -365,6 +406,9 @@ void usb_phy_switch_to_usb(void)
 	usb_phy_poweron();
 	/* disable the USB clock turned on in usb_phy_poweron() */
 	usb_enable_clock(false);
+
+	DBG(0, "Unmask PMIC charger detection in USB mode.\n");
+	pmic_chrdet_int_en(1);
 }
 #endif
 
@@ -621,6 +665,8 @@ void usb_phy_recover(void)
 	HQA_special();
 
 	hs_slew_rate_cal();
+
+	usb_phy_tuning();
 
 	DBG(0, "usb recovery success\n");
 }

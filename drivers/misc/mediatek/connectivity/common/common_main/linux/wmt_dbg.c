@@ -523,6 +523,11 @@ INT32 wmt_dbg_fwinfor_from_emi(INT32 par1, INT32 par2, INT32 par3)
 	if (offset == 1) {
 		do {
 			pAddr = (PUINT32) wmt_plat_get_emi_virt_add(0x24);
+			if (pAddr == NULL) {
+				WMT_ERR_FUNC("get virtual emi address 0x24 fail!\n");
+				kfree(buf_emi);
+				return -1;
+			}
 			cur_idx_pagedtrace = *pAddr;
 
 			if (cur_idx_pagedtrace > prev_idx_pagedtrace) {
@@ -1087,8 +1092,12 @@ ssize_t wmt_dbg_write(struct file *filp, const char __user *buffer, size_t count
 
 	pBuf = buf;
 	pToken = osal_strsep(&pBuf, pDelimiter);
-	osal_strtol(pToken, 16, &res);
-	x = NULL != pToken ? (INT32)res : 0;
+	if (pToken != NULL) {
+		osal_strtol(pToken, 16, &res);
+		x = (INT32)res;
+	} else {
+		x = 0;
+	}
 
 	pToken = osal_strsep(&pBuf, "\t\n ");
 	if (pToken != NULL) {

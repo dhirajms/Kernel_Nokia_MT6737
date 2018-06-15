@@ -73,6 +73,7 @@
 #define PDAF_DATA_SIZE 4096
 char mtk_ccm_name[camera_info_size] = {0};
 static unsigned int gDrvIndex = 0;
+#define FEATURE_CONTROL_MAX_DATA_SIZE 128000
 
 static DEFINE_SPINLOCK(kdsensor_drv_lock);
 
@@ -1299,37 +1300,6 @@ int kdSetExpGain(CAMERA_DUAL_CAMERA_SENSOR_ENUM InvokeCamera)
 
 }
 
-/*******************************************************************************
-*
-********************************************************************************/
-static UINT32 ms_to_jiffies(MUINT32 ms)
-{
-	return (ms * HZ + 512) >> 10;
-}
-
-
-int kdSensorSetExpGainWaitDone(int *ptime)
-{
-	int timeout;
-	PK_DBG("[kd_sensorlist]enter kdSensorSetExpGainWaitDone: time: %d\n", *ptime);
-	timeout = wait_event_interruptible_timeout(
-			  kd_sensor_wait_queue,
-			  (setExpGainDoneFlag & 1),
-			  ms_to_jiffies(*ptime));
-
-	PK_DBG("[kd_sensorlist]after wait_event_interruptible_timeout\n");
-	if (timeout == 0) {
-		PK_ERR("[kd_sensorlist] kdSensorSetExpGainWait: timeout=%d\n", *ptime);
-
-		return -EAGAIN;
-	}
-
-	return 0;   /* No error. */
-
-}
-
-
-
 
 /*******************************************************************************
 * adopt_CAMERA_HW_Open
@@ -1413,7 +1383,9 @@ static inline int adopt_CAMERA_HW_CheckIsAlive(void)
 				} else {
 
 					PK_INF(" Sensor found ID = 0x%x\n", sensorID);
-					snprintf(mtk_ccm_name, sizeof(mtk_ccm_name), "%s CAM[%d]:%s;", mtk_ccm_name, g_invokeSocketIdx[i], g_invokeSensorNameStr[i]);
+					snprintf(mtk_ccm_name + strlen(mtk_ccm_name),
+						 sizeof(mtk_ccm_name) - strlen(mtk_ccm_name),
+						 " CAM[%d]:%s;", g_invokeSocketIdx[i], g_invokeSensorNameStr[i]);
 					err = ERROR_NONE;
 				}
 				if (ERROR_NONE != err) {
@@ -1492,7 +1464,7 @@ static inline int adopt_CAMERA_HW_GetResolution(void *pBuf)
 /*******************************************************************************
 * adopt_CAMERA_HW_GetInfo
 ********************************************************************************/
-static inline int adopt_CAMERA_HW_GetInfo(void *pBuf)
+static int adopt_CAMERA_HW_GetInfo(void *pBuf)
 {
 	ACDK_SENSOR_GETINFO_STRUCT *pSensorGetInfo = (ACDK_SENSOR_GETINFO_STRUCT *)pBuf;
 	MSDK_SENSOR_INFO_STRUCT info[2], *pInfo[2];
@@ -1551,7 +1523,7 @@ MSDK_SENSOR_INFO_STRUCT ginfo2[2];
 MSDK_SENSOR_INFO_STRUCT ginfo3[2];
 MSDK_SENSOR_INFO_STRUCT ginfo4[2];
 /* adopt_CAMERA_HW_GetInfo() */
-static inline int adopt_CAMERA_HW_GetInfo2(void *pBuf)
+static int adopt_CAMERA_HW_GetInfo2(void *pBuf)
 {
 	IMAGESENSOR_GETINFO_STRUCT *pSensorGetInfo = (IMAGESENSOR_GETINFO_STRUCT *)pBuf;
 	ACDK_SENSOR_INFO2_STRUCT SensorInfo = {0};
@@ -1820,7 +1792,7 @@ static inline int adopt_CAMERA_HW_Control(void *pBuf)
 /*******************************************************************************
 * adopt_CAMERA_HW_FeatureControl
 ********************************************************************************/
-static inline int  adopt_CAMERA_HW_FeatureControl(void *pBuf)
+static int  adopt_CAMERA_HW_FeatureControl(void *pBuf)
 {
 	ACDK_SENSOR_FEATURECONTROL_STRUCT *pFeatureCtrl = (ACDK_SENSOR_FEATURECONTROL_STRUCT *)pBuf;
 	unsigned int FeatureParaLen = 0;
@@ -1850,6 +1822,11 @@ static inline int  adopt_CAMERA_HW_FeatureControl(void *pBuf)
 
 	if (copy_from_user((void *)&FeatureParaLen , (void *) pFeatureCtrl->pFeatureParaLen, sizeof(unsigned int))) {
 		PK_ERR(" ioctl copy from user failed\n");
+		return -EFAULT;
+	}
+	/* data size exam */
+	if (FeatureParaLen > FEATURE_CONTROL_MAX_DATA_SIZE) {
+		PK_ERR(" exceed data size limitation\n");
 		return -EFAULT;
 	}
 
@@ -2871,16 +2848,18 @@ bool _hwPowerOn(KD_REGULATOR_TYPE_T type, int powerVolt)
 	struct regulator *reg = NULL;
 
 	PK_DBG("[_hwPowerOn]before get, powertype:%d powerId:%d\n", type, powerVolt);
-    if (type == VCAMA) {
-	reg = regVCAMA;
-    } else if (type == VCAMD) {
-	reg = regVCAMD;
-    } else if (type == VCAMIO) {
-	reg = regVCAMIO;
-    } else if (type == VCAMAF) {
-	reg = regVCAMAF;
-    } else
-	return ret;
+
+	if (type == VCAMA) {
+		reg = regVCAMA;
+	} else if (type == VCAMD) {
+		reg = regVCAMD;
+	} else if (type == VCAMIO) {
+		reg = regVCAMIO;
+	} else if (type == VCAMAF) {
+		reg = regVCAMAF;
+	} else
+		return ret;
+
 
 	if (!IS_ERR(reg)) {
 		if (regulator_set_voltage(reg , powerVolt, powerVolt) != 0) {
@@ -3374,7 +3353,6 @@ static long CAMERA_HW_Ioctl(
 		break;
 
 	case KDIMGSENSORIOC_X_SET_SHUTTER_GAIN_WAIT_DONE:
-		i4RetValue = kdSensorSetExpGainWaitDone((int *)pBuff);
 		break;
 
 	case KDIMGSENSORIOC_X_SET_CURRENT_SENSOR:

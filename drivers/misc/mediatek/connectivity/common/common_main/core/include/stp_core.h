@@ -199,6 +199,8 @@ typedef struct {
 	UINT8 winspace;		/* current sliding window size */
 	UINT8 expected_rxseq;	/* last rx pkt's seq + 1 */
 	UINT8 retry_times;
+	UINT8 rx_resync;	/* num of 7f7f7f7f before expected_rxseq pkt, indicates if recv series of resync pkt */
+	UINT8 rx_resync_seq;	/* last resync pkg's seq (0xFF if not set), only valid if rx_resync != 0 */
 } mtkstp_sequence_context_struct;
 
 typedef struct {
@@ -229,6 +231,8 @@ typedef struct {
 #endif
 	/* MTK_WCN_TIMER tx_timer; // timer for tx timeout handling */
 	OSAL_TIMER tx_timer;
+	/* timer for polling connsys cpupcr */
+	OSAL_TIMER cpupcr_timer;
 
 	MTKSTP_PSM_T *psm;
 	MTKSTP_BTM_T *btm;
@@ -618,9 +622,10 @@ extern INT32 mtk_wcn_stp_logger_ctrl(ENUM_BTIF_DBG_ID flag);
 extern VOID mtk_wcn_stp_ctx_save(VOID);
 extern VOID mtk_wcn_stp_ctx_restore(VOID);
 
-extern INT32 mtk_wcn_stp_wmt_evt_err_trg_assert(VOID);
-extern UINT32 mtk_wcn_stp_get_wmt_evt_err_trg_assert(VOID);
-extern VOID mtk_wcn_stp_set_wmt_evt_err_trg_assert(UINT32 value);
+extern INT32 mtk_wcn_stp_wmt_trg_assert(VOID);
+extern UINT32 mtk_wcn_stp_get_wmt_trg_assert(VOID);
+extern VOID mtk_wcn_stp_set_wmt_trg_assert(UINT32 value);
+extern INT32 mtk_wcn_stp_assert_timeout_handle(VOID);
 extern INT32 mtk_wcn_stp_coredump_timeout_handle(VOID);
 extern VOID mtk_wcn_stp_dbg_pkt_log(INT32 type, INT32 dir);
 
@@ -631,5 +636,6 @@ extern INT32 mtk_wcn_sys_if_rx(UINT8 *data, INT32 size);
 *                              F U N C T I O N S
 ********************************************************************************
 */
+VOID mtk_stp_dump_sdio_register(VOID);
 
 #endif				/* _STP_CORE_H_ */

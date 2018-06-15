@@ -1,20 +1,16 @@
 /*
- * (C) Copyright 2008
- * MediaTek <www.mediatek.com>
- * MingHsien Hsieh <minghsien.hsieh@mediatek.com>
+ * Copyright (C) 2017 MediaTek Inc.
  *
- * MTK UART Driver
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
+
 /*---------------------------------------------------------------------------*/
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
@@ -27,6 +23,8 @@
 #if defined(CONFIG_MTK_CLKMGR) && !defined(CONFIG_MTK_FPGA)
 #include <mach/mt_clkmgr.h>
 #endif /* defined(CONFIG_MTK_CLKMGR) && !defined (CONFIG_MTK_FPGA)*/
+
+#include <mt-plat/mt_gpio.h>
 
 #if defined(CONFIG_MTK_LEGACY) && !defined(CONFIG_MTK_FPGA)
 #include <mt-plat/mt_gpio.h>
@@ -41,6 +39,7 @@
 
 #if !defined(CONFIG_MTK_LEGACY)
 struct pinctrl *ppinctrl_uart[UART_NR];
+int uart3_switch = 1;
 /* pinctrl-names from dtsi.GPIO operations: rx set, rx clear, tx set, tx clear */
 char *uart_gpio_cmds[UART_NR][4] = {
 	{"uart0_rx_set", "uart0_rx_clear", "uart0_tx_set", "uart0_tx_clear"},
@@ -179,9 +178,6 @@ static unsigned int modem_uart[UART_NR] = { 1, 0, 0, 1
 /*---------------------------------------------------------------------------*/
 /* uart control blocks */
 static struct mtk_uart mtk_uarts[UART_NR];
-static char baudset[128];
-static char clkset[128];
-
 /*---------------------------------------------------------------------------*/
 struct mtk_uart_setting *get_uart_default_settings(int idx)
 {
@@ -412,9 +408,7 @@ static inline void dump_reg(struct mtk_uart *uart, const char *caller)
 #ifdef ENABLE_DEBUG
 	unsigned long flags;
 	unsigned long base = uart->base;
-#if !defined(ENABLE_FEATURE_SEL)
 	u32 lcr = UART_READ32(UART_LCR);
-#endif
 	u32 uratefix = UART_READ32(UART_RATE_FIX_AD);
 	u32 uhspeed = UART_READ32(UART_HIGHSPEED);
 	u32 usamplecnt = UART_READ32(UART_SAMPLE_COUNT);
@@ -423,15 +417,11 @@ static inline void dump_reg(struct mtk_uart *uart, const char *caller)
 	u32 ier = UART_READ32(UART_IER);
 
 	spin_lock_irqsave(&mtk_console_lock, flags);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel((lcr | UART_LCR_DLAB), UART_LCR);
-#endif
 	udll = UART_READ32(UART_DLL);
 	udlh = UART_READ32(UART_DLH);
 	mb();			/* make sure the DLL/DLH have been read */
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(lcr, UART_LCR);	/* DLAB end */
-#endif
 	spin_unlock_irqrestore(&mtk_console_lock, flags);
 	mb();
 
@@ -1326,22 +1316,14 @@ int mtk_uart_data_ready(struct mtk_uart *uart)
 void mtk_uart_fifo_set_trig(struct mtk_uart *uart, int tx_level, int rx_level)
 {
 	unsigned long base = uart->base;
-#if !defined(ENABLE_FEATURE_SEL)
 	unsigned long tmp1;
-#endif
 	unsigned long flags;
 
-#if !defined(ENABLE_FEATURE_SEL)
 	tmp1 = UART_READ32(UART_LCR);
-#endif
 	spin_lock_irqsave(&mtk_console_lock, flags);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(0xbf, UART_LCR);
-#endif
 	UART_SET_BITS(UART_EFR_EN, UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(tmp1, UART_LCR);
-#endif
 	spin_unlock_irqrestore(&mtk_console_lock, flags);
 	MSG(INFO, "%s(EFR) =  %04X\n", __func__, UART_READ32(UART_EFR));
 
@@ -1399,11 +1381,8 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 {
 	unsigned long base = uart->base;
 	u32 remainder, uartclk = 0, divisor = 0;
-#if !defined(ENABLE_FEATURE_SEL)
 	u32 lcr = UART_READ32(UART_LCR);
-#endif
 	unsigned long flags;
-	u32 hs = 0, dll = 0, dlm = 0;
 
 #ifdef UART_USING_FIX_CLK_ENABLE
 	if (baudrate <= 1000000) {	/* Using 16.25 fix clock */
@@ -1422,10 +1401,6 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 	reg_sync_writel(0x00, UART_RATE_FIX_AD);
 #endif				/* UART_USING_FIX_CLK_ENABLE */
 
-#if defined(ENABLE_FEATURE_SEL)
-	reg_sync_writel(UART_FEATURE_SEL_SET, UART_FEATURE_SEL);
-#endif
-
 	spin_lock_irqsave(&mtk_console_lock, flags);
 	if (highspeed == 0) {
 		/* uartclk = uart->sysclk; */
@@ -1435,14 +1410,10 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 		remainder = (uartclk >> 4) % (u32) baudrate;
 		if (remainder >= (u32) (baudrate * 8))
 			divisor += 1;
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 		reg_sync_writel((divisor & 0xFF), UART_DLL);
 		reg_sync_writel(((divisor >> 8) & 0xFF), UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr, UART_LCR);
-#endif
 	} else if (highspeed == 1) {
 		/* uartclk = uart->sysclk; */
 		/* reg_sync_writel(0x00, UART_RATE_FIX_AD); */
@@ -1451,14 +1422,10 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 		remainder = (uartclk >> 3) % (u32) baudrate;
 		if (remainder >= (u32) (baudrate * 4))
 			divisor += 1;
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 		reg_sync_writel((divisor & 0xFF), UART_DLL);
 		reg_sync_writel(((divisor >> 8) & 0xFF), UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr, UART_LCR);
-#endif
 	} else if (highspeed == 2) {
 		/* uartclk = uart->sysclk; */
 		/* reg_sync_writel(0x00, UART_RATE_FIX_AD); */
@@ -1467,14 +1434,10 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 		remainder = (uartclk >> 2) % (u32) baudrate;
 		if (remainder >= (u32) (baudrate * 2))
 			divisor += 1;
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 		reg_sync_writel((divisor & 0x00FF), UART_DLL);
 		reg_sync_writel(((divisor >> 8) & 0x00FF), UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr, UART_LCR);
-#endif
 	} else if (highspeed == 3) {
 		u32 sample_count, sample_point, high_div, tmp;
 #if defined(ENABLE_FRACTIONAL)
@@ -1502,14 +1465,10 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 
 		sample_count = divisor - 1;
 		sample_point = (sample_count - 1) >> 1;
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 		reg_sync_writel((high_div & 0x00FF), UART_DLL);
 		reg_sync_writel(((high_div >> 8) & 0x00FF), UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(lcr, UART_LCR);
-#endif
 		reg_sync_writel(sample_count, UART_SAMPLE_COUNT);
 		reg_sync_writel(sample_point, UART_SAMPLE_POINT);
 		/*
@@ -1520,29 +1479,10 @@ static void mtk_uart_cal_baud(struct mtk_uart *uart, int baudrate, int highspeed
 		if (baudrate >= 3000000)
 			reg_sync_writel(0x12, UART_GUARD);
 	}
-
-#if !defined(ENABLE_FEATURE_SEL)
-	reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
-	dll = UART_READ32(UART_DLL);
-	dlm = UART_READ32(UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
-	reg_sync_writel(lcr, UART_LCR);
-#endif
-	hs = UART_READ32(UART_HIGHSPEED);
-
 	spin_unlock_irqrestore(&mtk_console_lock, flags);
 
-	if (uart->nport == 0) {
-		scnprintf(baudset, sizeof(baudset),
-				"%sh%d,l%d,m%d,",
-				baudset, hs, dll, dlm);
-	}
-
-#if 0
 	MSG(CFG, "BaudRate = %d, SysClk = %d, Divisor = %d, %04X/%04X\n", baudrate, uartclk, divisor,
 	    UART_READ32(UART_IER), UART_READ32(UART_LCR));
-#endif
 	dump_reg(uart, __func__);
 	mb();			/*to ensure the setting is written */
 }
@@ -1561,21 +1501,21 @@ void mtk_uart_baud_setting(struct mtk_uart *uart, int baudrate)
 	if (tmp_div > 255)
 		mtk_uart_cal_baud(uart, baudrate, 2);
 	else
-		mtk_uart_cal_baud(uart, baudrate, 2);
+		mtk_uart_cal_baud(uart, baudrate, 3);
 #else
 	/* Fix clock, using new settings */
 #ifdef UART_USING_FIX_CLK_ENABLE
 	if (baudrate < 115200)
 		mtk_uart_cal_baud(uart, baudrate, 0);
 	else
-		mtk_uart_cal_baud(uart, baudrate, 2);
+		mtk_uart_cal_baud(uart, baudrate, 3);
 #else				/* UART_Fix_Clock_DISABLE */
 	if (baudrate <= 115200)
 		mtk_uart_cal_baud(uart, baudrate, 0);
 	else if (baudrate <= 460800)
 		mtk_uart_cal_baud(uart, baudrate, 2);
 	else
-		mtk_uart_cal_baud(uart, baudrate, 2);
+		mtk_uart_cal_baud(uart, baudrate, 3);
 #endif				/* End of UART_DCM_CONFIG */
 #endif              /* defined (CONFIG_MTK_FPGA) */
 }
@@ -1586,20 +1526,13 @@ void mtk_uart_baud_setting(struct mtk_uart *uart, int baudrate)
 static u32 UART_READ_EFR(struct mtk_uart *uart)
 {
 	unsigned long base = uart->base;
-	u32 efr;
-#if !defined(ENABLE_FEATURE_SEL)
-	u32 lcr = UART_READ32(UART_LCR);
-#endif
+	u32 efr, lcr = UART_READ32(UART_LCR);
 	unsigned long flags;
 
 	spin_lock_irqsave(&mtk_console_lock, flags);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(0xbf, UART_LCR);
-#endif
 	efr = UART_READ32(UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(lcr, UART_LCR);
-#endif
 	spin_unlock_irqrestore(&mtk_console_lock, flags);
 	return efr;
 }
@@ -1610,9 +1543,7 @@ static u32 UART_READ_EFR(struct mtk_uart *uart)
 void mtk_uart_set_flow_ctrl(struct mtk_uart *uart, int mode)
 {
 	unsigned long base = uart->base, old;
-#if !defined(ENABLE_FEATURE_SEL)
 	unsigned int tmp = UART_READ32(UART_LCR);
-#endif
 	unsigned long flags;
 
 	MSG(CFG, "%s: %04X\n", __func__, UART_READ_EFR(uart));
@@ -1622,24 +1553,18 @@ void mtk_uart_set_flow_ctrl(struct mtk_uart *uart, int mode)
 	case UART_FC_NONE:
 		reg_sync_writel(UART_ESCAPE_CH, UART_ESCAPE_DAT);
 		reg_sync_writel(0x00, UART_ESCAPE_EN);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(0xbf, UART_LCR);
-#endif
 		old = UART_READ32(UART_EFR);
 		old &= ~(UART_EFR_AUTO_RTSCTS | UART_EFR_XON12_XOFF12);
 		reg_sync_writel(old, UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(tmp, UART_LCR);
-#endif
 		mtk_uart_disable_intrs(uart, UART_IER_XOFFI | UART_IER_RTSI | UART_IER_CTSI);
 		break;
 	case UART_FC_HW:
 		reg_sync_writel(UART_ESCAPE_CH, UART_ESCAPE_DAT);
 		reg_sync_writel(0x00, UART_ESCAPE_EN);
 		UART_SET_BITS(UART_MCR_RTS, UART_MCR);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(0xbf, UART_LCR);
-#endif
 		/*disable all flow control setting */
 		old = UART_READ32(UART_EFR);
 		old &= ~(UART_EFR_AUTO_RTSCTS | UART_EFR_XON12_XOFF12);
@@ -1647,18 +1572,14 @@ void mtk_uart_set_flow_ctrl(struct mtk_uart *uart, int mode)
 		/*enable hw flow control */
 		old = UART_READ32(UART_EFR);
 		reg_sync_writel(old | UART_EFR_AUTO_RTSCTS, UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(tmp, UART_LCR);
-#endif
 		mtk_uart_disable_intrs(uart, UART_IER_XOFFI);
 		mtk_uart_enable_intrs(uart, UART_IER_CTSI | UART_IER_RTSI);
 		break;
 	case UART_FC_SW:	/*MTK software flow control */
 		reg_sync_writel(UART_ESCAPE_CH, UART_ESCAPE_DAT);
 		reg_sync_writel(0x01, UART_ESCAPE_EN);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(0xbf, UART_LCR);
-#endif
 		/*dsiable all flow control setting */
 		old = UART_READ32(UART_EFR);
 		old &= ~(UART_EFR_AUTO_RTSCTS | UART_EFR_XON12_XOFF12);
@@ -1668,9 +1589,7 @@ void mtk_uart_set_flow_ctrl(struct mtk_uart *uart, int mode)
 		reg_sync_writel(old | UART_EFR_XON1_XOFF1, UART_EFR);
 		reg_sync_writel(START_CHAR(uart->port.state->port.tty), UART_XON1);
 		reg_sync_writel(STOP_CHAR(uart->port.state->port.tty), UART_XOFF1);
-#if !defined(ENABLE_FEATURE_SEL)
 		reg_sync_writel(tmp, UART_LCR);
-#endif
 		mtk_uart_disable_intrs(uart, UART_IER_CTSI | UART_IER_RTSI);
 		mtk_uart_enable_intrs(uart, UART_IER_XOFFI);
 		break;
@@ -1732,12 +1651,6 @@ void mtk_uart_power_up(struct mtk_uart *uart)
 
 		uart->poweron_count++;
 #endif
-		if (uart->nport == 0) {
-			scnprintf(clkset, sizeof(clkset),
-					"%son,",
-					clkset);
-		}
-
 	}
 	MSG(FUC, "%s(%d) => up\n", __func__, uart->poweron_count);
 #endif				/* End of CONFIG_MTK_FPGA */
@@ -1779,12 +1692,6 @@ void mtk_uart_power_down(struct mtk_uart *uart)
 #endif				/* !defined(CONFIG_MTK_CLKMGR) */
 		uart->poweron_count--;
 #endif
-		if (uart->nport == 0) {
-			scnprintf(clkset, sizeof(clkset),
-					"%sof,",
-					clkset);
-		}
-
 		MSG(FUC, "%s(%d) => dn\n", __func__, uart->poweron_count);
 	}
 #endif				/* End of CONFIG_MTK_FPGA */
@@ -1883,14 +1790,9 @@ unsigned int mtk_uart_read_byte(struct mtk_uart *uart)
 /*---------------------------------------------------------------------------*/
 void mtk_uart_write_byte(struct mtk_uart *uart, unsigned int byte)
 {
-	/*unsigned long flags;*/
 	unsigned long base = uart->base;
 
-	/*spin_lock_irqsave(&mtk_console_lock, flags);*/
-
 	reg_sync_writel(byte, UART_THR);
-
-	/*spin_unlock_irqrestore(&mtk_console_lock, flags);*/
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2315,28 +2217,21 @@ void mtk_uart_save(struct mtk_uart *uart)
 
 	/* DLL may be changed by console write. To avoid this, use spinlock */
 	spin_lock_irqsave(&mtk_console_lock, flags);
-#if !defined(ENABLE_FEATURE_SEL)
 	uart->registers.lcr = UART_READ32(UART_LCR);
+
 	reg_sync_writel(0xbf, UART_LCR);
-#endif
 	uart->registers.efr = UART_READ32(UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr, UART_LCR);
-#endif
 	uart->registers.fcr = UART_READ32(UART_FCR_RD);
 
 	/* baudrate */
 	uart->registers.highspeed = UART_READ32(UART_HIGHSPEED);
 	uart->registers.fracdiv_l = UART_READ32(UART_FRACDIV_L);
 	uart->registers.fracdiv_m = UART_READ32(UART_FRACDIV_M);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 	uart->registers.dll = UART_READ32(UART_DLL);
 	uart->registers.dlh = UART_READ32(UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr, UART_LCR);
-#endif
 	uart->registers.sample_count = UART_READ32(UART_SAMPLE_COUNT);
 	uart->registers.sample_point = UART_READ32(UART_SAMPLE_POINT);
 	uart->registers.guard = UART_READ32(UART_GUARD);
@@ -2364,27 +2259,19 @@ void mtk_uart_restore(void)
 
 	mtk_uart_power_up(uart);
 	spin_lock_irqsave(&mtk_console_lock, flags);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(0xbf, UART_LCR);
-#endif
 	reg_sync_writel(uart->registers.efr, UART_EFR);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr, UART_LCR);
-#endif
 	reg_sync_writel(uart->registers.fcr, UART_FCR);
 
 	/* baudrate */
 	reg_sync_writel(uart->registers.highspeed, UART_HIGHSPEED);
 	reg_sync_writel(uart->registers.fracdiv_l, UART_FRACDIV_L);
 	reg_sync_writel(uart->registers.fracdiv_m, UART_FRACDIV_M);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr | UART_LCR_DLAB, UART_LCR);
-#endif
 	reg_sync_writel(uart->registers.dll, UART_DLL);
 	reg_sync_writel(uart->registers.dlh, UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
 	reg_sync_writel(uart->registers.lcr, UART_LCR);
-#endif
 	reg_sync_writel(uart->registers.sample_count, UART_SAMPLE_COUNT);
 	reg_sync_writel(uart->registers.sample_point, UART_SAMPLE_POINT);
 	reg_sync_writel(uart->registers.guard, UART_GUARD);
@@ -2442,6 +2329,7 @@ void mtk_uart_switch_tx_to_gpio(struct mtk_uart *uart)
 	int uart_gpio_op = 0;	/* URAT RX SET */
 #endif
 	int uartport = uart->nport;
+	int rx_mode, tx_mode;
 
 	/*pr_debug("[UART]%s port:0x%x\n", __func__, uartport);*/
 
@@ -2449,6 +2337,20 @@ void mtk_uart_switch_tx_to_gpio(struct mtk_uart *uart)
 		pr_err("[UART%d] %s fail!! port:%d", uartport, __func__, uartport);
 		return;
 	}
+	/* Workround of CR ALPS03506947, if the gpio not used for uart3,
+	 * do not switch the gpio mode when system enter suspend and resume,
+	 * if switch the gpio mode, the other moudle will not work who really
+	 * use the gpio59-60.
+	*/
+	if (uartport == 3 && uart3_switch == 1) {
+		rx_mode = mt_get_gpio_mode(0x80000000 | 0x3B);
+		tx_mode = mt_get_gpio_mode(0x80000000 | 0x3C);
+		if (tx_mode != 1 || rx_mode != 1)
+			uart3_switch = 0;
+	}
+	if (uart3_switch == 0)
+		return;
+
 #if defined(CONFIG_PM) && !defined(CONFIG_MTK_FPGA)
 #if defined(CONFIG_MTK_LEGACY)
 	switch (uart->nport) {
@@ -2509,6 +2411,8 @@ void mtk_uart_switch_to_tx(struct mtk_uart *uart)
 		pr_err("[UART%d] %s fail!! port:%d", uartport, __func__, uartport);
 		return;
 	}
+	if (uart3_switch == 0)
+		return;
 #if defined(CONFIG_PM) && !defined(CONFIG_MTK_FPGA)
 #if defined(CONFIG_MTK_LEGACY)
 	switch (uart->nport) {
@@ -2551,83 +2455,6 @@ void mtk_uart_switch_to_tx(struct mtk_uart *uart)
 #endif
 }
 
-#if defined(ENABLE_CONSOLE_DEBUG)
-void dump_console_reg(struct mtk_uart *uart, char *s)
-{
-	unsigned long base;
-	u32 lsr = 0, escape_en = 0, clk = 0, feature_sel = 0;
-	u32 hs = 0, sc = 0, dll = 0, dlm = 0;
-	char dump_uart[511];
-	u32 temp1 = 0, temp2 = 0, temp3 = 0, temp4 = 0, temp5 = 0, temp6 = 0, temp7 = 0, temp8 = 0, temp9 = 0;
-	unsigned long flags;
-#if !defined(ENABLE_FEATURE_SEL)
-	u32 lcr;
-#endif
-
-	memset(dump_uart, 0x00, sizeof(dump_uart));
-	base = uart->base;
-
-	/*--uart 0 clk default enable--*/
-	spin_lock_irqsave(&mtk_console_lock, flags);
-	if (uart->poweron_count) {
-#if defined(ENABLE_FEATURE_SEL)
-		feature_sel = UART_READ32(UART_FEATURE_SEL);
-#endif
-		lsr = UART_READ32(UART_LSR);
-		escape_en = UART_READ32(UART_ESCAPE_EN);
-		clk = uart->poweron_count;
-		hs = UART_READ32(UART_HIGHSPEED);
-		sc = UART_READ32(UART_SAMPLE_COUNT);
-#if !defined(ENABLE_FEATURE_SEL)
-		lcr = UART_READ32(UART_LCR);
-		reg_sync_writel(lcr | UART_LCR_DLAB, UART_LCR);
-#endif
-		dll = UART_READ32(UART_DLL);
-		dlm = UART_READ32(UART_DLH);
-#if !defined(ENABLE_FEATURE_SEL)
-		reg_sync_writel(lcr, UART_LCR);
-#endif
-		temp1 = UART_READ32((unsigned long)(base+0x60));
-		temp2 = UART_READ32((unsigned long)(base+0x64));
-		temp3 = UART_READ32((unsigned long)(base+0x68));
-		temp4 = UART_READ32((unsigned long)(base+0x6c));
-		temp5 = UART_READ32((unsigned long)(base+0x70));
-		temp6 = UART_READ32((unsigned long)(base+0x74));
-		temp7 = UART_READ32((unsigned long)(base+0x78));
-		temp8 = UART_READ32((unsigned long)(base+0x7c));
-		temp9 = UART_READ32((unsigned long)(base+0x80));
-	} else
-		clk = 0;
-	spin_unlock_irqrestore(&mtk_console_lock, flags);
-
-	/*scnprintf(dump_uart, sizeof(dump_uart),
-			"uart0,lsr=%d,es_en=%d,clk=%d,hs=%d,sc=%d,dll=%d,dlm=%d, dl=%d, dlh=%d\n",
-				lsr, escape_en, clk, hs, sc, dll, dlm, uart->registers.dll, uart->registers.dlh);*/
-	/*scnprintf(dump_uart, sizeof(dump_uart),
-			"lsr=%d,hs=%d,sc=%d,dl=%d,dm=%d,cn1=%d,cn2=%d,clk=%d,ocr=0x%x,
-			osa=0x%x,oc2=0x%x,ncr=0x%x,nsa=0x%x,n2=0x%x,stbd[%s],Ckst[%s]\n",
-				lsr, hs, sc, dll, dlm, uart->cnt1, uart->cnt2, clk,
-				uart->oldclksc, uart->oldglpdsta, uart->oldCFG2, uart->newclksc, uart->newglpdsta,
-				uart->newCFG2,baudset,clkset);*/
-
-	scnprintf(dump_uart, sizeof(dump_uart),
-				"h%d,l%d,m%d,fs%d,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,bd[%s]Ck[%s]\n",
-			hs, dll, dlm, feature_sel,
-			temp1, temp2, temp3, temp4, temp5, temp6, temp7, temp8, temp9,
-			baudset, clkset);
-
-	/*scnprintf(dump_uart, sizeof(dump_uart),
-			"h%d,l%d,m%d,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x,0x%x\n",
-			hs, dll,dlm,
-			temp1,temp2,temp3,temp4,temp5,temp6,temp7,temp8,temp9);*/
-
-	strcpy(s, dump_uart);
-
-	/*aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_DEFAULT | DB_OPT_FTRACE,
-			"Dump Uart Reg", "%s", dump_uart);*/
-}
-#endif /*--ENABLE_CONSOLE_DEBUG--*/
-
 /*---------------------------------------------------------------------------*/
 void mtk_uart_switch_rx_to_gpio(struct mtk_uart *uart)
 {
@@ -2635,6 +2462,7 @@ void mtk_uart_switch_rx_to_gpio(struct mtk_uart *uart)
 	int uart_gpio_op = 1;	/* URAT RX Clear */
 #endif
 	int uartport = uart->nport;
+	int rx_mode, tx_mode;
 
 	/*pr_debug("[UART]%s port:0x%x\n", __func__, uartport);*/
 
@@ -2642,6 +2470,16 @@ void mtk_uart_switch_rx_to_gpio(struct mtk_uart *uart)
 		pr_err("[UART%d] %s fail!! port:%d", uartport, __func__, uartport);
 		return;
 	}
+
+	if (uartport == 3 && uart3_switch == 1) {
+		rx_mode = mt_get_gpio_mode(0x80000000 | 0x3B);
+		tx_mode = mt_get_gpio_mode(0x80000000 | 0x3C);
+		if (tx_mode != 1 || rx_mode != 1)
+			uart3_switch = 0;
+	}
+	if (uart3_switch == 0)
+		return;
+
 #if defined(CONFIG_PM) && !defined(CONFIG_MTK_FPGA)
 #if defined(CONFIG_MTK_LEGACY)
 	switch (uart->nport) {
@@ -2698,6 +2536,8 @@ void mtk_uart_switch_to_rx(struct mtk_uart *uart)
 		pr_err("[UART%d] %s fail!! port:%d", uartport, __func__, uartport);
 		return;
 	}
+	if (uart3_switch == 0)
+		return;
 #if defined(CONFIG_PM) && !defined(CONFIG_MTK_FPGA)
 #if defined(CONFIG_MTK_LEGACY)
 	switch (uartport) {

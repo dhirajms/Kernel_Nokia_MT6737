@@ -204,6 +204,11 @@ void ccci_md_config(struct ccci_modem *md)
 	md->mem_layout.md1_md3_smem_vir =
 	    ioremap_nocache(md->mem_layout.md1_md3_smem_phy, md->mem_layout.md1_md3_smem_size);
 
+#ifdef CONFIG_MTK_ECCCI_C2K
+	if (md->index == MD_SYS3)
+		memset_io(md->mem_layout.md1_md3_smem_vir, 0, md->mem_layout.md1_md3_smem_size);
+#endif
+
 	/* updae image info */
 	md->img_info[IMG_MD].type = IMG_MD;
 	md->img_info[IMG_MD].address = md->mem_layout.md_region_phy;
@@ -281,6 +286,7 @@ int ccci_md_set_boot_data(struct ccci_modem *md, unsigned int data[], int len)
 
 	md->mdlg_mode = data[MD_CFG_MDLOG_MODE];
 	md->sbp_code  = data[MD_CFG_SBP_CODE];
+	md->sbp_sub_code = data[MD_CFG_SBP_SUB_CODE];
 	md->md_dbg_dump_flag = data[MD_CFG_DUMP_FLAG] == MD_DBG_DUMP_INVALID ?
 		md->md_dbg_dump_flag : data[MD_CFG_DUMP_FLAG];
 
@@ -404,11 +410,9 @@ int ccci_md_check_ee_done(struct ccci_modem *md, int timeout)
 
 void ccci_md_set_reload_type(struct ccci_modem *md, int type)
 {
-	if (type != md->config.load_type) {
-		if (set_modem_support_cap(md->index, type) == 0) {
-			md->config.load_type = type;
-			md->config.setting |= MD_SETTING_RELOAD;
-		}
+	if (set_modem_support_cap(md->index, type) == 0) {
+		md->config.load_type = type;
+		md->config.setting |= MD_SETTING_RELOAD;
 	}
 }
 
@@ -763,8 +767,9 @@ int ccci_md_prepare_runtime_data(struct ccci_modem *md, struct sk_buff *skb)
 					rt_f_element.feature[1] = 0;
 				else
 					rt_f_element.feature[1] = get_wm_bitmap_for_ubin();
-				CCCI_BOOTUP_LOG(md->index, KERN, "sbp=0x%x,wmid[%d]\n",
-					rt_f_element.feature[0], rt_f_element.feature[1]);
+				rt_f_element.feature[2] = md->sbp_sub_code;
+				CCCI_BOOTUP_LOG(md->index, KERN, "sbp=0x%x,wmid[%d], sub_id[%d]\n",
+					rt_f_element.feature[0], rt_f_element.feature[1], rt_f_element.feature[2]);
 				append_runtime_feature(&rt_data, &rt_feature, &rt_f_element);
 				break;
 			case MISC_INFO_CCCI:

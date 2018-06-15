@@ -55,6 +55,12 @@
 
 #define P2P_WILDCARD_SSID           "DIRECT-"
 
+#define MAX_GC_DEAUTH_RETRY_COUNT   1
+
+#define P2P_DEAUTH_TIMEOUT_TIME_MS 1000
+
+#define P2P_AP_CHNL_HOLD_TIME_MS 5000
+
 /*******************************************************************************
 *                                 M A C R O S
 ********************************************************************************

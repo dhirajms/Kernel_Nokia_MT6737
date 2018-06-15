@@ -135,16 +135,21 @@ static MSG_HNDL_ENTRY_T arMsgMapTable[] = {
 	{MID_MNY_CNM_CH_REQ, cnmChMngrRequestPrivilege},
 	{MID_MNY_CNM_CH_ABORT, cnmChMngrAbortPrivilege},
 	{MID_CNM_AIS_CH_GRANT, aisFsmRunEventChGrant},
+	{MID_CNM_AIS_CH_GRANT_FAIL, aisFsmRunEventChGrantFail},
 #if CFG_ENABLE_WIFI_DIRECT
 	{MID_CNM_P2P_CH_GRANT, p2pFsmRunEventChGrant},	/*set in gl_p2p_init.c */
+	{MID_CNM_P2P_CH_GRANT_FAIL, p2pFsmRunEventChGrantFail},
 #else
 	{MID_CNM_P2P_CH_GRANT, mboxDummy},
+	{MID_CNM_P2P_CH_GRANT_FAIL, p2pFsmRunEventChGrantFail},
 #endif
 
 #if CFG_ENABLE_BT_OVER_WIFI
 	{MID_CNM_BOW_CH_GRANT, bowRunEventChGrant},
+	{MID_CNM_BOW_CH_GRANT_FAIL, bowRunEventChGrantFail},
 #else
 	{MID_CNM_BOW_CH_GRANT, mboxDummy},
+	{MID_CNM_BOW_CH_GRANT_FAIL, bowRunEventChGrantFail},
 #endif
 
     /*--------------------------------------------------*/
@@ -213,7 +218,6 @@ static MSG_HNDL_ENTRY_T arMsgMapTable[] = {
 	{MID_MNY_P2P_NET_DEV_REGISTER, p2pFsmRunEventNetDeviceRegister},
 	{MID_MNY_P2P_START_AP, p2pRoleFsmRunEventStartAP},
 	{MID_MNY_P2P_MGMT_FRAME_UPDATE, p2pFsmRunEventUpdateMgmtFrame},
-	{MID_MNY_P2P_EXTEND_LISTEN_INTERVAL, p2pFsmRunEventExtendListen},
 #if CFG_SUPPORT_WFD
 	{MID_MNY_P2P_WFD_CFG_UPDATE, p2pFsmRunEventWfdSettingUpdate},
 #endif

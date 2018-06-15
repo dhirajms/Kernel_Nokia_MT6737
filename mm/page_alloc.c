@@ -71,6 +71,8 @@
 #include <mt-plat/aee.h>
 #endif
 
+#include <mt-plat/mtk_memcfg.h>
+
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_FRACTION	(8)
@@ -149,7 +151,6 @@ void pm_restore_gfp_mask(void)
 		saved_gfp_mask = 0;
 	}
 }
-EXPORT_SYMBOL_GPL(pm_restore_gfp_mask);
 
 void pm_restrict_gfp_mask(void)
 {
@@ -158,7 +159,6 @@ void pm_restrict_gfp_mask(void)
 	saved_gfp_mask = gfp_allowed_mask;
 	gfp_allowed_mask &= ~GFP_IOFS;
 }
-EXPORT_SYMBOL_GPL(pm_restrict_gfp_mask);
 
 bool pm_suspended_storage(void)
 {
@@ -1596,6 +1596,7 @@ void free_hot_cold_page_list(struct list_head *list, bool cold)
 void split_page(struct page *page, unsigned int order)
 {
 	int i;
+	gfp_t gfp_mask;
 
 	VM_BUG_ON_PAGE(PageCompound(page), page);
 	VM_BUG_ON_PAGE(!page_count(page), page);
@@ -1609,6 +1610,7 @@ void split_page(struct page *page, unsigned int order)
 		split_page(virt_to_page(page[0].shadow), order);
 #endif
 
+	gfp_mask = get_page_owner_gfp(page);
 #ifdef CONFIG_PAGE_OWNER_SLIM
 	/*
 	 * Normal page owner do not need to reset page owner for split
@@ -1622,10 +1624,10 @@ void split_page(struct page *page, unsigned int order)
 	 */
 	reset_page_owner(page, order);
 #endif
-	set_page_owner(page, 0, 0);
+	set_page_owner(page, 0, gfp_mask);
 	for (i = 1; i < (1 << order); i++) {
 		set_page_refcounted(page + i);
-		set_page_owner(page + i, 0, 0);
+		set_page_owner(page + i, 0, gfp_mask);
 	}
 }
 EXPORT_SYMBOL_GPL(split_page);
@@ -1655,7 +1657,7 @@ int __isolate_free_page(struct page *page, unsigned int order)
 	zone->free_area[order].nr_free--;
 	rmv_page_order(page);
 
-	set_page_owner(page, order, 0);
+	set_page_owner(page, order, __GFP_MOVABLE);
 	/* Set the pageblock if the isolated page is at least a pageblock */
 	if (order >= pageblock_order - 1) {
 		struct page *endpage = page + (1 << order) - 1;
@@ -5598,15 +5600,18 @@ void __init free_area_init_nodes(unsigned long *max_zone_pfn)
 				sizeof(arch_zone_lowest_possible_pfn));
 	memset(arch_zone_highest_possible_pfn, 0,
 				sizeof(arch_zone_highest_possible_pfn));
-	arch_zone_lowest_possible_pfn[0] = find_min_pfn_with_active_regions();
-	arch_zone_highest_possible_pfn[0] = max_zone_pfn[0];
-	for (i = 1; i < MAX_NR_ZONES; i++) {
+
+	start_pfn = find_min_pfn_with_active_regions();
+
+	for (i = 0; i < MAX_NR_ZONES; i++) {
 		if (i == ZONE_MOVABLE)
 			continue;
-		arch_zone_lowest_possible_pfn[i] =
-			arch_zone_highest_possible_pfn[i-1];
-		arch_zone_highest_possible_pfn[i] =
-			max(max_zone_pfn[i], arch_zone_lowest_possible_pfn[i]);
+
+		end_pfn = max(max_zone_pfn[i], start_pfn);
+		arch_zone_lowest_possible_pfn[i] = start_pfn;
+		arch_zone_highest_possible_pfn[i] = end_pfn;
+
+		start_pfn = end_pfn;
 	}
 	arch_zone_lowest_possible_pfn[ZONE_MOVABLE] = 0;
 	arch_zone_highest_possible_pfn[ZONE_MOVABLE] = 0;
@@ -5794,18 +5799,18 @@ void __init mem_init_print_info(const char *str)
 #endif
 	       str ? ", " : "", str ? str : "");
 
-		kernel_reserve_meminfo.available = nr_free_pages() << (PAGE_SHIFT - 10);
-		kernel_reserve_meminfo.total = physpages << (PAGE_SHIFT - 10);
-		kernel_reserve_meminfo.kernel_code = codesize >> 10;
-		kernel_reserve_meminfo.rwdata = datasize >> 10;
-		kernel_reserve_meminfo.rodata = rosize >> 10;
-		kernel_reserve_meminfo.init = (init_data_size + init_code_size) >> 10;
-		kernel_reserve_meminfo.bss = bss_size >> 10;
+		kernel_reserve_meminfo.available = nr_free_pages() << PAGE_SHIFT;
+		kernel_reserve_meminfo.total = physpages << PAGE_SHIFT;
+		kernel_reserve_meminfo.kernel_code = codesize;
+		kernel_reserve_meminfo.rwdata = datasize;
+		kernel_reserve_meminfo.rodata = rosize;
+		kernel_reserve_meminfo.init = init_data_size + init_code_size;
+		kernel_reserve_meminfo.bss = bss_size;
 		kernel_reserve_meminfo.reserved =
-			(physpages - totalram_pages) << (PAGE_SHIFT-10);
+			(physpages - totalram_pages) << PAGE_SHIFT;
 
 #ifdef CONFIG_HIGHMEM
-		kernel_reserve_meminfo.highmem = totalhigh_pages << (PAGE_SHIFT - 10);
+		kernel_reserve_meminfo.highmem = totalhigh_pages << PAGE_SHIFT;
 #endif
 }
 
@@ -6711,22 +6716,8 @@ int alloc_contig_range(unsigned long start, unsigned long end,
 
 	/* Make sure the range is really isolated. */
 	if (test_pages_isolated(outer_start, end, false)) {
-#if defined(CONFIG_CMA_DEBUG) && defined(CONFIG_PAGE_OWNER)
-		struct page *page;
-		unsigned long pfn;
-		int bt_per_fail = 5;
-#endif
 		pr_info("%s: [%lx, %lx) PFNs busy\n",
 			__func__, outer_start, end);
-#if defined(CONFIG_CMA_DEBUG) && defined(CONFIG_PAGE_OWNER)
-		pr_info("========\n");
-		for (pfn = start; pfn < end && bt_per_fail; pfn++) {
-			page = pfn_to_page(pfn);
-			if (page && get_freepage_migratetype(page) != MIGRATE_ISOLATE)
-				if (dump_pfn_backtrace(pfn) >= 0)
-					bt_per_fail--;
-		}
-#endif
 		ret = -EBUSY;
 		goto done;
 	}
@@ -6874,3 +6865,61 @@ bool is_free_buddy_page(struct page *page)
 	return order < MAX_ORDER;
 }
 #endif
+
+static void __free_reserved_pages(struct page *page,
+					unsigned long pfn, unsigned int order) {
+	unsigned int nr_pages = 1 << order;
+	struct page *p = page;
+	unsigned int loop;
+
+	prefetchw(p);
+	for (loop = 0; loop < (nr_pages - 1); loop++, p++) {
+		prefetchw(p + 1);
+		__ClearPageReserved(p);
+		set_page_count(p, 0);
+	}
+	__ClearPageReserved(p);
+	set_page_count(p, 0);
+
+	page_zone(page)->managed_pages += nr_pages;
+	set_page_refcounted(page);
+	__free_pages(page, order);
+}
+
+int free_reserved_memory(phys_addr_t start_phys,
+				phys_addr_t end_phys) {
+
+	int order;
+	unsigned long  start_pfn, end_pfn;
+
+	if (end_phys <= start_phys) {
+
+		pr_alert("%s end_phys is smaller than start_phys start_phys:0x%pa end_phys:0x%pa\n"
+			, __func__, &start_phys, &end_phys);
+		 return -1;
+	}
+
+	if (!memblock_is_region_reserved(start_phys, end_phys - start_phys)) {
+
+		pr_alert("%s:not reserved memory phys_start:0x%pa phys_end:0x%pa\n"
+			, __func__, &start_phys, &end_phys);
+		return -1;
+	}
+
+	start_pfn = __phys_to_pfn(start_phys);
+	end_pfn = __phys_to_pfn(end_phys);
+
+	while (start_pfn < end_pfn) {
+
+		order = min(MAX_ORDER - 1UL, __ffs(start_pfn));
+		while (start_pfn + (1UL << order) > end_pfn)
+			order--;
+		__free_reserved_pages(pfn_to_page(start_pfn), start_pfn, order);
+		adjust_managed_page_count(pfn_to_page(start_pfn), 1<<order);
+		start_pfn += (1UL << order);
+	}
+
+	mtk_memcfg_record_freed_reserved(start_phys, end_phys);
+
+	return 0;
+}

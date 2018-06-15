@@ -26,6 +26,7 @@
 #define GPIO_LCDBL_EN_PIN			(GPIO82  | 0x80000000)
 #define GTP_RST_PORT			    (GPIO42  | 0x80000000)
 
+
 extern int tpd_power_switch(s32 state);
 
 
@@ -354,12 +355,9 @@ static void lcm_get_params(LCM_PARAMS *params)
 
 	// DSI
 	/* Command mode setting */
-   
- 
+
 	params->dsi.LANE_NUM						= 3;	// 4
     params->dsi.PLL_CLOCK 						= 399; 		//3lane
-
-
 	
 	//The following defined the fomat for data coming from LCD engine.
 	params->dsi.data_format.color_order = LCM_COLOR_ORDER_RGB;

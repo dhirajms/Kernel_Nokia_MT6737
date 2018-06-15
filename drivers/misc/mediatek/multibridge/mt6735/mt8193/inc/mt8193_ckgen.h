@@ -177,7 +177,6 @@ void mt8193_spm_control_test(int u4Func);
 u32 mt8193_ckgen_measure_clk(u32 u4Func);
 void mt8193_ckgen_early_suspend(void);
 void mt8193_ckgen_late_resume(void);
-void mt8193_bus_clk_switch_to_26m(void);
 
 #endif
 

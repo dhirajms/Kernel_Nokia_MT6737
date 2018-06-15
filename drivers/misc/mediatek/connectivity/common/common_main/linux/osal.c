@@ -120,7 +120,7 @@ INT32 osal_strncmp(const PINT8 dst, const PINT8 src, UINT32 len)
 
 PINT8 osal_strcpy(PINT8 dst, const PINT8 src)
 {
-	return strcpy(dst, src);
+	return strncpy(dst, src, strlen(src)+1);
 }
 
 PINT8 osal_strncpy(PINT8 dst, const PINT8 src, UINT32 len)
@@ -130,7 +130,7 @@ PINT8 osal_strncpy(PINT8 dst, const PINT8 src, UINT32 len)
 
 PINT8 osal_strcat(PINT8 dst, const PINT8 src)
 {
-	return strcat(dst, src);
+	return strncat(dst, src, strlen(src));
 }
 
 PINT8 osal_strncat(PINT8 dst, const PINT8 src, UINT32 len)
@@ -386,6 +386,88 @@ INT32 osal_thread_destroy(P_OSAL_THREAD pThread)
 }
 
 /*
+ * osal_thread_sched_retrieve
+ * Retrieve thread's current scheduling statistics and stored in output "sched".
+ * Return value:
+ *	 0 : Schedstats successfully retrieved
+ *	-1 : Kernel's schedstats feature not enabled
+ *	-2 : pThread not yet initialized or sched is a NULL pointer
+ */
+static INT32 osal_thread_sched_retrieve(P_OSAL_THREAD pThread, P_OSAL_THREAD_SCHEDSTATS sched)
+{
+#ifdef CONFIG_SCHEDSTATS
+	struct sched_entity se;
+	UINT64 sec;
+	ULONG usec;
+
+	if (!sched)
+		return -2;
+
+	/* always clear sched to simplify error handling at caller side */
+	memset(sched, 0, sizeof(OSAL_THREAD_SCHEDSTATS));
+
+	if (!pThread || !pThread->pThread)
+		return -2;
+
+	memcpy(&se, &pThread->pThread->se, sizeof(struct sched_entity));
+	osal_get_local_time(&sec, &usec);
+
+	sched->time = sec*1000 + usec/1000;
+	sched->exec = se.sum_exec_runtime;
+	sched->runnable = se.statistics.wait_sum;
+	sched->iowait = se.statistics.iowait_sum;
+
+	return 0;
+#else
+	/* always clear sched to simplify error handling at caller side */
+	if (sched)
+		memset(sched, 0, sizeof(OSAL_THREAD_SCHEDSTATS));
+	return -1;
+#endif
+}
+
+/*
+ * osal_thread_sched_mark
+ * Record the thread's current schedstats and stored in output "schedstats" parameter for profiling at later time.
+ * Return value:
+ *	 0 : Schedstats successfully recorded
+ *	-1 : Kernel's schedstats feature not enabled
+ *	-2 : pThread not yet initialized or invalid parameters
+ */
+INT32 osal_thread_sched_mark(P_OSAL_THREAD pThread, P_OSAL_THREAD_SCHEDSTATS schedstats)
+{
+	return osal_thread_sched_retrieve(pThread, schedstats);
+}
+
+/*
+ * osal_thread_sched_unmark
+ * Calculate scheduling statistics against the previously marked point.
+ * The result will be filled back into the schedstats output parameter.
+ * Return value:
+ *	 0 : Schedstats successfully calculated
+ *	-1 : Kernel's schedstats feature not enabled
+ *	-2 : pThread not yet initialized or invalid parameters
+ */
+INT32 osal_thread_sched_unmark(P_OSAL_THREAD pThread, P_OSAL_THREAD_SCHEDSTATS schedstats)
+{
+	INT32 ret;
+	OSAL_THREAD_SCHEDSTATS sched_now;
+
+	if (unlikely(!schedstats)) {
+		ret = -2;
+	} else {
+		ret = osal_thread_sched_retrieve(pThread, &sched_now);
+		if (ret == 0) {
+			schedstats->time = sched_now.time - schedstats->time;
+			schedstats->exec = sched_now.exec - schedstats->exec;
+			schedstats->runnable = sched_now.runnable - schedstats->runnable;
+			schedstats->iowait = sched_now.iowait - schedstats->iowait;
+		}
+	}
+	return ret;
+}
+
+/*
   *OSAL layer Signal Opeartion related APIs
   *initialization
   *wait for signal
@@ -415,14 +497,62 @@ INT32 osal_wait_for_signal(P_OSAL_SIGNAL pSignal)
 	}
 }
 
-INT32 osal_wait_for_signal_timeout(P_OSAL_SIGNAL pSignal)
+/*
+ * osal_wait_for_signal_timeout
+ *
+ * Wait for a signal to be triggered by the corresponding thread, within the
+ * expected timeout specified by the signal's timeoutValue.
+ * When the pThread parameter is specified, the thread's scheduling ability is
+ * considered, the timeout will be extended when thread cannot acquire CPU
+ * resource, and will only extend for a number of times specified by the
+ * signal's timeoutExtension should the situation continues.
+ *
+ * Return value:
+ *	 0 : timeout
+ *	>0 : signal triggered
+ */
+INT32 osal_wait_for_signal_timeout(P_OSAL_SIGNAL pSignal, P_OSAL_THREAD pThread)
 {
+	OSAL_THREAD_SCHEDSTATS schedstats;
+	INT32 waitRet;
+
 	/* return wait_for_completion_interruptible_timeout(&pSignal->comp, msecs_to_jiffies(pSignal->timeoutValue)); */
 	/* [ChangeFeature][George] gps driver may be closed by -ERESTARTSYS.
 	 * Avoid using *interruptible" version in order to complete our jobs, such
 	 * as function off gracefully.
 	 */
-	return wait_for_completion_timeout(&pSignal->comp, msecs_to_jiffies(pSignal->timeoutValue));
+	if (!pThread || !pThread->pThread)
+		return wait_for_completion_timeout(&pSignal->comp, msecs_to_jiffies(pSignal->timeoutValue));
+
+	do {
+		osal_thread_sched_mark(pThread, &schedstats);
+		waitRet = wait_for_completion_timeout(&pSignal->comp, msecs_to_jiffies(pSignal->timeoutValue));
+		osal_thread_sched_unmark(pThread, &schedstats);
+
+		if (waitRet > 0)
+			break;
+
+		if (schedstats.runnable > schedstats.exec) {
+			osal_err_print(
+				"[E]%s:wait completion timeout, %s cannot get CPU, extension(%d), show backtrace:\n",
+				__func__,
+				pThread->threadName,
+				pSignal->timeoutExtension);
+		} else {
+			osal_err_print("[E]%s:wait completion timeout, show %s backtrace:\n",
+				__func__,
+				pThread->threadName);
+			pSignal->timeoutExtension = 0;
+		}
+		osal_err_print("[E]%s:\tduration:%llums, sched(x%llu/r%llu/i%llu)\n",
+			__func__,
+			schedstats.time,
+			schedstats.exec,
+			schedstats.runnable,
+			schedstats.iowait);
+		osal_thread_show_stack(pThread);
+	} while (pSignal->timeoutExtension--);
+	return waitRet;
 }
 
 INT32 osal_raise_signal(P_OSAL_SIGNAL pSignal)
@@ -1170,6 +1300,12 @@ INT32 osal_udelay(UINT32 us)
 	return 0;
 }
 
+INT32 osal_usleep_range(ULONG min, ULONG max)
+{
+	usleep_range(min, max);
+	return 0;
+}
+
 INT32 osal_gettimeofday(PINT32 sec, PINT32 usec)
 {
 	INT32 ret = 0;
@@ -1202,26 +1338,40 @@ INT32 osal_printtimeofday(const PUINT8 prefix)
 	return ret;
 }
 
+VOID osal_get_local_time(PUINT64 sec, PULONG nsec)
+{
+	if (sec != NULL && nsec != NULL) {
+		*sec = local_clock();
+		*nsec = do_div(*sec, 1000000000)/1000;
+	} else
+		pr_err("The input parameters error when get local time\n");
+}
+
 VOID osal_buffer_dump(const PUINT8 buf, const PUINT8 title, const UINT32 len, const UINT32 limit)
 {
 	INT32 k;
 	UINT32 dump_len;
+	char str[64] = {""};
+	INT32 strlen = 0;
+	char *p;
 
-	pr_warn("start of dump>[%s] len=%d, limit=%d,", title, len, limit);
-
-	dump_len = ((0 != limit) && (len > limit)) ? limit : len;
-#if 0
-	if (limit != 0)
-		len = (len > limit) ? (limit) : (len);
-
-#endif
-
+	pr_info("[%s] len=%d, limit=%d, start dump\n", title, len, limit);
+	dump_len = ((limit != 0) && (len > limit)) ? limit : len;
+	p = str;
 	for (k = 0; k < dump_len; k++) {
-		if ((k != 0) && (k % 16 == 0))
-			pr_cont("\n");
-		pr_cont("0x%02x ", buf[k]);
+		if ((k+1) % 16 != 0) {
+			strlen = osal_sprintf(p, "%02x ", buf[k]);
+			p += strlen;
+		} else {
+			strlen = osal_sprintf(p, "%02x\n",  buf[k]);
+			pr_info("%s", str);
+			p = str;
+		}
 	}
-	pr_warn("<end of dump\n");
+	if (k % 16 != 0)
+		pr_info("%s\n", str);
+
+	pr_info("end of dump\n");
 }
 
 UINT32 osal_op_get_id(P_OSAL_OP pOp)

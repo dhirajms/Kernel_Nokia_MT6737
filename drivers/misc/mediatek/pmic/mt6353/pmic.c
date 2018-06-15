@@ -83,7 +83,7 @@
 #include <mt-plat/battery_common.h>
 #include <mach/mt_battery_meter.h>
 #endif
-#include "../../power/mt6755/mt6311.h"
+#include "mt6311.h"
 #include <mach/mt_pmic.h>
 #include <mt-plat/mt_reboot.h>
 
@@ -178,7 +178,7 @@ unsigned int pmic_config_interface(unsigned int RegNum, unsigned int val, unsign
 	return_value = pwrap_wacs2(0, (RegNum), 0, &rdata);
 	pmic_reg = rdata;
 	if (return_value != 0) {
-		PMICLOG("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
+		pr_err("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
 		mutex_unlock(&pmic_access_mutex);
 		return return_value;
 	}
@@ -191,7 +191,7 @@ unsigned int pmic_config_interface(unsigned int RegNum, unsigned int val, unsign
 	pmic_config_interface_buck_vsleep_check(RegNum, val, MASK, SHIFT);
 	return_value = pwrap_wacs2(1, (RegNum), pmic_reg, &rdata);
 	if (return_value != 0) {
-		PMICLOG("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
+		pr_err("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
 		mutex_unlock(&pmic_access_mutex);
 		return return_value;
 	}
@@ -224,7 +224,7 @@ unsigned int pmic_read_interface_nolock(unsigned int RegNum, unsigned int *val, 
 
 #if defined(CONFIG_PMIC_HW_ACCESS_EN)
 	unsigned int pmic_reg = 0;
-	unsigned int rdata;
+	unsigned int rdata = 0;
 
 
 	/*mt_read_byte(RegNum, &pmic_reg); */
@@ -253,7 +253,7 @@ unsigned int pmic_config_interface_nolock(unsigned int RegNum, unsigned int val,
 
 #if defined(CONFIG_PMIC_HW_ACCESS_EN)
 	unsigned int pmic_reg = 0;
-	unsigned int rdata;
+	unsigned int rdata = 0;
 
     /* pmic wrapper has spinlock protection. pmic do not to do it again */
 
@@ -261,7 +261,7 @@ unsigned int pmic_config_interface_nolock(unsigned int RegNum, unsigned int val,
 	return_value = pwrap_wacs2(0, (RegNum), 0, &rdata);
 	pmic_reg = rdata;
 	if (return_value != 0) {
-		PMICLOG("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
+		pr_err("[%s] Reg[%x]= pmic_wrap read data fail\n", __func__, RegNum);
 		return return_value;
 	}
 	/*PMICLOG"[pmic_config_interface] Reg[%x]=0x%x\n", RegNum, pmic_reg); */
@@ -273,8 +273,7 @@ unsigned int pmic_config_interface_nolock(unsigned int RegNum, unsigned int val,
 	pmic_config_interface_buck_vsleep_check(RegNum, val, MASK, SHIFT);
 	return_value = pwrap_wacs2(1, (RegNum), pmic_reg, &rdata);
 	if (return_value != 0) {
-		PMICLOG("[pmic_config_interface] Reg[%x]= pmic_wrap read data fail\n", RegNum);
-		mutex_unlock(&pmic_access_mutex);
+		pr_err("[%s] Reg[%x]= pmic_wrap read data fail\n", __func__, RegNum);
 		return return_value;
 	}
 	/*PMICLOG"[pmic_config_interface] write Reg[%x]=0x%x\n", RegNum, pmic_reg); */
@@ -286,7 +285,6 @@ unsigned int pmic_config_interface_nolock(unsigned int RegNum, unsigned int val,
 	pmic_reg = rdata;
 	if (return_value != 0) {
 		PMICLOG("[pmic_config_interface] Reg[%x]= pmic_wrap write data fail\n", RegNum);
-		mutex_unlock(&pmic_access_mutex);
 		return return_value;
 	}
 	PMICLOG("[pmic_config_interface] Reg[%x]=0x%x\n", RegNum, pmic_reg);
@@ -422,7 +420,12 @@ static ssize_t store_pmic_access(struct device *dev, struct device_attribute *at
 		pvalue = (char *)buf;
 		if (size > 5) {
 			addr = strsep(&pvalue, " ");
-			ret = kstrtou32(addr, 16, (unsigned int *)&reg_address);
+			if (addr != NULL)
+				ret = kstrtou32(addr, 16, (unsigned int *)&reg_address);
+			else {
+				pr_err("[store_pmic_access] addr is empty\n");
+				return -1;
+			}
 		} else
 			ret = kstrtou32(pvalue, 16, (unsigned int *)&reg_address);
 
@@ -430,11 +433,15 @@ static ssize_t store_pmic_access(struct device *dev, struct device_attribute *at
 			/*reg_value = simple_strtoul((pvalue + 1), NULL, 16);*/
 			/*pvalue = (char *)buf + 1;*/
 			val =  strsep(&pvalue, " ");
-			ret = kstrtou32(val, 16, (unsigned int *)&reg_value);
-
-			pr_err("[store_pmic_access] write PMU reg 0x%x with value 0x%x !\n",
-				reg_address, reg_value);
-			ret = pmic_config_interface(reg_address, reg_value, 0xFFFF, 0x0);
+			if (val != NULL) {
+				ret = kstrtou32(val, 16, (unsigned int *)&reg_value);
+				pr_err("[store_pmic_access] write PMU reg 0x%x with value 0x%x !\n",
+					reg_address, reg_value);
+				ret = pmic_config_interface(reg_address, reg_value, 0xFFFF, 0x0);
+			} else {
+				pr_err("[store_pmic_access] val is empty\n");
+				return -1;
+			}
 		} else {
 			ret = pmic_read_interface(reg_address, &g_reg_value, 0xFFFF, 0x0);
 			pr_err("[store_pmic_access] read PMU reg 0x%x with value 0x%x !\n",
@@ -635,29 +642,23 @@ int is_ext_vbat_boost_exist(void)
 
 int get_ext_buck_i2c_ch_num(void)
 {
-#if !defined(CONFIG_MTK_PMIC_CHIP_MT6353)
 	if (is_mt6311_exist() == 1)
 		return get_mt6311_i2c_ch_num();
-#endif
-		return -1;
+	return -1;
 }
 
 int is_ext_buck_sw_ready(void)
 {
-#if !defined(CONFIG_MTK_PMIC_CHIP_MT6353)
 	if ((is_mt6311_sw_ready() == 1))
 		return 1;
-#endif
-		return 0;
+	return 0;
 }
 
 int is_ext_buck_exist(void)
 {
-#if !defined(CONFIG_MTK_PMIC_CHIP_MT6353)
 	if ((is_mt6311_exist() == 1))
 		return 1;
-#endif
-		return 0;
+	return 0;
 }
 
 int is_ext_buck_gpio_exist(void)
@@ -955,7 +956,7 @@ static int pmic_mt_probe(struct platform_device *dev)
 	/* upmu_set_reg_value(0x2a6, 0xff); */ /* TBD */
 
 	/*pmic initial setting */
-#if defined(CONFIG_MTK_PMIC_CHIP_MT6353)
+#if 1
 	PMIC_INIT_SETTING_V1();
 	PMICLOG("[PMIC_INIT_SETTING_V1] Done\n");
 #else
@@ -1084,6 +1085,7 @@ static int __init pmic_mt_init(void)
 	wake_lock_init(&pmicThread_lock, WAKE_LOCK_SUSPEND, "pmicThread_lock_mt6328 wakelock");
 #endif
 
+	pmic_auxadc_init();
 #if !defined CONFIG_MTK_LEGACY
 /*#if !defined CONFIG_MTK_LEGACY*//*Jimmy*/
 #ifdef CONFIG_OF
@@ -1116,8 +1118,6 @@ static int __init pmic_mt_init(void)
 	}
 #endif				/* End of #if !defined CONFIG_MTK_LEGACY */
 
-
-	pmic_auxadc_init();
 
 	pr_debug("****[pmic_mt_init] Initialization : DONE !!\n");
 

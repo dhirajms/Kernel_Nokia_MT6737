@@ -25,6 +25,7 @@
 #include <linux/io.h>
 #include <linux/uaccess.h>
 #include <asm/memory.h>
+#include <mt-plat/mtk_memcfg.h>
 
 #include "log_store_kernel.h"
 
@@ -39,6 +40,7 @@ static bool early_log_disable;
 /* set the flag whether store log to emmc in next boot phase in pl */
 void store_log_to_emmc_enable(bool value)
 {
+
 	if (sram_dram_buff == NULL) {
 		pr_err("%s: sram dram buff is NULL.\n", __func__);
 		return;
@@ -147,6 +149,10 @@ static int __init log_store_late_init(void)
 		sram_dram_buff->buf_addr, sram_dram_buff->buf_size);
 
 	pbuff = remap_lowmem(sram_dram_buff->buf_addr, sram_dram_buff->buf_size);
+	MTK_MEMCFG_LOG_AND_PRINTK("[PHY layout]log_store_mem   :   0x%08llx - 0x%08llx (0x%llx)\n",
+			(unsigned long long)sram_dram_buff->buf_addr,
+			(unsigned long long)sram_dram_buff->buf_addr + sram_dram_buff->buf_size - 1,
+			(unsigned long long)sram_dram_buff->buf_size);
 	if (pbuff == NULL) {
 		pr_err("log_store: ioremap failed.\n");
 		dram_log_store_status = BUFF_ERROR;
@@ -190,12 +196,12 @@ static void store_printk_buff(void)
 	buff = log_buf_addr_get();
 	log_buf = virt_to_phys(buff);
 	size = log_buf_len_get();
-	sram_dram_buff->reserve2[0] = (u32)log_buf;
-	sram_dram_buff->reserve2[1] = size;
+	sram_dram_buff->klog_addr = (u32)log_buf;
+	sram_dram_buff->klog_size = size;
 	if (early_log_disable == false)
 		sram_dram_buff->flag |= BUFF_EARLY_PRINTK;
 	pr_notice("log_store printk log buff addr:0x%x, size 0x%x. buff flag 0x%x.\n",
-		sram_dram_buff->reserve2[0], sram_dram_buff->reserve2[1], sram_dram_buff->flag);
+		sram_dram_buff->klog_addr, sram_dram_buff->klog_size, sram_dram_buff->flag);
 }
 
 void disable_early_log(void)

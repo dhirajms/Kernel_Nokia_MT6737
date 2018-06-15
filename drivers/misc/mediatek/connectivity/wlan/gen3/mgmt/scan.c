@@ -186,8 +186,11 @@ VOID scnInit(IN P_ADAPTER_T prAdapter)
 	prScanInfo->fgGScnConfigSet = FALSE;
 	prScanInfo->fgGScnParamSet = FALSE;
 	prScanInfo->prPscnParam = kalMemAlloc(sizeof(CMD_SET_PSCAN_PARAM), VIR_MEM_TYPE);
-	if (prScanInfo->prPscnParam)
-		kalMemZero(prScanInfo->prPscnParam, sizeof(CMD_SET_PSCAN_PARAM));
+	if (!(prScanInfo->prPscnParam)) {
+		DBGLOG(SCN, ERROR, "Alloc memory for CMD_SET_PSCAN_PARAM fail\n");
+		return;
+	}
+	kalMemZero(prScanInfo->prPscnParam, sizeof(CMD_SET_PSCAN_PARAM));
 
 	prScanInfo->eCurrentPSCNState = PSCN_IDLE;
 #endif
@@ -195,9 +198,15 @@ VOID scnInit(IN P_ADAPTER_T prAdapter)
 #if CFG_SUPPORT_GSCN
 	prScanInfo->prGscnFullResult = kalMemAlloc(offsetof(PARAM_WIFI_GSCAN_FULL_RESULT, ie_data)
 			+ CFG_IE_BUFFER_SIZE, VIR_MEM_TYPE);
-	if (prScanInfo->prGscnFullResult)
-		kalMemZero(prScanInfo->prGscnFullResult,
-			offsetof(PARAM_WIFI_GSCAN_FULL_RESULT, ie_data) + CFG_IE_BUFFER_SIZE);
+	if (!(prScanInfo->prGscnFullResult)) {
+#if CFG_SUPPORT_SCN_PSCN
+		kalMemFree(prScanInfo->prPscnParam, VIR_MEM_TYPE, sizeof(CMD_SET_PSCAN_PARAM));
+#endif
+		DBGLOG(SCN, ERROR, "Alloc memory for PARAM_WIFI_GSCAN_FULL_RESULT fail\n");
+		return;
+	}
+	kalMemZero(prScanInfo->prGscnFullResult,
+		offsetof(PARAM_WIFI_GSCAN_FULL_RESULT, ie_data) + CFG_IE_BUFFER_SIZE);
 #endif
 
 	cnmTimerInitTimer(prAdapter,
@@ -531,8 +540,13 @@ VOID scanAddToRoamBssDesc(IN P_ADAPTER_T prAdapter, IN P_BSS_DESC_T prBssDesc)
 			u4RemoveTime = u4RemoveTime / 2;
 		} while (u4RemoveTime > 0);
 
-		COPY_SSID(prRoamBssDesc->aucSSID, prRoamBssDesc->ucSSIDLen,
+		if (prRoamBssDesc)
+			COPY_SSID(prRoamBssDesc->aucSSID, prRoamBssDesc->ucSSIDLen,
 				prBssDesc->aucSSID, prBssDesc->ucSSIDLen);
+		else {
+			DBGLOG(SCN, ERROR, "AllocateRoamBssDesc failed for two days\n");
+			return;
+		}
 	}
 
 	GET_CURRENT_SYSTIME(&prRoamBssDesc->rUpdateTime);
@@ -599,8 +613,10 @@ scanSearchExistingBssDescWithSsid(IN P_ADAPTER_T prAdapter,
 	switch (eBSSType) {
 	case BSS_TYPE_P2P_DEVICE:
 		fgCheckSsid = FALSE;
+		/* This case need to fall through */
 	case BSS_TYPE_INFRASTRUCTURE:
 		scanSearchBssDescOfRoamSsid(prAdapter);
+		/* This case need to fall through */
 	case BSS_TYPE_BOW_DEVICE:
 		{
 			prBssDesc = scanSearchBssDescByBssidAndSsid(prAdapter, aucBSSID, fgCheckSsid, prSsid);
@@ -1918,7 +1934,7 @@ UINT_8 nicChannelNum2Index(IN UINT_8 ucChannelNum)
 	} else
 		ucindex = 0;
 
-		return ucindex;
+	return ucindex;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -2241,7 +2257,7 @@ P_BSS_DESC_T scanSearchBssDescByPolicy(IN P_ADAPTER_T prAdapter, IN UINT_8 ucBss
 				prBssDesc->rUpdateTime,
 				SEC_TO_SYSTIME(u4ScnAdhocBssDescTimeout))) {
 				DBGLOG(SCN, LOUD,
-					"SEARCH: BSS_DESC is not stale: CurrentTime(%zd) and upDatetime (%zd)\n",
+					"SEARCH: BSS_DESC is not stale: CurrentTime(%u) and upDatetime (%u)\n",
 					rCurrentTime, prBssDesc->rUpdateTime);
 				continue;
 			}
@@ -2283,7 +2299,7 @@ P_BSS_DESC_T scanSearchBssDescByPolicy(IN P_ADAPTER_T prAdapter, IN UINT_8 ucBss
 					if (prStaRec->ucJoinFailureCount >= JOIN_MAX_RETRY_FAILURE_COUNT)
 						prStaRec->ucJoinFailureCount = 0;
 					DBGLOG(SCN, INFO,
-					       "SEARCH:Try to join BSS again,Status Code=%d(Curr=%ld/Last Join=%ld)\n",
+					       "SEARCH:Try to join BSS again,Status Code=%u(Curr=%u/Last Join=%u)\n",
 					       prStaRec->u2StatusCode, rCurrentTime, prStaRec->rLastJoinTime);
 				} else {
 					DBGLOG(SCN, INFO,
@@ -2341,7 +2357,7 @@ P_BSS_DESC_T scanSearchBssDescByPolicy(IN P_ADAPTER_T prAdapter, IN UINT_8 ucBss
 				if (CHECK_FOR_TIMEOUT(rCurrentTime, prBssDesc->rUpdateTime,
 						      SEC_TO_SYSTIME(u4ScnAdhocBssDescTimeout))) {
 					DBGLOG(SCN, LOUD,
-					       "SEARCH: Now(%zd) Skip old record of BSS Descriptor(%zd) - BSSID:["
+					       "SEARCH: Now(%u) Skip old record of BSS Descriptor(%u) - BSSID:["
 					       MACSTR "]\n\n",
 					       rCurrentTime,
 					       prBssDesc->rUpdateTime,
@@ -2894,7 +2910,7 @@ VOID scanGetCurrentEssChnlList(P_ADAPTER_T prAdapter)
 		LINK_REMOVE_KNOWN_ENTRY(prCurEssLink, &prBssDesc->rLinkEntryEss);
 	}
 	LINK_FOR_EACH_ENTRY(prBssDesc, prBSSDescList, rLinkEntry, BSS_DESC_T) {
-		if (prBssDesc->ucChannelNum > 216)
+		if (prBssDesc->ucChannelNum > 214)
 			continue;
 		/* Statistic AP num for each channel */
 		if (aucChnlApNum[prBssDesc->ucChannelNum] < 255)
@@ -3064,7 +3080,8 @@ static UINT_16 scanCalculateScoreBySnrRssi(P_BSS_DESC_T prBssDesc)
 		u2Score = 20;
 	else if (cRssi <= HARD_TO_CONNECT_RSSI_THRESOLD)
 		u2Score = 0;
-	u2Score = 8 * ((cRssi + 69)/5) + 28;
+	else
+		u2Score = 8 * ((cRssi + 69)/5) + 28;
 	u2Score *= WEIGHT_IDX_RSSI;
 
 	/* TODO: we don't know the valid value for SNR, so don't take it into account */
@@ -3091,6 +3108,12 @@ static BOOLEAN scanSanityCheckBssDesc(P_ADAPTER_T prAdapter,
 			prBssDesc->eBand, prBssDesc->ucChannelNum);
 		return FALSE;
 	}
+#if CFG_SUPPORT_RN
+	if (prAdapter->prAisBssInfo->fgDisConnReassoc == FALSE)
+#endif
+		if (CHECK_FOR_TIMEOUT(kalGetTimeTick(), prBssDesc->rUpdateTime,
+					SEC_TO_SYSTIME(SCN_BSS_DESC_STALE_SEC)))
+			return FALSE;
 #if CFG_SUPPORT_WAPI
 	if (prAdapter->rWifiVar.rConnSettings.fgWapiMode) {
 		if (!wapiPerformPolicySelection(prAdapter, prBssDesc))
@@ -3192,21 +3215,33 @@ P_BSS_DESC_T scanSearchBssDescByScoreForAis(P_ADAPTER_T prAdapter)
 	DBGLOG(SCN, TRACE, "Max RSSI %d\n", cMaxRssi);
 try_again:
 	LINK_FOR_EACH_ENTRY(prBssDesc, prEssLink, rLinkEntryEss, BSS_DESC_T) {
-		if (prConnSettings->eConnectionPolicy == CONNECT_BY_BSSID &&
-			EQUAL_MAC_ADDR(prBssDesc->aucBSSID, prConnSettings->aucBSSID)) {
+		if (prConnSettings->eConnectionPolicy == CONNECT_BY_BSSID) {
+			if (!EQUAL_MAC_ADDR(prBssDesc->aucBSSID, prConnSettings->aucBSSID))
+				continue;
 			if (!scanSanityCheckBssDesc(prAdapter, prBssDesc, eBand, ucChannel, fgIsFixedChannel))
 				continue;
 			prCandBssDesc = prBssDesc;
 			break;
 		} else if (!fgSearchBlackList) {
 			prBssDesc->prBlack = aisQueryBlackList(prAdapter, prBssDesc);
-			if (prBssDesc->prBlack)
+			if (prBssDesc->prBlack) {
+				if (prBssDesc->prBlack->blackListSource & AIS_BLACK_LIST_FROM_FWK)
+					DBGLOG(SCN, INFO, "%s(%pM) is in FWK blacklist, skip it\n",
+								prBssDesc->aucSSID, prBssDesc->aucBSSID);
 				continue;
+			}
 		} else if (!prBssDesc->prBlack)
 			continue;
-		else
+		else {
+			/* never search FWK blacklist even if we are trying blacklist */
+			if (prBssDesc->prBlack->blackListSource	& AIS_BLACK_LIST_FROM_FWK) {
+				DBGLOG(SCN, INFO, "Although trying blacklist, %s(%pM) is in FWK blacklist, skip it\n",
+							prBssDesc->aucSSID, prBssDesc->aucBSSID);
+				continue;
+			}
 			u2BlackListScore = WEIGHT_IDX_BLACK_LIST *
 				aisCalculateBlackListScore(prAdapter, prBssDesc);
+		}
 
 		cRssi = RCPI_TO_dBm(prBssDesc->ucRCPI);
 		DBGLOG(SCN, TRACE, "cRSSI %d, %pM\n", cRssi, prBssDesc->aucBSSID);
@@ -3247,9 +3282,10 @@ try_again:
 			u2ScoreScanMiss + u2ScoreSnrRssi + u2ScoreStaCnt + u2ScoreSTBC + u2ScoreBand + u2BlackListScore;
 
 		DBGLOG(SCN, INFO,
-			"%pM Score, Total %d: BW[%d], CI[%d], DE[%d], PR[%d], SM[%d], SC[%d], SR[%d], ST[%d], BD[%d]\n",
+			"%pM Score, Total %d: BW[%d], CI[%d], DE[%d], PR[%d], SM[%d], SC[%d], SR[%d,%d], ST[%d], BD[%d]\n",
 			prBssDesc->aucBSSID, u2ScoreTotal, u2ScoreBandwidth, u2ScoreChnlInfo, u2ScoreDeauth,
-			u2ScoreProbeRsp, u2ScoreScanMiss, u2ScoreStaCnt, u2ScoreSnrRssi, u2ScoreSTBC, u2ScoreBand);
+			u2ScoreProbeRsp, u2ScoreScanMiss, u2ScoreStaCnt, u2ScoreSnrRssi,
+			RCPI_TO_dBm(prBssDesc->ucRCPI), u2ScoreSTBC, u2ScoreBand);
 		if (cRssi < HARD_TO_CONNECT_RSSI_THRESOLD) {
 			if (!prCandBssDescForLowRssi) {
 				prCandBssDescForLowRssi = prBssDesc;

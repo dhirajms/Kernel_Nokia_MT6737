@@ -1323,16 +1323,10 @@ TdlsDataFrameSend_DISCOVERY_REQ(ADAPTER_T *prAdapter,
 		break;
 
 	case TDLS_FRM_ACTION_TEARDOWN:
-		if (prStaRec != NULL) {
-			if (prStaRec->flgTdlsIsInitiator == TRUE) {
-				/* we are initiator */
-				pucInitiator = prBssInfo->aucOwnMacAddr;
-				pucResponder = pPeerMac;
-			} else {
-				/* peer is initiator */
-				pucInitiator = pPeerMac;
-				pucResponder = prBssInfo->aucOwnMacAddr;
-			}
+		if (prStaRec->flgTdlsIsInitiator == TRUE) {
+			/* we are initiator */
+			pucInitiator = prBssInfo->aucOwnMacAddr;
+			pucResponder = pPeerMac;
 		} else {
 			/* peer is initiator */
 			pucInitiator = pPeerMac;
@@ -1606,16 +1600,10 @@ TdlsDataFrameSend_DISCOVERY_RSP(ADAPTER_T *prAdapter,
 		break;
 
 	case TDLS_FRM_ACTION_TEARDOWN:
-		if (prStaRec != NULL) {
-			if (prStaRec->flgTdlsIsInitiator == TRUE) {
-				/* we are initiator */
-				pucInitiator = prBssInfo->aucOwnMacAddr;
-				pucResponder = pPeerMac;
-			} else {
-				/* peer is initiator */
-				pucInitiator = pPeerMac;
-				pucResponder = prBssInfo->aucOwnMacAddr;
-			}
+		if (prStaRec->flgTdlsIsInitiator == TRUE) {
+			/* we are initiator */
+			pucInitiator = prBssInfo->aucOwnMacAddr;
+			pucResponder = pPeerMac;
 		} else {
 			/* peer is initiator */
 			pucInitiator = pPeerMac;
@@ -1710,19 +1698,22 @@ TdlsDataFrameSend_DISCOVERY_RSP(ADAPTER_T *prAdapter,
 		LR_TDLS_FME_FIELD_FILL(AppendIeLen);
 	}
 
-	prMsduInfoMgmt->ucPacketType = TX_PACKET_TYPE_MGMT;
-	prMsduInfoMgmt->ucStaRecIndex = prBssInfo->prStaRecOfAP->ucIndex;
-	prMsduInfoMgmt->ucBssIndex = prBssInfo->ucBssIndex;
-	prMsduInfoMgmt->ucMacHeaderLength = WLAN_MAC_MGMT_HEADER_LEN;
-	prMsduInfoMgmt->fgIs802_1x = FALSE;
-	prMsduInfoMgmt->fgIs802_11 = TRUE;
-	prMsduInfoMgmt->u2FrameLength = u4PktLen;
-	prMsduInfoMgmt->ucTxSeqNum = nicIncreaseTxSeqNum(prAdapter);
-	prMsduInfoMgmt->pfTxDoneHandler = NULL;
+	if (ucActionCode == TDLS_FRM_ACTION_DISCOVERY_RSP) {
+		prMsduInfoMgmt->ucPacketType = TX_PACKET_TYPE_MGMT;
+		prMsduInfoMgmt->ucStaRecIndex = prBssInfo->prStaRecOfAP->ucIndex;
+		prMsduInfoMgmt->ucBssIndex = prBssInfo->ucBssIndex;
+		prMsduInfoMgmt->ucMacHeaderLength = WLAN_MAC_MGMT_HEADER_LEN;
+		prMsduInfoMgmt->fgIs802_1x = FALSE;
+		prMsduInfoMgmt->fgIs802_11 = TRUE;
+		prMsduInfoMgmt->u2FrameLength = u4PktLen;
+		prMsduInfoMgmt->ucTxSeqNum = nicIncreaseTxSeqNum(prAdapter);
+		prMsduInfoMgmt->pfTxDoneHandler = NULL;
 
-	/* Send them to HW queue */
-	nicTxEnqueueMsdu(prAdapter, prMsduInfoMgmt);
-
+		/* Send them to HW queue */
+		nicTxEnqueueMsdu(prAdapter, prMsduInfoMgmt);
+	}
+	if (prMsduInfo)
+		kalPacketFree(prGlueInfo, prMsduInfo);
 	return TDLS_STATUS_SUCCESS;
 }
 
@@ -1973,9 +1964,9 @@ VOID TdlsBssExtCapParse(P_STA_RECORD_T prStaRec, P_UINT_8 pucIE)
 	pucIeExtCap = pucIE + 2;
 	pucIeExtCap += 4;	/* shift to the byte we care about */
 
-	if ((*pucIeExtCap) && BIT(38 - 32))
+	if ((*pucIeExtCap) & BIT(38-32))
 		prStaRec->fgTdlsIsProhibited = TRUE;
-	if ((*pucIeExtCap) && BIT(39 - 32))
+	if ((*pucIeExtCap) & BIT(39-32))
 		prStaRec->fgTdlsIsChSwProhibited = TRUE;
 
 }

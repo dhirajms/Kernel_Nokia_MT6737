@@ -167,6 +167,7 @@ struct sdio_modem_port {
 	struct mutex sdio_buf_in_mutex;
 	struct list_head sdio_buf_in_list;
 	unsigned char sdio_buf_in;
+	unsigned char debug_id;
 	unsigned int sdio_buf_in_num;	/*buffer in list num */
 	unsigned int sdio_buf_in_max_num;	/*buffer in list max num */
 	unsigned int sdio_buf_in_size;	/*buffer in size */
@@ -190,6 +191,7 @@ struct sdio_modem_port {
 	int dsr_state;
 	spinlock_t inception_lock;
 	int inception;
+	atomic_t poll_err_reported;
 };
 
 struct sdio_buf_in_packet {
@@ -441,6 +443,8 @@ struct sdio_modem {
 	struct sdio_modem_port *port[SDIO_TTY_NR];
 	struct sdio_modem_ctrl_port *ctrl_port;
 	struct sdio_func *func;
+	atomic_t func_releasing;	/*release func on-going*/
+	atomic_t in_writing;		/*ref count for sdio writing*/
 	struct sdio_msg *msg;
 	unsigned char *trans_buffer;
 	struct cbp_platform_data *cbp_data;

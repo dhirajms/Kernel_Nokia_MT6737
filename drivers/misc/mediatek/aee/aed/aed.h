@@ -21,10 +21,10 @@
 #include <linux/kallsyms.h>
 #include <linux/ptrace.h>
 
-#define LOGD(fmt, msg...)	pr_notice(fmt, ##msg)
-#define LOGV(fmt, msg...)
+#define LOGD(fmt, msg...)	no_printk(fmt, ##msg)
+#define LOGV(fmt, msg...)    no_printk(fmt, ##msg)
 #define LOGI	LOGD
-#define LOGE(fmt, msg...)	pr_err(fmt, ##msg)
+#define LOGE(fmt, msg...)	no_printk(fmt, ##msg)
 #define LOGW	LOGE
 
 #define IPANIC_MODULE_TAG "KERNEL-PANIC"
@@ -195,8 +195,6 @@ struct proc_dir_entry;
 
 int aed_proc_debug_init(struct proc_dir_entry *aed_proc_dir);
 int aed_proc_debug_done(struct proc_dir_entry *aed_proc_dir);
-
-int aed_get_process_bt(struct aee_process_bt *bt);
 
 void aee_rr_proc_init(struct proc_dir_entry *aed_proc_dir);
 void aee_rr_proc_done(struct proc_dir_entry *aed_proc_dir);

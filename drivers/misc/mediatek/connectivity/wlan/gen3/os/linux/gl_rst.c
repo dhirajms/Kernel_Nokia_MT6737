@@ -238,26 +238,26 @@ BOOLEAN glResetTrigger(P_ADAPTER_T prAdapter)
 			MTK_CHIP_REV,
 			wlanGetEcoVersion(prAdapter));
 		DBGLOG(INIT, ERROR,
-			"FW Ver DEC[%u.%u] HEX[%x.%x], Driver Ver[%u.%u]\n",
+			"FW Ver DEC[%d.%d] HEX[%x.%x], Driver Ver[%d.%d]\n",
 			(prAdapter->rVerInfo.u2FwOwnVersion >> 8),
-			(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
+			(UINT_16)(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
 			(prAdapter->rVerInfo.u2FwOwnVersion >> 8),
-			(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
+			(UINT_16)(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
 			(prAdapter->rVerInfo.u2FwPeerVersion >> 8),
-			(prAdapter->rVerInfo.u2FwPeerVersion & BITS(0, 7)));
+			(UINT_16)(prAdapter->rVerInfo.u2FwPeerVersion & BITS(0, 7)));
 
 		fgResult = TRUE;
 	} else {
 		DBGLOG(INIT, ERROR,
-		"Trigger whole-chip reset! Chip[%04X E%u] FW Ver DEC[%u.%u] HEX[%x.%x], Driver Ver[%u.%u]\n",
+		"Trigger whole-chip reset! Chip[%04X E%d] FW Ver DEC[%d.%d] HEX[%x.%x], Driver Ver[%d.%d]\n",
 			     MTK_CHIP_REV,
 			     wlanGetEcoVersion(prAdapter),
 			     (prAdapter->rVerInfo.u2FwOwnVersion >> 8),
-			     (prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
+			     (UINT_16)(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
 			     (prAdapter->rVerInfo.u2FwOwnVersion >> 8),
-			     (prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
+			     (UINT_16)(prAdapter->rVerInfo.u2FwOwnVersion & BITS(0, 7)),
 			     (prAdapter->rVerInfo.u2FwPeerVersion >> 8),
-			     (prAdapter->rVerInfo.u2FwPeerVersion & BITS(0, 7)));
+			     (UINT_16)(prAdapter->rVerInfo.u2FwPeerVersion & BITS(0, 7)));
 
 		schedule_work(&(wifi_rst.rst_trigger_work));
 	}
@@ -272,6 +272,21 @@ VOID glGetRstReason(ENUM_CHIP_RESET_REASON_TYPE_T eReason)
 {
 	u8ResetTime = sched_clock();
 	eResetReason = eReason;
+}
+
+UINT32 wlanPollingCpupcr(UINT32 u4Times, UINT32 u4Sleep)
+{
+#if defined(MT6631)
+	UINT32 u4Count;
+
+	for (u4Count = 0; u4Count < u4Times; u4Count++) {
+		DBGLOG(INIT, ERROR, "i:%d,cpupcr:%08x\n", u4Count, wmt_plat_read_cpupcr());
+		kalMsleep(u4Sleep);
+	}
+#else
+	DBGLOG_LIMITED(INIT, LOUD, "This chip don't support polling cpupcr\n");
+#endif
+	return 0;
 }
 
 #endif /* CFG_CHIP_RESET_SUPPORT */

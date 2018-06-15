@@ -119,13 +119,7 @@ u16 rtc_spare_reg[][3] = {
 	{RTC_PDN2, 0x1, 7},
 	{RTC_PDN2, 0x1, 15},
 	{RTC_SPAR0, 0x1, 6},
-	{RTC_SPAR0, 0x1, 7},
-	//Begin: jasondz,2015/11/30  sunjie+
-	{RTC_SPAR0, 0x1, 14},//FTM
-	{RTC_SPAR0, 0x1, 15},//META
-	{RTC_SPAR0, 0x1, 12},//Preloader
-    {RTC_SPAR0, 0x1, 11}//RAMTEST
-	//End: jasondz,2015/11/30
+	{RTC_SPAR0, 0x1, 7}
 };
 
 void hal_rtc_set_abb_32k(u16 enable)

@@ -184,7 +184,6 @@ void Panel_Master_DDIC_config(void)
 
 	}
 	mutex_unlock(&fb_config_lock);
-
 }
 
 /*static void print_from_head_to_tail(void)
@@ -221,6 +220,7 @@ static void free_list_memory(void)
 	else
 		pr_debug("*****list is NOT empty!!\n");
 	mutex_unlock(&fb_config_lock);
+
 }
 
 static int fbconfig_open(struct inode *inode, struct file *file)
@@ -232,11 +232,14 @@ static int fbconfig_open(struct inode *inode, struct file *file)
 	pm_params->pLcm_drv = DISP_GetLcmDrv();
 	pm_params->pLcm_params = DISP_GetLcmPara();
 
-	if (pm_params->pLcm_params->lcm_if == LCM_INTERFACE_DSI_DUAL)
-		pm_params->dsi_id = PM_DSI_DUAL;
-	else if (pm_params->pLcm_params->lcm_if == LCM_INTERFACE_DSI1)
-		pm_params->dsi_id = PM_DSI1;
-	return 0;
+	if (pm_params->pLcm_params) {
+		if (pm_params->pLcm_params->lcm_if == LCM_INTERFACE_DSI_DUAL)
+			pm_params->dsi_id = PM_DSI_DUAL;
+		else if (pm_params->pLcm_params->lcm_if == LCM_INTERFACE_DSI1)
+			pm_params->dsi_id = PM_DSI1;
+		return 0;
+	} else
+		return -EINVAL;
 }
 
 
@@ -523,13 +526,25 @@ static long fbconfig_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	{
 		ESD_PARA esd_para;
 		uint8_t *buffer = NULL;
+		int buffer_size;
 
 		copy_ret_val = copy_from_user(&esd_para, argp, sizeof(esd_para));
 		if (copy_ret_val != 0) {
 			pr_debug("fbconfig=>LCM_GET_ESD copy_from_user failed @line %d\n", __LINE__);
 			return -EFAULT;
 		}
-		buffer = kzalloc(esd_para.para_num + 6, GFP_KERNEL);
+		if (esd_para.para_num <= 0 || esd_para.para_num > 100) {
+			pr_debug("fbconfig=>LCM_GET_ESD para_num:%d < 0\n", esd_para.para_num);
+			return -1;
+		}
+
+		buffer_size = esd_para.para_num + 6;
+		if (buffer_size < 0) {
+			pr_debug("buffer size overflow: buffer_size:%d, para_num:%d\n",
+				buffer_size, esd_para.para_num);
+			return -EINVAL;
+		}
+		buffer = kzalloc(buffer_size, GFP_KERNEL);
 		if (buffer == NULL)
 			return -ENOMEM;
 

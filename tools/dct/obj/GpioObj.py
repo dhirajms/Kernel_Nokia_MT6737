@@ -1,6 +1,17 @@
 #! /usr/bin/python
 # -*- coding: utf-8 -*-
 
+# Copyright (C) 2016 MediaTek Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+
 import re
 import os
 import sys
@@ -15,6 +26,8 @@ from ModuleObj import ModuleObj
 import ChipObj
 from utility.util import compare
 from utility.util import sorted_key
+from utility.util import log
+from utility.util import LogLevel
 
 class GpioObj(ModuleObj):
     def __init__(self):
@@ -24,6 +37,7 @@ class GpioObj(ModuleObj):
         self.__filePinCtrl = 'pinctrl-mtk-%s.h' %(ModuleObj.get_chipId().lower())
         self.__fileScp = 'cust_scp_gpio_usage.h'
         self.__fileMap = 'cust_gpio_usage_mapping.dtsi'
+        self.__drvCur = False
 
     def get_cfgInfo(self):
         cp = ConfigParser.ConfigParser(allow_no_value=True)
@@ -81,6 +95,7 @@ class GpioObj(ModuleObj):
                 var2Node = node.getElementsByTagName('varName2')
                 smtNode = node.getElementsByTagName('smt')
                 iesNode = node.getElementsByTagName('ies')
+                drvCurNode = node.getElementsByTagName('drv_cur')
 
                 num = string.atoi(node.nodeName[4:])
                 if num >= len(ModuleObj.get_data(self)):
@@ -157,6 +172,10 @@ class GpioObj(ModuleObj):
                     if cmp(iesNode[0].childNodes[0].nodeValue, 'true') == 0:
                         flag = True
                     data.set_iesEn(flag)
+
+                if len(drvCurNode) != 0  and len(drvCurNode[0].childNodes) != 0:
+                    self.__drvCur = True
+                    data.set_drvCur(drvCurNode[0].childNodes[0].nodeValue)
 
                 ModuleObj.set_data(self, node.nodeName, data)
 
@@ -342,7 +361,15 @@ class GpioObj(ModuleObj):
             gen_str += '''#define %s_PULL\t\t\tGPIO_PULL_%s\n''' %(key.upper(), pull_sel)
             gen_str += '''#define %s_DATAOUT\t\tGPIO_OUT_%s\n''' %(key.upper(), out_high)
             gen_str += '''#define %s_SMT\t\t\tGPIO_SMT_%s\n''' %(key.upper(), smt_en)
-            gen_str += '''#define %s_IES\t\t\tGPIO_IES_%s\n\n''' %(key.upper(), ies_en)
+            gen_str += '''#define %s_IES\t\t\tGPIO_IES_%s\n''' %(key.upper(), ies_en)
+
+            if self.__drvCur:
+                drv_cur = 'DRV_UNSUPPORTED'
+                if value.get_drvCur() != '':
+                    drv_cur = value.get_drvCur()
+                gen_str += '''#define %s_DRV\t\t\tGPIO_%s\n''' %(key.upper(), drv_cur)
+
+            gen_str += '''\n'''
 
         return gen_str
 
@@ -566,4 +593,51 @@ class GpioObj(ModuleObj):
         gen_str += '''};\n'''
         return gen_str
 
+class GpioObj_whitney(GpioObj):
+    def __init__(self):
+        GpioObj.__init__(self)
+
+    def parse(self, node):
+        log(LogLevel.info, 'GpioObj_whitney parse')
+        GpioObj.parse(self, node)
+
+    def gen_files(self):
+        GpioObj.gen_files(self)
+
+    def gen_spec(self, para):
+        GpioObj.gen_spec(self, para)
+
+    def is_i2cPadPin(self, name):
+        return False
+
+
+class GpioObj_MT6759(GpioObj):
+    def __init__(self):
+        GpioObj.__init__(self)
+
+    def parse(self, node):
+        GpioObj.parse(self, node)
+
+    def gen_files(self):
+        GpioObj.gen_files(self)
+
+    def gen_spec(self, para):
+        GpioObj.gen_spec(self, para)
+
+    def is_i2cPadPin(self, name):
+        return False
+
+    def fill_mapping_dtsiFile(self):
+        gen_str = '''&gpio_usage_mapping {\n'''
+
+        #sorted_list = sorted(ModuleObj.get_data(self).keys(), key = compare)
+        for key in sorted_key(ModuleObj.get_data(self).keys()):
+        #for key in sorted_list:
+            value = ModuleObj.get_data(self)[key]
+            for varName in value.get_varNames():
+                if varName != '' and varName.lower() in GpioData._mapList:
+                    gen_str += '''\t%s = <&pio %s 0>;\n''' %(varName, key[4:])
+
+        gen_str += '''};\n'''
+        return gen_str
 

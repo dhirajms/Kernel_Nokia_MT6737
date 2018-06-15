@@ -111,7 +111,7 @@ typedef struct ion_sys_get_phys_param {
 	unsigned long len;
 } ion_sys_get_phys_param_t;
 
-#define ION_MM_DBG_NAME_LEN 16
+#define ION_MM_DBG_NAME_LEN 48
 #define ION_MM_SF_BUF_INFO_LEN 16
 
 typedef struct __ion_sys_client_name {
@@ -158,6 +158,8 @@ typedef struct ion_mm_config_buffer_param {
 	int eModuleID;
 	unsigned int security;
 	unsigned int coherent;
+	unsigned int reserve_iova_start;
+	unsigned int reserve_iova_end;
 } ion_mm_config_buffer_param_t;
 
 
@@ -186,7 +188,6 @@ typedef struct ion_mm_data {
 	union {
 		ion_mm_config_buffer_param_t config_buffer_param;
 		ion_mm_buf_debug_info_t buf_debug_info_param;
-		ion_mm_sf_buf_info_t sf_buf_info_param;
 	};
 } ion_mm_data_t;
 
@@ -243,7 +244,7 @@ int ion_device_destroy_heaps(struct ion_device *dev);
 
 struct ion_heap *ion_sec_heap_create(struct ion_platform_heap *unused);
 void ion_sec_heap_destroy(struct ion_heap *heap);
-
+void ion_sec_heap_dump_info(void);
 
 #endif
 

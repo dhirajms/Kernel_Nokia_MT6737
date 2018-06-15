@@ -4,10 +4,14 @@
  * Copyright (C) 2014 Richtek Technology Corp.
  * Author: Jeff Chang <jeff_chang@richtek.com>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License version 2 as
+ *  published by the Free Software Foundation.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *  See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
 
 #include <linux/module.h>
@@ -27,7 +31,6 @@
 #include <linux/semaphore.h>
 
 #include <mt-plat/rt-regmap.h>
-#define RT_REGMAP_VERSION	"1.1.12_G"
 
 struct rt_regmap_ops {
 	int (*regmap_block_write)(struct rt_regmap_device *rd, u32 reg,
@@ -1209,7 +1212,6 @@ static void rt_regmap_cache_release(struct rt_regmap_device *rd)
 }
 
 #ifdef CONFIG_DEBUG_FS
-#if 0
 static void rt_check_dump_config_file(struct rt_regmap_device *rd,
 				long int *reg_dump, int *cnt, char *type)
 {
@@ -1245,14 +1247,16 @@ static void rt_check_dump_config_file(struct rt_regmap_device *rd,
 		devm_kfree(&rd->dev, buf);
 	}
 }
-#endif
 
 static void rt_show_regs(struct rt_regmap_device *rd, struct seq_file *seq_file)
 {
-	int i = 0, k = 0, ret, count = 0;
+	int i = 0, k = 0, ret, count = 0, cnt = 0;
 	unsigned char regval[512];
+	long int reg_dump[64] = {0};
 	const rt_register_map_t *rm = rd->props.rm;
+	char type[16];
 
+	rt_check_dump_config_file(rd, reg_dump, &cnt, type);
 	down(&rd->semaphore);
 	for (i = 0; i < rd->props.register_num; i++) {
 		ret = rd->regmap_ops.regmap_block_read(rd, rm[i]->addr,
@@ -1367,7 +1371,11 @@ hiden_read:
 			seq_puts(seq_file, "3 => IO_BLK_CHIP\n");
 		break;
 	case RT_DBG_SLAVE_ADDR:
-		seq_printf(seq_file, "0x%02x\n", rd->slv_addr);
+		{
+			//struct i2c_client *i2c = rd->client;
+
+			seq_printf(seq_file, "0x%02x\n", rd->slv_addr);
+		}
 		break;
 	case RT_SUPPORT_MODE:
 		seq_puts(seq_file, " == BLOCK MODE ==\n");
@@ -1957,6 +1965,13 @@ static int rt_create_simple_map(struct rt_regmap_device *rd)
 	return 0;
 }
 
+/* rt_regmap_device_register
+ * @props: a pointer to rt_regmap_properties for rt_regmap_device
+ * @rops: a pointer to rt_regmap_fops for rt_regmap_device
+ * @parent: a pinter to parent device
+ * @client: a pointer to the slave client of this device
+ * @drvdata: a pointer to the driver data
+ */
 struct rt_regmap_device *rt_regmap_device_register_ex
 			(struct rt_regmap_properties *props,
 			struct rt_regmap_fops *rops,
@@ -2089,8 +2104,8 @@ EXPORT_SYMBOL(rt_regmap_device_unregister);
 
 static int __init regmap_plat_init(void)
 {
-	pr_info("Init Richtek RegMap %s\n", RT_REGMAP_VERSION);
 	rt_regmap_dir = debugfs_create_dir("rt-regmap", 0);
+	pr_info("Init Richtek RegMap\n");
 	if (IS_ERR(rt_regmap_dir)) {
 		pr_err("rt-regmap debugfs node create fail\n");
 		return -EINVAL;

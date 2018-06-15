@@ -66,6 +66,10 @@ static int g_tad_ttj;
 #define NETLINK_TAD 27
 /*=============================================================*/
 
+/*========================*/
+/* Global variables						*/
+/*========================*/
+struct SPA_T thermal_spa_t;
 
 
 
@@ -119,6 +123,29 @@ void atm_ctrl_cmd_from_user(void *nl_data, struct tad_nl_msg_t *ret_msg)
 		{
 			memcpy(&g_tad_ttj, &msg->tad_data[0], sizeof(g_tad_ttj));
 			tsta_dprintk("[atm_ctrl_cmd_from_user] g_tad_ttj = %d\n", g_tad_ttj);
+		}
+		break;
+	case TA_DAEMON_CMD_GET_TI:
+		{
+			/* --- SPA parameters --- */
+
+			thermal_spa_t.t_spa_system_info.cpu_Tj = 0;
+			thermal_spa_t.t_spa_system_info.Tpcb = 0;
+			thermal_spa_t.t_spa_system_info.OPP_power = 0;
+			thermal_spa_t.t_spa_system_info.fg_app_pid = 0;
+			thermal_spa_t.t_spa_system_info.avg_fps = 0;
+			thermal_spa_t.t_spa_system_info.WIFI_UL_Tput = 0;
+			thermal_spa_t.t_spa_system_info.MD_UL_Tput = 0;
+			thermal_spa_t.t_spa_system_info.chg_current_limit = 0;
+			thermal_spa_t.t_spa_system_info.input_current_limit = 0;
+			thermal_spa_t.t_spa_system_info.camera_on = 0;
+			thermal_spa_t.t_spa_system_info.game_mode = 0;
+
+
+			memcpy(ret_msg->tad_data, &thermal_spa_t, sizeof(thermal_spa_t));
+			ret_msg->tad_data_len += sizeof(thermal_spa_t);
+
+			tsta_dprintk("[atm_ctrl_cmd_from_user] ret_msg->tad_data_len %d\n", ret_msg->tad_data_len);
 		}
 		break;
 
@@ -189,18 +216,29 @@ static void ta_nl_data_handler(struct sk_buff *skb)
 	data = NLMSG_DATA(nlh);
 
 	tad_msg = (struct tad_nl_msg_t *)data;
+	if (tad_msg->tad_ret_data_len >= TAD_NL_MSG_MAX_LEN) {
+		tsta_warn("[ta_nl_data_handler] tad_msg->=ad_ret_data_len=%d\n", tad_msg->tad_ret_data_len);
+		return;
+	}
 
 	size = tad_msg->tad_ret_data_len + TAD_NL_MSG_T_HDR_LEN;
 
+
 	/*tad_ret_msg = (struct tad_nl_msg_t *)vmalloc(size);*/
 	tad_ret_msg = vmalloc(size);
-	memset(tad_ret_msg, 0, size);
+	if (tad_ret_msg != NULL) {
+		memset(tad_ret_msg, 0, size);
 
-	atm_ctrl_cmd_from_user(data, tad_ret_msg);
-	ta_nl_send_to_user(pid, seq, tad_ret_msg);
-	tsta_dprintk("[ta_nl_data_handler] send to user space process done\n");
+		atm_ctrl_cmd_from_user(data, tad_ret_msg);
+		ta_nl_send_to_user(pid, seq, tad_ret_msg);
+		tsta_dprintk("[ta_nl_data_handler] send to user space process done\n");
 
-	vfree(tad_ret_msg);
+		vfree(tad_ret_msg);
+
+	} else {
+		tsta_warn("[ta_nl_data_handler] vmalloc fail\n");
+	}
+
 }
 
 int wakeup_ta_algo(int flow_state)
@@ -213,6 +251,9 @@ int wakeup_ta_algo(int flow_state)
 
 		/*tad_msg = (struct tad_nl_msg_t *)vmalloc(size);*/
 		tad_msg = vmalloc(size);
+		if (!tad_msg)
+			return -ENOMEM;
+
 		tsta_dprintk("[wakeup_ta_algo] malloc size=%d\n", size);
 		memset(tad_msg, 0, size);
 		tad_msg->tad_cmd = TA_DAEMON_CMD_NOTIFY_DAEMON;

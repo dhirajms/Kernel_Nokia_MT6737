@@ -15,6 +15,7 @@
 #include "stp_dbg_soc.h"
 #include "btm_core.h"
 #include "stp_core.h"
+#include "mtk_wcn_consys_hw.h"
 
 #define STP_DBG_PAGED_DUMP_BUFFER_SIZE (32*1024*sizeof(char))
 #define STP_DBG_PAGED_TRACE_SIZE (2048*sizeof(char))
@@ -56,27 +57,6 @@ static _osal_inline_ INT32 stp_dbg_soc_paged_dump(INT32 dump_sink);
 static _osal_inline_ INT32 stp_dbg_soc_paged_trace(VOID);
 static _osal_inline_ INT32 stp_dbg_soc_put_emi_dump_to_nl(PUINT8 data_buf, INT32 dump_len);
 static _osal_inline_ VOID stp_dbg_soc_emi_dump_buffer(UINT8 *buffer, UINT32 len);
-
-INT32 __weak wmt_plat_get_dump_info(UINT32 offset)
-{
-	STP_DBG_ERR_FUNC("wmt_plat_get_dump_info is not define!!!\n");
-
-	return 0;
-}
-
-INT32 __weak wmt_plat_set_host_dump_state(ENUM_HOST_DUMP_STATE state)
-{
-	STP_DBG_ERR_FUNC("wmt_plat_set_host_dump_state is not define!!!\n");
-
-	return 0;
-}
-
-INT32 __weak wmt_plat_update_host_sync_num(VOID)
-{
-	STP_DBG_ERR_FUNC("wmt_plat_update_host_sync_num is not define!!!\n");
-
-	return 0;
-}
 
 static _osal_inline_ VOID stp_dbg_soc_emi_dump_buffer(UINT8 *buffer, UINT32 len)
 {
@@ -151,7 +131,7 @@ static _osal_inline_ INT32 stp_dbg_soc_paged_dump(INT32 dump_sink)
 	ENUM_CHIP_DUMP_STATE chip_state;
 	UINT32 dump_phy_addr = 0;
 	PUINT8 dump_vir_addr = NULL;
-	UINT32 dump_len = 0;
+	INT32 dump_len = 0;
 	UINT32 isEnd = 0;
 	P_CONSYS_EMI_ADDR_INFO p_ecsi;
 
@@ -237,23 +217,13 @@ static _osal_inline_ INT32 stp_dbg_soc_paged_dump(INT32 dump_sink)
 		STP_DBG_DBG_FUNC("dump_phy_ddr(%08x),dump_vir_add(0x%p),dump_len(%d)\n",
 				dump_phy_addr, dump_vir_addr, dump_len);
 
+		/* dump_len should not be negative */
+		if (dump_len < 0)
+			dump_len = 0;
+
 		/*move dump info according to dump_addr & dump_len */
 		osal_memcpy_fromio(&g_paged_dump_buffer[0], dump_vir_addr, dump_len);
 		/*stp_dbg_soc_emi_dump_buffer(&g_paged_dump_buffer[0], dump_len);*/
-
-		if (0 == page_counter) {
-			/* do fw assert infor paser in first paged dump */
-			if (1 == stp_dbg_get_host_trigger_assert())
-				issue_type = STP_HOST_TRIGGER_FW_ASSERT;
-
-			ret = stp_dbg_set_fw_info(&g_paged_dump_buffer[0], 512, issue_type);
-			if (ret) {
-				STP_DBG_ERR_FUNC("set fw issue infor fail(%d),maybe fw warm reset...\n",
-						ret);
-				stp_dbg_set_fw_info("Fw Warm reset", osal_strlen("Fw Warm reset"),
-						STP_FW_WARM_RST_ISSUE);
-			}
-		}
 
 		if (dump_len <= 32 * 1024) {
 			pr_err("coredump mode: %d!\n", dump_sink);
@@ -419,8 +389,6 @@ static _osal_inline_ INT32 stp_dbg_soc_paged_trace(VOID)
 				pr_debug("%s", str);
 			}
 		} while (0);
-		/*move parser fw assert infor to paged dump in the one paged dump */
-		/* ret = stp_dbg_set_fw_info(&g_paged_trace_buffer[0], g_paged_trace_len, issue_type); */
 		ret = 0;
 	} while (0);
 	mtk_wcn_stp_ctx_restore();
@@ -451,6 +419,8 @@ PUINT8 stp_dbg_soc_id_to_task(UINT32 id)
 
 	switch (chip_id) {
 	case 0x6797:
+	case 0x6759:
+	case 0x6758:
 		task_id_indx = SOC_TASK_ID_GEN3;
 		if (id >= SOC_GEN3_TASK_ID_MAX)
 			task_id_flag = SOC_GEN3_TASK_ID_MAX;
@@ -472,21 +442,21 @@ PUINT8 stp_dbg_soc_id_to_task(UINT32 id)
 UINT32 stp_dbg_soc_read_debug_crs(ENUM_CONNSYS_DEBUG_CR cr)
 {
 #define CONSYS_REG_READ(addr) (*((volatile UINT32 *)(addr)))
-	UINT8 *consys_dbg_cr_base = NULL;
-
-	consys_dbg_cr_base = ioremap_nocache(CONSYS_DBG_CR_BASE, 0x500);
-	switch (cr) {
-	case CONNSYS_CPU_CLK:
-		return CONSYS_REG_READ(consys_dbg_cr_base + CONSYS_CPU_CLK_STATUS_OFFSET);
-	case CONNSYS_BUS_CLK:
-		return CONSYS_REG_READ(consys_dbg_cr_base + CONSYS_BUS_CLK_STATUS_OFFSET);
-	case CONNSYS_DEBUG_CR1:
-		return CONSYS_REG_READ(consys_dbg_cr_base + CONSYS_DBG_CR1_OFFSET);
-	case CONNSYS_DEBUG_CR2:
-		return CONSYS_REG_READ(consys_dbg_cr_base + CONSYS_DBG_CR2_OFFSET);
-	case CONNSYS_DEBUG_CR3:
-		return CONSYS_REG_READ(consys_dbg_cr_base + CONSYS_DBG_CR3_OFFSET);
-	default:
-		return 0;
+#ifdef CONFIG_OF		/*use DT */
+	if (conn_reg.mcu_base) {
+		switch (cr) {
+		case CONNSYS_CPU_CLK:
+			return CONSYS_REG_READ(conn_reg.mcu_base + CONSYS_CPU_CLK_STATUS_OFFSET);
+		case CONNSYS_BUS_CLK:
+			return CONSYS_REG_READ(conn_reg.mcu_base + CONSYS_BUS_CLK_STATUS_OFFSET);
+		case CONNSYS_DEBUG_CR1:
+			return CONSYS_REG_READ(conn_reg.mcu_base + CONSYS_DBG_CR1_OFFSET);
+		case CONNSYS_DEBUG_CR2:
+			return CONSYS_REG_READ(conn_reg.mcu_base + CONSYS_DBG_CR2_OFFSET);
+		default:
+			return 0;
+		}
 	}
+#endif
+	return -1;
 }

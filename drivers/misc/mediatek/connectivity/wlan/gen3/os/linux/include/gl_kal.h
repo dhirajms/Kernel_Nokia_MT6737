@@ -365,6 +365,7 @@ struct KAL_HALT_CTRL_T {
 /* Macros of getting current thread id                                        */
 /*----------------------------------------------------------------------------*/
 #define KAL_GET_CURRENT_THREAD_ID() (current->pid)
+#define KAL_GET_CURRENT_THREAD_NAME() (current->comm)
 
 /*----------------------------------------------------------------------------*/
 /* Macros of SPIN LOCK operations for using in Driver Layer                   */
@@ -512,6 +513,7 @@ struct KAL_HALT_CTRL_T {
 
 #define kalMdelay(u4MSec)                           mdelay(u4MSec)
 #define kalMsleep(u4MSec)                           msleep(u4MSec)
+#define kalUsleep_range(u4MinUSec, u4MaxUSec)       usleep_range(u4MinUSec, u4MaxUSec)
 
 /* Copy memory from user space to kernel space */
 #define kalMemCopyFromUser(_pvTo, _pvFrom, _u4N)    copy_from_user(_pvTo, _pvFrom, _u4N)
@@ -627,6 +629,10 @@ struct KAL_HALT_CTRL_T {
 
 #define WLAN_TAG                                    "[wlan]"
 #define kalPrint(_Fmt...)                           pr_debug(WLAN_TAG _Fmt)
+/* pr_info_ratelimited usage: max 10 lines logs are printed per 5 seconds,
+ * the others are dropped if exceed the rate limit and print "xxx callbacks suppressed" for tips
+ */
+#define kalPrintLimited(_Fmt...)                    pr_info_ratelimited(WLAN_TAG _Fmt)
 
 #define kalBreakPoint() \
 do { \
@@ -925,8 +931,6 @@ kalGetChannelList(IN P_GLUE_INFO_T prGlueInfo,
 		  IN ENUM_BAND_T eSpecificBand,
 		  IN UINT_8 ucMaxChannelNum, IN PUINT_8 pucNumOfChannel, IN P_RF_CHANNEL_INFO_T paucChannelList);
 
-BOOL kalIsAPmode(IN P_GLUE_INFO_T prGlueInfo);
-
 #if CFG_SUPPORT_802_11W
 /*----------------------------------------------------------------------------*/
 /* 802.11W                                                                    */
@@ -934,7 +938,7 @@ BOOL kalIsAPmode(IN P_GLUE_INFO_T prGlueInfo);
 UINT_32 kalGetMfpSetting(IN P_GLUE_INFO_T prGlueInfo);
 #endif
 
-UINT_32 kalWriteToFile(const PUINT_8 pucPath, BOOLEAN fgDoAppend, PUINT_8 pucData, UINT_32 u4Size);
+INT_32 kalWriteToFile(const PUINT_8 pucPath, BOOLEAN fgDoAppend, PUINT_8 pucData, UINT_32 u4Size);
 
 UINT_32 kalCheckPath(const PUINT_8 pucPath);
 
@@ -1053,4 +1057,7 @@ INT_32 kalFbNotifierReg(IN P_GLUE_INFO_T prGlueInfo);
 VOID kalFbNotifierUnReg(VOID);
 
 UINT_8 kalGetEapolKeyType(P_NATIVE_PACKET prPacket);
+
+VOID nicConfigProcSetCamCfgWrite(BOOLEAN enabled);
+
 #endif /* _GL_KAL_H */

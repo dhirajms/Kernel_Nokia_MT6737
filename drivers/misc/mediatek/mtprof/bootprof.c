@@ -21,10 +21,13 @@
 #include <linux/printk.h>
 #include <linux/platform_device.h>
 #include <log_store_kernel.h>
-
-#include "internal.h"
+#ifdef CONFIG_MT_BOOT_TIME_CPU_BOOST
 #include <mt_cpufreq.h>
-
+#endif
+#include "internal.h"
+#ifdef CONFIG_MT_BOOT_TIME_CPU_BOOST
+#include "mt_hotplug_strategy_internal.h"
+#endif
 #define BOOT_STR_SIZE 256
 #define BUF_COUNT 12
 #define LOGS_PER_BUF 80
@@ -45,12 +48,13 @@ static struct log_t *bootprof[BUF_COUNT];
 static unsigned long log_count;
 static DEFINE_MUTEX(bootprof_lock);
 static bool enabled;
-static int bootprof_lk_t, bootprof_pl_t;
+static int bootprof_lk_t, bootprof_pl_t, bootprof_logo_t;
 static u64 timestamp_on, timestamp_off;
 int boot_finish = 0;
 
 module_param_named(pl_t, bootprof_pl_t, int, S_IRUGO | S_IWUSR);
 module_param_named(lk_t, bootprof_lk_t, int, S_IRUGO | S_IWUSR);
+module_param_named(logo_t, bootprof_logo_t, int, S_IRUGO | S_IWUSR);
 
 #define MSG_SIZE 128
 
@@ -101,6 +105,9 @@ void log_boot(char *str)
 out:
 	mutex_unlock(&bootprof_lock);
 }
+#ifdef CONFIG_MICROTRUST_TEE_SUPPORT
+EXPORT_SYMBOL(log_boot);
+#endif
 
 void bootprof_initcall(initcall_t fn, unsigned long long ts)
 {
@@ -161,21 +168,24 @@ void bootprof_pdev_register(unsigned long long ts, struct platform_device *pdev)
 static void bootup_finish(void)
 {
 	initcall_debug = 0;
+
+#ifdef CONFIG_MT_BOOT_TIME_CPU_BOOST
+	hps_ctxt.little_num_base_perf_serv = 1;
+#endif
+
+
 #ifdef CONFIG_MT_PRINTK_UART_CONSOLE
 	mt_disable_uart();
 #endif
 #ifdef CONFIG_MT_SCHED_MON_DEFAULT_ENABLE
 	mt_sched_monitor_switch(1);
 #endif
-	set_logtoomuch_enable(1);
-
-	// Sunyongshan, ALPS03166419
-#ifdef CONFIG_SYSTEM_BOOTUP_CPU_BOOST
+#ifdef CONFIG_MT_BOOT_TIME_CPU_BOOST
 	mt_cpufreq_set_min_freq(MT_CPU_DVFS_LITTLE, 0);
 #endif
+	set_logtoomuch_enable(1);
 }
 
-/* extern void (*set_intact_mode)(void); */
 static void mt_bootprof_switch(int on)
 {
 	mutex_lock(&bootprof_lock);
@@ -238,7 +248,12 @@ static int mt_bootprof_show(struct seq_file *m, void *v)
 
 	if (bootprof_pl_t > 0 && bootprof_lk_t > 0) {
 		SEQ_printf(m, "%10d        : %s\n", bootprof_pl_t, "preloader");
-		SEQ_printf(m, "%10d        : %s\n", bootprof_lk_t, "lk");
+		if (bootprof_logo_t > 0) {
+			SEQ_printf(m, "%10d        : %s (%s: %d)\n",
+			bootprof_lk_t, "lk", "Start->Show logo", bootprof_logo_t);
+		} else {
+			SEQ_printf(m, "%10d        : %s\n", bootprof_lk_t, "lk");
+		}
 		/* SEQ_printf(m, "%10d        : %s\n",
 		 * gpt_boot_time() - bootprof_pl_t - bootprof_lk_t, "lk->Kernel");
 		 */
@@ -294,7 +309,6 @@ static int __init init_boot_prof(void)
 	pe = proc_create("bootprof", 0664, NULL, &mt_bootprof_fops);
 	if (!pe)
 		return -ENOMEM;
-	/* set_intact_mode = NULL; */
 	return 0;
 }
 

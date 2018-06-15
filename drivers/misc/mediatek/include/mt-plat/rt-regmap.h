@@ -15,7 +15,7 @@
 #include <linux/debugfs.h>
 #include <linux/i2c.h>
 
-/* #define RT_REGMAP_VERSION	"1.1.12_G" */
+#define RT_REGMAP_VERSION	"1.1.8_G"
 
 enum rt_access_mode {
 	RT_1BYTE_MODE = 1,
@@ -203,15 +203,6 @@ struct rt_regmap_fops {
 	int (*write_device)(void *client, u32 addr, int leng, const void *src);
 };
 
-//Jason.
-/*
-extern struct rt_regmap_device*
-	rt_regmap_device_register(struct rt_regmap_properties *props,
-				struct rt_regmap_fops *rops,
-				struct device *parent,
-				void *client, void *drvdata);
-*/
-/* with slave address */
 extern struct rt_regmap_device*
 	rt_regmap_device_register_ex(struct rt_regmap_properties *props,
 				struct rt_regmap_fops *rops,

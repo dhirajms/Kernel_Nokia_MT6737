@@ -50,7 +50,6 @@ static int mt8193_ckgen_probe(struct platform_device *pdev);
 static int mt8193_ckgen_suspend(struct platform_device *pdev, pm_message_t state);
 static int mt8193_ckgen_resume(struct platform_device *pdev);
 static int mt8193_ckgen_remove(struct platform_device *pdev);
-static void mt8193_ckgen_shutdown(struct platform_device *pdev);
 
 /******************************************************************************
 Device driver structure
@@ -65,7 +64,6 @@ static const struct of_device_id mt8193ckgen_of_ids[] = {
 static struct platform_driver mt8193_ckgen_driver = {
 	.probe		= mt8193_ckgen_probe,
 	.remove		= mt8193_ckgen_remove,
-	.shutdown	= mt8193_ckgen_shutdown,
 	.suspend	= mt8193_ckgen_suspend,
 	.resume		= mt8193_ckgen_resume,
 	.driver		= {
@@ -83,8 +81,6 @@ static struct cdev *ckgen_cdev;
 static struct pinctrl *pinctrl;
 static struct pinctrl_state *pins_gpio;
 static struct pinctrl_state *pins_dpi;
-
-static int multibridge_exit;
 
 #if MT8193_CKGEN_VFY
 
@@ -442,15 +438,6 @@ static int mt8193_ckgen_probe(struct platform_device *pdev)
 #endif
 	return 0;
 }
-
-static void mt8193_ckgen_shutdown(struct platform_device *pdev)
-{
-	if (!multibridge_exit) {
-		multibridge_exit = 1;
-		mt8193_bus_clk_switch(false);
-	}
-}
-
 
 /******************************************************************************
  * mt8193_ckgen_remove
@@ -936,36 +923,26 @@ void mt8193_bus_clk_switch(bool bus_26m_to_32k)
 	gpio_free(bus_switch_pin);
 }
 
+#if 0
 void mt8193_bus_clk_switch_to_26m(void)
 {
 	u32 u4Tmp = 0;
-	struct device_node *dn;
-	int bus_switch_pin;
-	int ret;
 
-	if (multibridge_exit)
-		return;
-
-	dn = of_find_compatible_node(NULL, NULL, "mediatek,mt8193-ckgen");
-	bus_switch_pin = of_get_named_gpio(dn, "bus_switch_pin", 0);
-	ret = gpio_request(bus_switch_pin, "8193 bus switch pin");
-	if (ret) {
-		pr_err("request gpio fail, ret=%d\n", ret);
-		return;
-	}
+	pr_debug(" mt8193_bus_clk_switch_to_26m()\n");
 
 	/* bus clock switch from 32K to 26M */
-	gpio_set_value(bus_switch_pin, 1);
+
+	mt_set_gpio_out(GPIO_MT8193_BUS_SWITCH_PIN, GPIO_OUT_ONE);
 
 	mdelay(20);
+
 	u4Tmp = CKGEN_READ32(REG_RW_DCXO_ANACFG9);
 	u4Tmp &= (~(DCXO_ANACFG9_BUS_CK_SOURCE_SEL_MASK << DCXO_ANACFG9_BUS_CK_SOURCE_SEL_SHIFT));
-	pr_debug("switch to 26m: u4Tmp=0x%x\n", u4Tmp);
 	CKGEN_WRITE32(REG_RW_DCXO_ANACFG9, u4Tmp);
-	pinctrl_select_state(pinctrl, pins_dpi);
 
-	gpio_free(bus_switch_pin);
+	mt_set_gpio_mode(GPIO_MT8193_BUS_SWITCH_PIN, MT8193_BUS_SWITCH_PIN_DPI_MODE);
 }
+#endif
 
 #if MT8193_DISABLE_DCXO
 

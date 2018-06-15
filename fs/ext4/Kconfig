@@ -64,6 +64,20 @@ config EXT4_FS_SECURITY
 	  If you are not using a security module that requires using
 	  extended attributes for file security labels, say N.
 
+
+config EXT4_FS_XATTR
+	bool "Ext4 FileSys Xattr"
+	depends on EXT4_FS
+	help
+	  Xattr labels support alternative access control models
+	  implemented by security modules like SELinux.  This option
+	  enables an extended attribute handler for file security
+	  labels in the ext4 filesystem.
+
+	  If you are not using a security module that requires using
+	  extended attributes for file security labels, say N.
+
+
 config EXT4_ENCRYPTION
 	tristate "Ext4 Encryption"
 	depends on EXT4_FS

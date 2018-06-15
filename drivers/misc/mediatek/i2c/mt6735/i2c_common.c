@@ -397,14 +397,24 @@ static ssize_t set_config(struct device *dev, struct device_attribute *attr, con
 			}
 			/* log for UT test. */
 			{
+				struct mt_i2c_t *i2c = NULL;
 				struct i2c_adapter *adap = i2c_get_adapter(bus_id);
-				struct mt_i2c_t *i2c = i2c_get_adapdata(adap);
+				if (adap == NULL) {
+					I2CERR("I2C  get adapter failed 0\n");
+					goto err;
+				}
+				i2c = i2c_get_adapdata(adap);
 
 				_i2c_dump_info(i2c);
 			}
 		} else {
+			struct mt_i2c_t *i2c = NULL;
 			struct i2c_adapter *adap = i2c_get_adapter(bus_id);
-			struct mt_i2c_t *i2c = i2c_get_adapdata(adap);
+				if (adap == NULL) {
+					I2CERR("I2C  get adapter failed 1\n");
+					goto err;
+				}
+			i2c = i2c_get_adapdata(adap);
 
 			if (operation == 3) {
 				_i2c_dump_info(i2c);
@@ -484,8 +494,11 @@ static struct platform_device i2c_common_device = {
 
 static int __init xxx_init(void)
 {
+	int ret;
 	I2CLOG("i2c_common device init\n");
-	platform_device_register(&i2c_common_device);
+	ret = platform_device_register(&i2c_common_device);
+	if (ret)
+		return ret;
 	return platform_driver_register(&i2c_common_driver);
 }
 

@@ -61,11 +61,13 @@
 #define AIS_BMC_MIN_TIMEOUT_VALID           TRUE
 
 #define AIS_JOIN_CH_GRANT_THRESHOLD         10
-#define AIS_JOIN_CH_REQUEST_INTERVAL        4000
+#define AIS_JOIN_CH_REQUEST_INTERVAL        2000
 #define AIS_SCN_DONE_TIMEOUT_SEC            30 /* 30 for 2.4G + 5G */	/* 5 */
 
 #define AIS_AUTORN_MIN_INTERVAL				20
 #define AIS_BLACKLIST_TIMEOUT               15 /* seconds */
+
+#define AIS_WAIT_OKC_PMKID_SEC              1000 /* unit: ms */
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -90,6 +92,13 @@ typedef enum _ENUM_AIS_STATE_T {
 	AIS_STATE_COLLECT_ESS_INFO,
 	AIS_STATE_NUM
 } ENUM_AIS_STATE_T;
+
+enum _BLACK_LIST_SOURCE {
+	AIS_BLACK_LIST_FROM_DRIVER = 1,
+	AIS_BLACK_LIST_FROM_FWK = 2,
+
+	AIS_BLACK_LIST_MAX = 1 << 7
+};
 
 /* reconnect level for determining if we should reconnect */
 typedef enum _ENUM_RECONNECT_LEVEL_T {
@@ -154,6 +163,7 @@ struct AIS_BLACKLIST_ITEM {
 	UINT_8 aucSSID[32];
 	OS_SYSTIME rAddTime;
 	UINT_64 u8DisapperTime;
+	UINT_8 blackListSource;
 };
 
 struct AIS_BEACON_TIMEOUT_BSS {
@@ -206,6 +216,7 @@ typedef struct _AIS_FSM_INFO_T {
 #if CFG_SUPPORT_DETECT_SECURITY_MODE_CHANGE
 	TIMER_T rSecModeChangeTimer;
 #endif
+	TIMER_T rWaitOkcPMKTimer;
 
 	UINT_8 ucSeqNumOfReqMsg;
 	UINT_8 ucSeqNumOfChReq;
@@ -324,6 +335,8 @@ VOID aisFsmMergeIBSS(IN P_ADAPTER_T prAdapter, IN P_STA_RECORD_T prStaRec);
 /*----------------------------------------------------------------------------*/
 VOID aisFsmRunEventChGrant(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
 
+VOID aisFsmRunEventChGrantFail(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHdr);
+
 /*----------------------------------------------------------------------------*/
 /* Generating Outgoing Mailbox Message to CNM                                 */
 /*----------------------------------------------------------------------------*/
@@ -427,16 +440,23 @@ enum _ENUM_AIS_STATE_T aisFsmStateSearchAction(IN struct _ADAPTER_T *prAdapter, 
 VOID aisTest(VOID);
 #endif /* CFG_TEST_MGMT_FSM */
 
-struct AIS_BLACKLIST_ITEM *aisAddBlacklist(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc);
-VOID aisRemoveBlackList(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc);
+VOID aisRemoveBlacklistBySource(P_ADAPTER_T prAdapter, enum _BLACK_LIST_SOURCE source);
+struct AIS_BLACKLIST_ITEM *aisAddBlacklist(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc,
+						enum _BLACK_LIST_SOURCE source);
+struct AIS_BLACKLIST_ITEM *aisAddBlacklistByBssid(P_ADAPTER_T prAdapter, UINT_8 aucBSSID[],
+						enum _BLACK_LIST_SOURCE source);
+VOID aisRemoveBlackList(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc, enum _BLACK_LIST_SOURCE source);
 VOID aisRemoveTimeoutBlacklist(P_ADAPTER_T prAdapter);
 struct AIS_BLACKLIST_ITEM *aisQueryBlackList(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc);
+struct AIS_BLACKLIST_ITEM *aisQueryBlackListByBssid(P_ADAPTER_T prAdapter, UINT_8 aucBSSID[]);
 VOID aisRecordBeaconTimeout(P_ADAPTER_T prAdapter, P_BSS_INFO_T prAisBssInfo);
 VOID aisRemoveBeaconTimeoutEntry(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc);
 UINT_16 aisCalculateBlackListScore(P_ADAPTER_T prAdapter, P_BSS_DESC_T prBssDesc);
 VOID aisCollectNeighborAPChannel(P_ADAPTER_T prAdapter,
 				 struct IE_NEIGHBOR_REPORT_T *prNeiRep, UINT_16 u2Length);
 VOID aisRunEventChnlUtilRsp(P_ADAPTER_T prAdapter, P_MSG_HDR_T prMsgHdr);
+
+VOID aisFsmRunEventSetOkcPmk(IN P_ADAPTER_T prAdapter);
 
 /*******************************************************************************
 *                              F U N C T I O N S

@@ -32,7 +32,7 @@
 #define RBAT_PULL_UP_VOLT          1800/*2800 ->1800*/
 
 #define BIF_NTC_R 16000
- 
+
 /* multiple battery profile compile options */
 #define MTK_GET_BATTERY_ID_BY_AUXADC
 #define BATTERY_ID_CHANNEL_NUM 3

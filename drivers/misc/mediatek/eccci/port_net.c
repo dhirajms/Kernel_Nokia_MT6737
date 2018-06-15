@@ -412,7 +412,7 @@ static int port_net_recv_skb(struct ccci_port *port, struct sk_buff *skb)
 
 #ifdef CCCI_SKB_TRACE
 	netif_rx_profile[3] = sched_clock() - netif_time;
-	ccmni_ops.dump_rx_status(port->md_id, ccci_h->channel, netif_rx_profile);
+	ccmni_ops.dump_rx_status(port->md_id, netif_rx_profile);
 #endif
 #ifdef PORT_NET_TRACE
 	rx_cb_time = sched_clock() - rx_cb_time;
@@ -425,25 +425,27 @@ static int port_net_recv_skb(struct ccci_port *port, struct sk_buff *skb)
 
 static void port_net_md_state_notice(struct ccci_port *port, MD_STATE state)
 {
-	int dir = state & 0x10000000;
+	int dir = (state & (1<<31)) >> 31;
 	int qno = (state & 0x00FF0000) >> 16;
+	int is_ack = 0;
 
 	state = state & 0x0000FFFF;
-
+	if (dir == OUT && qno == NET_ACK_TXQ_INDEX(port) && port->txq_index != qno)
+		is_ack = 1;
 	if (port->md_id != MD_SYS3) {
-		if (((state == TX_IRQ) && ((port->flags & PORT_F_RX_FULLED) == 0)) ||
-			((state == TX_FULL) && (port->flags & PORT_F_RX_FULLED)))
+		if (((state == TX_IRQ) &&
+				((!is_ack && ((port->flags & PORT_F_TX_DATA_FULLED) == 0)) ||
+				(is_ack && ((port->flags & PORT_F_TX_ACK_FULLED) == 0)))))
 			return;
 	}
-	ccmni_ops.md_state_callback(port->md_id, GET_CCMNI_IDX(port), state,
-		(dir == OUT && qno == NET_ACK_TXQ_INDEX(port)));
+	ccmni_ops.md_state_callback(port->md_id, GET_CCMNI_IDX(port), state, is_ack);
 
 	switch (state) {
 	case TX_IRQ:
-		port->flags &= ~PORT_F_RX_FULLED;
+		port->flags &= ~(is_ack ? PORT_F_TX_ACK_FULLED : PORT_F_TX_DATA_FULLED);
 		break;
 	case TX_FULL:
-		port->flags |= PORT_F_RX_FULLED;	/* for convenient in traffic log */
+		port->flags |= (is_ack ? PORT_F_TX_ACK_FULLED : PORT_F_TX_DATA_FULLED);
 		break;
 	default:
 		break;

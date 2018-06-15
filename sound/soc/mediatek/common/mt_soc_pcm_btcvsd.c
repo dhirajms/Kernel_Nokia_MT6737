@@ -61,6 +61,15 @@ static kal_uint32 writeToBT_cnt;
 static kal_uint32 readFromBT_cnt;
 
 static bool rx_timeout;
+static bool tx_timeout;
+
+TIME_BUFFER_INFO_T time_buffer_info_rx;
+TIME_BUFFER_INFO_T time_buffer_info_tx;
+kal_uint64 BT_RX_timestamp;
+kal_uint64 BT_TX_timestamp;
+kal_uint64 BT_RX_bufdata_equivalent_time;
+kal_uint64 BT_TX_bufdata_equivalent_time;
+
 
 /*=============================================================================================
 /     BT SCO Internal Function
@@ -258,6 +267,7 @@ int AudDrv_btcvsd_Allocate_Buffer(kal_uint8 isRX)
 		}
 	} else {
 		writeToBT_cnt = 0;
+		tx_timeout = false;
 		BT_CVSD_Mem.u4TXBufferSize = sizeof(BT_SCO_TX_T);
 		if ((BT_CVSD_Mem.pucTXVirtBufAddr == NULL)
 				&& (BT_CVSD_Mem.pucTXPhysBufAddr == 0)) {
@@ -334,7 +344,7 @@ int AudDrv_BTCVSD_IRQ_handler(void)
 {
 	kal_uint32 uPacketType, uPacketNumber, uPacketLength, uBufferCount_TX, uBufferCount_RX, uControl;
 
-	pr_warn("+%s, irq=%d\n", __func__, btcvsd_irq_number);
+	LOGBT("+%s, irq=%d\n", __func__, btcvsd_irq_number);
 
 	if ((btsco.uRXState != BT_SCO_RXSTATE_RUNNING && btsco.uRXState != BT_SCO_RXSTATE_ENDING)
 		&& (btsco.uTXState != BT_SCO_TXSTATE_RUNNING && btsco.uTXState != BT_SCO_TXSTATE_ENDING)
@@ -354,8 +364,12 @@ int AudDrv_BTCVSD_IRQ_handler(void)
 		goto AudDrv_BTCVSD_IRQ_handler_exit;
 	}
 
-	/* ASSERT(uPacketType < BT_SCO_CVSD_MAX); */
-	BUG_ON(uPacketType >= BT_SCO_CVSD_MAX);
+	if (uPacketType >= BT_SCO_CVSD_MAX) {
+		pr_warn("%s(), invalid uPacketType %u, exit\n", __func__, uPacketType);
+		*bt_hw_REG_CONTROL &= ~BT_CVSD_CLEAR;
+		goto AudDrv_BTCVSD_IRQ_handler_exit;
+	}
+
 	uPacketLength = (kal_uint32)btsco_PacketInfo[uPacketType][0];
 	uPacketNumber = (kal_uint32)btsco_PacketInfo[uPacketType][1];
 	uBufferCount_TX = (kal_uint32)btsco_PacketInfo[uPacketType][2];
@@ -437,6 +451,7 @@ int AudDrv_BTCVSD_IRQ_handler(void)
 		}
 
 		if (btsco.pTX) {
+			tx_timeout = false;
 			if (btsco.uTXState == BT_SCO_TXSTATE_RUNNING || btsco.uTXState == BT_SCO_TXSTATE_ENDING) {
 				LOGBT("%s pTX->fUnderflow=%d, iPacket_w=%d, iPacket_r=%d, uBufferCount_TX=%d\n",
 						__func__, btsco.pTX->fUnderflow, btsco.pTX->iPacket_w,
@@ -505,6 +520,7 @@ ssize_t AudDrv_btcvsd_read(char __user *data, size_t count)
 	unsigned long flags;
 	kal_uint64 read_timeout_limit;
 	int max_timeout_trial = 2;
+	unsigned int packet_size = SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE;
 
 	if ((btsco.pRX == NULL) || (btsco.pRX->u4BufferSize == 0)) {
 		pr_debug("AudDrv_btcvsd_read btsco.pRX == NULL || btsco.pRX->u4BufferSize == 0!!!\n");
@@ -523,20 +539,27 @@ ssize_t AudDrv_btcvsd_read(char __user *data, size_t count)
 		u4DataRemained = (btsco.pRX->iPacket_w - btsco.pRX->iPacket_r)
 			* (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE);
 
+		BTSCORX_ReadIdx_tmp = (btsco.pRX->iPacket_r & SCO_RX_PACKET_MASK)
+			* (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE);
+		spin_unlock_irqrestore(&auddrv_btcvsd_rx_lock, flags);
+
+		/* count must be multiple of SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE */
+		if (count % packet_size != 0 ||
+		    u4DataRemained % packet_size != 0) {
+			pr_err("%s(), count %zu or u4DataRemained %lu is not multiple of (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE)\n",
+			       __func__, count, u4DataRemained);
+
+			count -= count % packet_size;
+			u4DataRemained -= u4DataRemained % packet_size;
+		}
+
 		if (count > u4DataRemained)
 			read_size = u4DataRemained;
 		else
 			read_size = count;
 
-		BTSCORX_ReadIdx_tmp = (btsco.pRX->iPacket_r & SCO_RX_PACKET_MASK)
-			* (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE);
-		spin_unlock_irqrestore(&auddrv_btcvsd_rx_lock, flags);
-
-		/* ASSERT(read_size % (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE) == 0); */
-		BUG_ON(!(read_size % (SCO_RX_PLC_SIZE + BTSCO_CVSD_PACKET_VALID_SIZE) == 0));
-
 		LOGBT("AudDrv_btcvsd_read read_size=%zd, BTSCORX_ReadIdx_tmp=%zd\n", read_size, BTSCORX_ReadIdx_tmp);
-		LOGBT("%s finish0, read_count:%zd,read_size:%zd,DataRemained:0x%lx,iPacket_r:0x%x,iPacket_w:0x%x\r\n",
+		LOGBT("%s finish0, read_count:%zd,read_size:%zd,DataRemained:0x%zd,iPacket_r:0x%x,iPacket_w:0x%x\r\n",
 				__func__, read_count, read_size,
 				u4DataRemained, btsco.pRX->iPacket_r, btsco.pRX->iPacket_w);
 		if (BTSCORX_ReadIdx_tmp + read_size < btsco.pRX->u4BufferSize) /* copy once */ {
@@ -602,7 +625,7 @@ ssize_t AudDrv_btcvsd_read(char __user *data, size_t count)
 					((void __user *)(Read_Data_Ptr + size_1),
 					(void *)((kal_uint8 *)btsco.pRX->PacketBuf),
 					size_2)) {
-				LOGBT("%s Fail 3 copy to user Ptr:%p,PacketBuf:%p,ReadIdx_tmp:0x%xz,read_size:%zd",
+				LOGBT("%s Fail 3 copy to user Ptr:%p,PacketBuf:%p,ReadIdx_tmp:0x%zd,read_size:%zd",
 					__func__, Read_Data_Ptr, btsco.pRX->PacketBuf,
 					BTSCORX_ReadIdx_tmp, read_size);
 				if (read_count == 0)
@@ -672,12 +695,24 @@ ssize_t AudDrv_btcvsd_read(char __user *data, size_t count)
 				}
 			} else if (ret == 1) {
 				/* condition is true after timeout */
-				pr_debug("%s(), timeout, condition is true\n", __func__);
+				LOGBT("%s(), timeout, condition is true\n", __func__);
 			} else {
-				pr_debug("%s(), condition is true before timeout\n", __func__);
+				LOGBT("%s(), condition is true before timeout\n", __func__);
 			}
 		}
 	}
+
+    /* Save current timestamp & buffer time in BT_RX_timestamp and BT_RX_bufdata_equivalent_time */
+	BT_RX_timestamp = sched_clock();
+	BT_RX_bufdata_equivalent_time = (btsco.pRX->iPacket_w - btsco.pRX->iPacket_r) * (SCO_RX_PLC_SIZE)
+		* 16 * 1000  / 2 / 64;
+	BT_RX_bufdata_equivalent_time += read_count * SCO_RX_PLC_SIZE * 16 * 1000
+		/ (SCO_RX_PLC_SIZE+BTSCO_CVSD_PACKET_VALID_SIZE) / 2 / 64;
+	BT_RX_bufdata_equivalent_time *= 1000;  /* return equivalent time(us) to data count */
+
+	pr_warn("[JH] BT_RX_timestamp:%llu,BT_RX_bufdata_equivalent_time:%llu, iPacket_w:%d, iPacket_r:%d ",
+		BT_RX_timestamp, BT_RX_bufdata_equivalent_time, btsco.pRX->iPacket_w, btsco.pRX->iPacket_r);
+
 	LOGBT("AudDrv_btcvsd_read read_count = %zd,read_timeout_limit=%llu\n", read_count, read_timeout_limit);
 	return read_count;
 }
@@ -699,6 +734,14 @@ ssize_t AudDrv_btcvsd_write(const char __user *data, size_t count)
 	/* ns */
 	write_timeout_limit = ((kal_uint64)SCO_TX_PACKER_BUF_NUM*SCO_TX_ENCODE_SIZE*16*1000000000)/2/2/64000;
 
+    /* Save current timestamp & buffer time in BT_TX_timestamp and BT_TX_bufdata_equivalent_time */
+	BT_TX_timestamp = sched_clock();
+	BT_TX_bufdata_equivalent_time = (btsco.pTX->iPacket_w - btsco.pTX->iPacket_r) * (SCO_TX_ENCODE_SIZE)
+		* 16 * 1000  / 2 / 64;
+	BT_TX_bufdata_equivalent_time *= 1000; /* return equivalent time(us) to data count */
+	LOGBT("BT_TX_timestamp:%llu,BT_TX_bufdata_equivalent_time:%llu, iPacket_w:%d, iPacket_r:%d ",
+		BT_TX_timestamp, BT_TX_bufdata_equivalent_time, btsco.pTX->iPacket_w, btsco.pTX->iPacket_r);
+
 	while (count) {
 		LOGBT("%s btsco.pTX->iPacket_w=%d, btsco.pTX->iPacket_r=%d\n",
 				__func__, btsco.pTX->iPacket_w, btsco.pTX->iPacket_r);
@@ -708,13 +751,20 @@ ssize_t AudDrv_btcvsd_write(const char __user *data, size_t count)
 		* SCO_TX_ENCODE_SIZE;
 		spin_unlock_irqrestore(&auddrv_btcvsd_tx_lock, flags);
 
+		/* count must be multiple of SCO_TX_ENCODE_SIZE */
+		if (count % SCO_TX_ENCODE_SIZE != 0 ||
+		    copy_size % SCO_TX_ENCODE_SIZE != 0) {
+			pr_err("%s(), count %zu or copy_size %d is not multiple of SCO_TX_ENCODE_SIZE\n",
+			       __func__, count, copy_size);
+
+			count -= count % SCO_TX_ENCODE_SIZE;
+			copy_size -= copy_size % SCO_TX_ENCODE_SIZE;
+		}
+
 		if (count <= (kal_uint32) copy_size)
 			copy_size = count;
 
 		LOGBT("AudDrv_btcvsd_write count=%zd, copy_size=%d\n", count, copy_size);
-
-		/* ASSERT(copy_size % SCO_TX_ENCODE_SIZE == 0); */
-		BUG_ON(!(copy_size % SCO_TX_ENCODE_SIZE == 0));/*copysize must be multiple of SCO_TX_ENCODE_SIZE*/
 
 		if (copy_size != 0) {
 			spin_lock_irqsave(&auddrv_btcvsd_tx_lock, flags);
@@ -754,10 +804,6 @@ ssize_t AudDrv_btcvsd_write(const char __user *data, size_t count)
 				size_1 = btsco.pTX->u4BufferSize - BTSCOTX_WriteIdx;
 				size_2 = copy_size - size_1;
 				LOGBT("%s size_1=%d, size_2=%d\n", __func__, size_1, size_2);
-				/* ASSERT(size_1 % SCO_TX_ENCODE_SIZE == 0); */
-				/* ASSERT(size_2 % SCO_TX_ENCODE_SIZE == 0); */
-				BUG_ON(!(size_1 % SCO_TX_ENCODE_SIZE == 0));
-				BUG_ON(!(size_2 % SCO_TX_ENCODE_SIZE == 0));
 				if (!access_ok(VERIFY_READ, data_w_ptr, size_1)) {
 					pr_debug("%s 1ptr invalid data_w_ptr=%lx, size_1=%d\n",
 							__func__, (unsigned long)data_w_ptr, size_1);
@@ -842,6 +888,7 @@ ssize_t AudDrv_btcvsd_write(const char __user *data, size_t count)
 				       ret,
 				       written_size);
 
+				tx_timeout = true;
 				return written_size;
 			} else if (ret == 0) {
 				/* conidtion is false after timeout */
@@ -851,13 +898,15 @@ ssize_t AudDrv_btcvsd_write(const char __user *data, size_t count)
 					max_timeout_trial,
 					written_size);
 
-				if (max_timeout_trial <= 0)
+				if (max_timeout_trial <= 0) {
+					tx_timeout = true;
 					return written_size;
+				}
 			} else if (ret == 1) {
 				/* condition is true after timeout */
-				pr_debug("%s(), timeout, condition is true\n", __func__);
+				LOGBT("%s(), timeout, condition is true\n", __func__);
 			} else {
-				pr_debug("%s(), condition is true before timeout\n", __func__);
+				LOGBT("%s(), condition is true before timeout\n", __func__);
 			}
 		}
 		/* here need to wait for interrupt handler */
@@ -907,6 +956,16 @@ bool btcvsd_rx_timeout(void)
 void btcvsd_rx_reset_timeout(void)
 {
 	rx_timeout = false;
+}
+
+bool btcvsd_tx_timeout(void)
+{
+	return tx_timeout;
+}
+
+void btcvsd_tx_reset_timeout(void)
+{
+	tx_timeout = false;
 }
 
 unsigned long btcvsd_frame_to_bytes(struct snd_pcm_substream *substream,

@@ -1,3 +1,16 @@
+/*
+ * Copyright (C) 2016 MediaTek Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+ */
+
 #ifndef BUILD_LK
 #include <linux/string.h>
 #include <linux/kernel.h>
@@ -48,6 +61,11 @@ static const unsigned char LCD_MODULE_ID = 0x01; /*  haobing modified 2013.07.11
 #define LCM_DSI_CMD_MODE	1
 #define FRAME_WIDTH		(1080)
 #define FRAME_HEIGHT		(1920)
+
+/* physical width and height in um */
+#define LCM_PHYSICAL_WIDTH_UM		(56000)
+#define LCM_PHYSICAL_HEIGHT_UM		(99500)
+
 
 #define GPIO_65132_EN GPIO_LCD_BIAS_ENP_PIN
 
@@ -447,6 +465,10 @@ static void lcm_get_params(LCM_PARAMS *params)
 
 	params->width  = FRAME_WIDTH;
 	params->height = FRAME_HEIGHT;
+	params->physical_width = LCM_PHYSICAL_WIDTH_UM / 1000;
+	params->physical_height = LCM_PHYSICAL_HEIGHT_UM / 1000;
+	params->physical_width_um = LCM_PHYSICAL_WIDTH_UM;
+	params->physical_height_um = LCM_PHYSICAL_HEIGHT_UM;
 	params->lcm_if = LCM_INTERFACE_DSI_DUAL;
 	params->lcm_cmd_if = LCM_INTERFACE_DSI0;
 	params->virtual_width = ALIGN_TO(FRAME_WIDTH, 32);
@@ -484,7 +506,7 @@ static void lcm_get_params(LCM_PARAMS *params)
 	params->dsi.horizontal_frontporch				= 100;/* >150 */
 	params->dsi.horizontal_active_pixel				= FRAME_WIDTH;
 #if (LCM_DSI_CMD_MODE)
-	params->dsi.PLL_CLOCK = 423; /*this value must be in MTK suggested table */
+	params->dsi.PLL_CLOCK = 210; /*this value must be in MTK suggested table */
 #else
 	params->dsi.PLL_CLOCK = 250;
 #endif
